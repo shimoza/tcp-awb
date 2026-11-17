@@ -22861,8 +22861,330 @@
    "name": "review: secret filename cannot enter record",
    "run": ".venv/bin/pytest tests/test_review.py::test_hardening_secret_filename_cannot_enter_record",
    "status": "passing"
+  },
+  {
+   "id": "DOC-H1",
+   "phase": "T",
+   "name": "doc: encoded traversal and controls never reach getter",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_encoded_traversal_and_controls_never_reach_getter",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H2",
+   "phase": "T",
+   "name": "doc: service rejects malformed requests and project newlines",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_service_rejects_malformed_requests_and_project_newlines",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H3",
+   "phase": "T",
+   "name": "doc: response read errors are private and close response",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_response_read_errors_are_private_and_close_response",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H4",
+   "phase": "T",
+   "name": "doc: getter docerror cannot echo values",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_getter_docerror_cannot_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H5",
+   "phase": "T",
+   "name": "doc: oversized numeric headers fail as docerror and close",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_oversized_numeric_headers_fail_as_docerror_and_close",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H6",
+   "phase": "T",
+   "name": "doc: gzip trailing members and junk are not silently dropped",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_gzip_trailing_members_and_junk_are_not_silently_dropped",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H7",
+   "phase": "T",
+   "name": "doc: malformed links are skipped and valid links survive",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_malformed_links_are_skipped_and_valid_links_survive",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H8",
+   "phase": "T",
+   "name": "doc: link credentials and unsafe help roots are withheld",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_link_credentials_and_unsafe_help_roots_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H9",
+   "phase": "T",
+   "name": "doc: hidden html titles and mismatched end tags stay hidden",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_hidden_html_titles_and_mismatched_end_tags_stay_hidden",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H10",
+   "phase": "T",
+   "name": "doc: host lists refuse links invalid utf8 and oversize",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_lists_refuse_links_invalid_utf8_and_oversize",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H11",
+   "phase": "T",
+   "name": "doc: host lists filter values that are not hosts",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_lists_filter_values_that_are_not_hosts",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H12",
+   "phase": "T",
+   "name": "doc: host list fifo is never read as a stream",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_list_fifo_is_never_read_as_a_stream",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H13",
+   "phase": "T",
+   "name": "doc: host add refuses links and fifos",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_add_refuses_links_and_fifos",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H14",
+   "phase": "T",
+   "name": "doc: host add serializes duplicate checks",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_add_serializes_duplicate_checks",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H15",
+   "phase": "T",
+   "name": "doc: host add preserves a final unterminated row",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_add_preserves_a_final_unterminated_row",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H16",
+   "phase": "T",
+   "name": "doc: host write failure does not echo oserror values",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_write_failure_does_not_echo_oserror_values",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H17",
+   "phase": "T",
+   "name": "doc: unreadable rate ledger fails closed",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_unreadable_rate_ledger_fails_closed",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H18",
+   "phase": "T",
+   "name": "doc: rate ledger links do not reset or supply counts",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_rate_ledger_links_do_not_reset_or_supply_counts",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H19",
+   "phase": "T",
+   "name": "doc: ledger writes do not follow parent links",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_ledger_writes_do_not_follow_parent_links",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H20",
+   "phase": "T",
+   "name": "doc: ledger never records unchecked fields",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_ledger_never_records_unchecked_fields",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H21",
+   "phase": "T",
+   "name": "doc: stream creation and write failure are private and clean",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_stream_creation_and_write_failure_are_private_and_clean",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H22",
+   "phase": "T",
+   "name": "doc: output parent swap cannot escape project",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_output_parent_swap_cannot_escape_project",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H23",
+   "phase": "T",
+   "name": "doc: output file swap cannot overwrite link target",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_output_file_swap_cannot_overwrite_link_target",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H24",
+   "phase": "T",
+   "name": "doc: output refuses special and hardlinked files",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_output_refuses_special_and_hardlinked_files",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H25",
+   "phase": "T",
+   "name": "doc: output is published complete and private",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_output_is_published_complete_and_private",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H26",
+   "phase": "T",
+   "name": "doc: failed publication preserves existing file",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_failed_publication_preserves_existing_file",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H27",
+   "phase": "T",
+   "name": "doc: client rejects malformed answers and private headers",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_client_rejects_malformed_answers_and_private_headers",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H28",
+   "phase": "T",
+   "name": "doc: client request errors never echo values",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_client_request_errors_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H29",
+   "phase": "T",
+   "name": "doc: client missing and linked downloads fail cleanly",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_client_missing_and_linked_downloads_fail_cleanly",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H30",
+   "phase": "T",
+   "name": "doc: private names and secrets are withheld from output",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_private_names_and_secrets_are_withheld_from_output",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H31",
+   "phase": "T",
+   "name": "doc: private service errors and offlist hosts are withheld",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_private_service_errors_and_offlist_hosts_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H32",
+   "phase": "T",
+   "name": "doc: private paths do not reach network or ledger",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_private_paths_do_not_reach_network_or_ledger",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H33",
+   "phase": "T",
+   "name": "doc: service withholds private page text",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_service_withholds_private_page_text",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H34",
+   "phase": "T",
+   "name": "doc: host add withholds private notes",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_host_add_withholds_private_notes",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H35",
+   "phase": "T",
+   "name": "doc: huge help chunk counts are bounded",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_huge_help_chunk_counts_are_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H36",
+   "phase": "T",
+   "name": "doc: pdf process output is bounded before it finishes",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_pdf_process_output_is_bounded_before_it_finishes",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H37",
+   "phase": "T",
+   "name": "doc: control characters in service errors are withheld",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_control_characters_in_service_errors_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H38",
+   "phase": "T",
+   "name": "doc: failed name check withholds values",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_failed_name_check_withholds_values",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H39",
+   "phase": "T",
+   "name": "doc: hosts command withholds registered domains",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_hosts_command_withholds_registered_domains",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H40",
+   "phase": "T",
+   "name": "doc: client temp creation failure is private",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_client_temp_creation_failure_is_private",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H41",
+   "phase": "T",
+   "name": "doc: client rejects invalid pdf page counts",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_client_rejects_invalid_pdf_page_counts",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H42",
+   "phase": "T",
+   "name": "doc: failed http setup closes the connection",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_failed_http_setup_closes_the_connection",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H43",
+   "phase": "T",
+   "name": "doc: multiline service errors cannot forge diagnostics",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_multiline_service_errors_cannot_forge_diagnostics",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H44",
+   "phase": "T",
+   "name": "doc: output filenames cannot forge status lines",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_output_filenames_cannot_forge_status_lines",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H45",
+   "phase": "T",
+   "name": "doc: failed host append rolls back partial row",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_failed_host_append_rolls_back_partial_row",
+   "status": "passing"
+  },
+  {
+   "id": "DOC-H46",
+   "phase": "T",
+   "name": "doc: failed ledger append rolls back partial row",
+   "run": ".venv/bin/pytest tests/test_doc.py::test_review_failed_ledger_append_rolls_back_partial_row",
+   "status": "passing"
   }
  ],
- "total_tests": 3266,
+ "total_tests": 3312,
  "checked": "2026-11-09"
 }

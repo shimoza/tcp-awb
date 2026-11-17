@@ -47,19 +47,23 @@ the request names; the client takes it from the SCOPE.md of the folder it runs i
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import html.parser
 import os
 import re
 import socket
 import ssl
+import stat
 import sys
 import threading
 import time
+import unicodedata
 import zlib
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urldefrag, urljoin, urlsplit
+from urllib.parse import unquote, urldefrag, urljoin, urlsplit
 
 from awb import codes
 
@@ -103,19 +107,100 @@ class DocError(Exception):
     """A fetch that is refused or failed. The message names the rule, never a value of the request or the page."""
 
 
+@contextlib.contextmanager
+def _directory(path: Path, create: bool = False):
+    """Walk without following links and keep operations relative to the opened directory."""
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in Path(os.path.abspath(path)).parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def _regular(directory: int, name: str, flags: int = os.O_RDONLY, mode: int = 0o600):
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, mode, dir_fd=directory)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError("unsafe file")
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read_file(path: Path, cap: int) -> str:
+    with _directory(path.parent) as directory, _regular(directory, path.name) as fd:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        with os.fdopen(os.dup(fd), "rb") as stream:
+            data = stream.read(cap + 1)
+        if len(data) > cap:
+            raise OSError("file too large")
+        return data.decode("utf-8")
+
+
+def _append(fd: int, data: bytes) -> None:
+    """Called under an exclusive lock; a failed append must not leave half a row."""
+    before = os.lseek(fd, 0, os.SEEK_END)
+    try:
+        while data:
+            count = os.write(fd, data)
+            if count <= 0:
+                raise OSError("short write")
+            data = data[count:]
+    except OSError:
+        os.ftruncate(fd, before)
+        raise
+
+
+def _public(text: str, fallback: str) -> str:
+    """Withhold private output and checker failures, with an unconfigured development fallback."""
+    from awb import check, config
+
+    try:
+        text.encode("utf-8")
+        if any(unicodedata.category(c).startswith("C") and c not in "\n\t" for c in text) \
+                or check._secret_classes(text):
+            return fallback
+        register = config.paths().register
+        try:
+            hits = check.check_text(text, register)
+        except check.CheckUnavailable:
+            if config.is_work_user():
+                return fallback
+            try:
+                register.parent.stat()
+            except FileNotFoundError:
+                hits = []
+            else:
+                return fallback
+        return fallback if any(hit.get("cls") == "name" for hit in hits) else text
+    except Exception:
+        return fallback
+
+
 # --------------------------------------------------------------------------- the checks (both sides)
 
 
 def allowed_hosts(path: Path | None = None) -> list[str]:
     """The lines of rules/allow-domains.txt, read at each call so a change of the rules needs no restart."""
     try:
-        text = Path(path or HOSTS_FILE).read_text(encoding="utf-8")
-    except OSError:
+        text = _read_file(Path(path or HOSTS_FILE), 1024 * 1024)
+    except (OSError, UnicodeError):
         return []
     out = []
     for line in text.splitlines():
         line = line.strip().lower()
-        if line and not line.startswith("#") and line not in out:
+        if _HOST_RE.fullmatch(line) and line not in out:
             out.append(line)
     return out
 
@@ -136,13 +221,13 @@ def extra_hosts(path: Path | None = None) -> list[str]:
     """The hosts of the owner-side file, read at each call: a line is `HOST` or `HOST  # why`."""
     try:
         f = path or extra_file()
-        text = f.read_text(encoding="utf-8") if f else ""
+        text = _read_file(Path(f), 1024 * 1024) if f else ""
     except (OSError, UnicodeDecodeError):
         return []
     out = []
     for line in text.splitlines():
         line = line.split("#", 1)[0].strip().lower()
-        if line and line not in out:
+        if _HOST_RE.fullmatch(line) and line not in out:
             out.append(line)
     return out
 
@@ -183,6 +268,16 @@ def check_url(url, hosts: list[str] | None = None) -> tuple[str, str]:
     if not _PATH_RE.match(path) or _BAD_PERCENT_RE.search(path) or ".." in path.split("/") \
             or "%2e%2e" in path.lower():
         raise DocError("refused: the path has a character that is not URL-safe")
+    decoded = path
+    while True:
+        if ".." in decoded.split("/") or "\\" in decoded or any(ord(c) < 32 or ord(c) == 127 for c in decoded):
+            raise DocError("refused: the path has a character that is not URL-safe")
+        next_path = unquote(decoded)
+        if next_path == decoded:
+            break
+        decoded = next_path
+    if not _public(url, ""):
+        raise DocError("refused: private URL withheld")
     return host, path
 
 
@@ -201,7 +296,7 @@ class _Text(html.parser.HTMLParser):
         super().__init__(convert_charrefs=True)
         self.out: list[str] = []
         self.line: list[str] = []
-        self.skip = 0
+        self.skip: list[str] = []
         self.pre = 0
         self.lists: list[list] = []
         self.row: list[str] | None = None
@@ -220,12 +315,12 @@ class _Text(html.parser.HTMLParser):
             self.out.append("")
 
     def handle_starttag(self, tag, attrs):
-        if tag == "title" and not self.titled:
+        if tag == "title" and not self.titled and (not self.skip or self.skip == ["head"]):
             self.title = []
             return
         if self.skip or tag in self.SKIP:
             if tag in self.SKIP and tag not in self.VOID:
-                self.skip += 1
+                self.skip.append(tag)
             return
         if self.pre:
             return
@@ -269,8 +364,8 @@ class _Text(html.parser.HTMLParser):
             self.title = None
             return
         if self.skip:
-            if tag in self.SKIP:
-                self.skip -= 1
+            if tag == self.skip[-1]:
+                self.skip.pop()
             return
         if self.pre:
             if tag == "pre":
@@ -307,6 +402,11 @@ class _Text(html.parser.HTMLParser):
         if self.skip:
             return
         self._data(data)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in self.VOID:
+            self.handle_endtag(tag)
 
     def _data(self, data):
         if self.cell is not None:
@@ -368,8 +468,15 @@ def page_links(page: str, base: str, hosts: list[str]) -> tuple[list[str], str |
     p.close()
     seen, lines = set(), []
     for href, text in p.links:
-        url = urldefrag(urljoin(base, href.strip()))[0]
-        parts = urlsplit(url)
+        try:
+            if any(ord(c) < 32 for c in href):
+                continue
+            url = urldefrag(urljoin(base, href.strip()))[0]
+            parts = urlsplit(url)
+            if parts.username is not None or parts.password is not None or not _public(url, ""):
+                continue
+        except ValueError:
+            continue
         if parts.scheme not in ("http", "https") or not parts.hostname or url in seen or url == base:
             continue
         seen.add(url)
@@ -377,7 +484,13 @@ def page_links(page: str, base: str, hosts: list[str]) -> tuple[list[str], str |
         lines.append("- %s: %s%s" % (text or "(no text)", url, mark))
         if len(lines) == MAX_LINKS:
             break
-    root = urljoin(base, p.help_root) if p.help_root is not None else None
+    root = None
+    if p.help_root is not None:
+        try:
+            root = urljoin(base, p.help_root)
+            check_url(root, hosts)
+        except (ValueError, DocError):
+            root = None
     return lines, root
 
 
@@ -402,11 +515,16 @@ def https_get(host: str, path: str, timeout: float = TIMEOUT):
     import http.client
 
     conn = http.client.HTTPSConnection(host, 443, timeout=timeout, context=ssl.create_default_context())
-    conn.request("GET", path, headers={"User-Agent": USER_AGENT, "Accept": "text/html, text/markdown, text/plain, "
-                                       "application/json;q=0.9, application/pdf;q=0.8, */*;q=0.1",
-                                       "Accept-Encoding": "identity",
-                                       "Connection": "close"})
-    resp = conn.getresponse()
+    try:
+        conn.request("GET", path, headers={"User-Agent": USER_AGENT, "Accept": "text/html, text/markdown, text/plain, "
+                                           "application/json;q=0.9, application/pdf;q=0.8, */*;q=0.1",
+                                           "Accept-Encoding": "identity",
+                                           "Connection": "close"})
+        resp = conn.getresponse()
+    except Exception:
+        with contextlib.suppress(Exception):
+            conn.close()
+        raise
     return resp.status, {k.lower(): v for k, v in resp.getheaders()}, resp
 
 
@@ -452,10 +570,12 @@ def _ledger_count(folder, project: str, today: str) -> int:
     if folder is None:
         return 0
     try:
-        with open(_ledger_path(folder), encoding="utf-8") as fh:
-            rows = [line.rstrip("\n").split("\t") for line in fh if line.startswith(today)]
-    except OSError:
+        text = _read_file(_ledger_path(folder), 64 * 1024 * 1024)
+        rows = [line.split("\t") for line in text.splitlines() if line.startswith(today)]
+    except FileNotFoundError:
         return 0
+    except (OSError, UnicodeError):
+        raise DocError("refused: the documentation rate ledger cannot be read") from None
     # a line of a fetch that went out: its host is known and the rate did not stop it
     return sum(1 for r in rows if len(r) == 6 and r[1] == project and r[2] != "-" and r[5] != "rate")
 
@@ -466,12 +586,18 @@ def ledger_line(folder, project: str, host: str, path: str, size, status: str) -
         return
     try:
         folder = Path(folder)
-        folder.mkdir(parents=True, exist_ok=True)
-        fd = os.open(_ledger_path(folder), os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        project = project if isinstance(project, str) and _PROJECT_RE.fullmatch(project) else "-"
+        try:
+            check_url("https://%s%s" % (host, path), [host])
+        except DocError:
+            host, path = "-", "-"
+        status = status if re.fullmatch(r"[1-5][0-9]{2}|refused|failed|rate", str(status)) else "failed"
         fields = (datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), project, host or "-", path or "-",
                   size if isinstance(size, int) else "-", status)
-        with os.fdopen(fd, "a", encoding="utf-8") as fh:
-            fh.write("\t".join(re.sub(r"[\t\r\n]+", " ", str(x)) for x in fields) + "\n")
+        with _directory(folder, create=True) as directory, _regular(
+                directory, _ledger_path(folder).name, os.O_WRONLY | os.O_CREAT | os.O_APPEND) as fd:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            _append(fd, ("\t".join(str(x) for x in fields) + "\n").encode("utf-8"))
     except OSError:
         pass
 
@@ -497,9 +623,43 @@ def _gunzip_capped(data: bytes, cap: int) -> bytes:
         raise DocError("refused: an encoded body that is not valid gzip") from None
     if len(out) > cap:
         raise DocError("refused: the page is larger than %d MB" % (cap // (1024 * 1024)))
-    if not unpack.eof:
+    if not unpack.eof or unpack.unused_data:
         raise DocError("refused: an encoded body that is not valid gzip")
     return out
+
+
+def _pdf_run(cmd, *, timeout, **kwargs):
+    """Drain both pipes under byte limits, killing and reaping the reader on every failure."""
+    import selectors
+    import subprocess
+
+    with subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
+        end = time.monotonic() + timeout
+        output, errors = bytearray(), bytearray()
+        try:
+            with selectors.DefaultSelector() as selector:
+                for stream, buffer, limit in ((proc.stdout, output, PDF_TEXT_MAX), (proc.stderr, errors, 65536)):
+                    os.set_blocking(stream.fileno(), False)
+                    selector.register(stream, selectors.EVENT_READ, (buffer, limit))
+                while selector.get_map():
+                    left = end - time.monotonic()
+                    if left <= 0:
+                        raise subprocess.TimeoutExpired(cmd, timeout)
+                    for key, _ in selector.select(left):
+                        buffer, limit = key.data
+                        data = os.read(key.fd, min(65536, limit + 1 - len(buffer)))
+                        if not data:
+                            selector.unregister(key.fileobj)
+                            continue
+                        buffer.extend(data)
+                        if len(buffer) > limit:
+                            raise DocError("refused: the PDF reader output is larger than its limit")
+            proc.wait(timeout=max(0, end - time.monotonic()))
+            return subprocess.CompletedProcess(cmd, proc.returncode, bytes(output), bytes(errors))
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
 
 
 def pdf_text(data: bytes, *, runner=None, tool: str = PDFTOTEXT, timeout: float = PDF_TIMEOUT) -> tuple[str, int]:
@@ -510,7 +670,7 @@ def pdf_text(data: bytes, *, runner=None, tool: str = PDFTOTEXT, timeout: float 
     import subprocess
     import tempfile
 
-    run = runner or subprocess.run
+    run = runner or _pdf_run
     with tempfile.TemporaryDirectory(prefix="awb-doc-pdf-") as folder:
         os.chmod(folder, 0o700)
         name = os.path.join(folder, "page.pdf")
@@ -553,12 +713,8 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
     for hop in range(MAX_REDIRECTS + 1):
         try:
             status, headers, resp = getter(host, path)
-        except DocError:
-            raise
-        except (OSError, socket.timeout, ssl.SSLError, ValueError) as err:
-            raise _at(DocError("failed: no answer from the host (%s)" % type(err).__name__), host, path) from None
-        except Exception as err:   # http.client raises its own classes
-            raise _at(DocError("failed: no answer from the host (%s)" % type(err).__name__), host, path) from None
+        except Exception:   # A getter's exceptions can contain request or remote values, including DocError.
+            raise _at(DocError("failed: no answer from the host"), host, path) from None
         try:
             if status in REDIRECTS:
                 if hop == MAX_REDIRECTS:
@@ -587,7 +743,7 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
                 raise DocError("refused: an encoded body (the reader asks for identity)")
             limit = pdf_cap if kind in ("pdf", "octet") else cap
             length = headers.get("content-length")
-            if length is not None and (not length.strip().isdigit() or int(length) > limit):
+            if length is not None and (not re.fullmatch(r"[0-9]{1,20}", length.strip()) or int(length) > limit):
                 raise DocError("refused: the page is larger than %d MB" % (limit // (1024 * 1024)))
             body = _read_capped(resp, limit)
             if encoding == "gzip":
@@ -619,6 +775,8 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
                     "text": _plain(text), "pages": None, "help_root": root}
         except DocError as err:
             raise _at(err, host, path) from None
+        except Exception:
+            raise _at(DocError("failed: the documentation response cannot be read"), host, path) from None
         finally:
             try:
                 resp.close()
@@ -657,7 +815,7 @@ def find(url: str, words: str, *, fetcher) -> dict:
     if not (n and prefix):
         raise DocError("failed: the table of contents has no chunk list")
     found, seen = [], set()
-    for k in range(min(int(n.group(1)), MAX_CHUNKS)):
+    for k in range(min(int(n.group(1).lstrip("0")[:8] or "0"), MAX_CHUNKS)):
         chunk = fetcher(urljoin(toc_url, "%s%d.js" % (prefix.group(1), k)), index=True)["text"]
         for e in _ENTRY_RE.finditer(chunk):
             path, title = e.group(1), re.sub(r"\\(.)", r"\1", e.group(2)).strip()
@@ -682,8 +840,10 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
     """The op doc_get of the key service. Returns (answer, file of the text to stream) or (answer, None)."""
     import tempfile
 
+    if not isinstance(req, dict) or type(req.get("links", False)) is not bool:
+        return {"ok": False, "error": "refused: invalid documentation request"}, None
     url = req.get("url")
-    if not (isinstance(project, str) and _PROJECT_RE.match(project)):
+    if not (isinstance(project, str) and _PROJECT_RE.fullmatch(project)):
         return {"ok": False, "error": "refused: a fetch runs for an active project (SCOPE.md of the folder)"}, None
     hosts = current_hosts() if hosts is None else hosts
     try:
@@ -691,7 +851,10 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
     except DocError as err:
         ledger_line(ledger_dir, project, "-", "-", None, "refused")
         return {"ok": False, "error": str(err)}, None
-    stop = limiter.take(project)
+    try:
+        stop = limiter.take(project)
+    except DocError as err:
+        return {"ok": False, "error": str(err)}, None
     if stop:
         ledger_line(ledger_dir, project, host, path, None, "rate")
         return {"ok": False, "error": stop}, None
@@ -722,10 +885,20 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
             page = one(url, links=bool(req.get("links")))
     except DocError as err:
         return {"ok": False, "error": str(err)}, None
-    data = page["text"].encode("utf-8")
-    fd, name = tempfile.mkstemp(prefix="awb-doc-", dir=tmp_dir)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(data)
+    text = _public(page["text"], "")
+    if text != page["text"]:
+        return {"ok": False, "error": "refused: private documentation text withheld"}, None
+    data = text.encode("utf-8")
+    name = None
+    try:
+        fd, name = tempfile.mkstemp(prefix="awb-doc-", dir=tmp_dir)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+    except OSError:
+        if name is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(name)
+        return {"ok": False, "error": "failed: the documentation stream cannot be written"}, None
     fetched = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return {"ok": True, "url": page["url"], "kind": page["kind"], "size": page["size"], "fetched": fetched,
             "pages": page.get("pages")}, Path(name)
@@ -741,13 +914,16 @@ OFF_LIST = "not on rules/allow-domains.txt"
 
 def _refusal(line: str, url: str) -> str:
     """The one line of a refusal; for a host off the list it names the owner item to leave in OPEN.md."""
+    line = (_public(line, "refused: the key service said no")
+            if isinstance(line, str) and not any(c in line for c in "\n\r\t")
+            else "refused: the key service said no")
     if OFF_LIST not in line:
         return line
     try:
         host = (urlsplit(url).hostname or "").lower()
     except ValueError:
         host = ""
-    host = host if _HOST_RE.match(host) else "HOST"
+    host = _public(host, "HOST") if _HOST_RE.fullmatch(host) else "HOST"
     return "%s; leave one owner item in OPEN.md under the owner heading: %s" % (line, STEERING % host)
 
 
@@ -770,8 +946,8 @@ def _fetch_cmd(args) -> int:
         return 1
     try:
         root, code, _ = xchg._project()
-    except xchg.XchgError as err:
-        print("refused: %s" % err, file=sys.stderr)
+    except (xchg.XchgError, OSError):
+        print("refused: the project cannot be read", file=sys.stderr)
         return 2
     out = None
     if args.out:
@@ -781,8 +957,12 @@ def _fetch_cmd(args) -> int:
         if not (real_parent == real_root or real_root in real_parent.parents) or os.path.islink(out):
             print("refused: --out names a file inside the project folder", file=sys.stderr)
             return 2
-    fd, tmp = tempfile.mkstemp(prefix="awb-doc-")
-    os.close(fd)
+    try:
+        fd, tmp = tempfile.mkstemp(prefix="awb-doc-")
+        os.close(fd)
+    except OSError:
+        print("failed: the documentation stream cannot be created", file=sys.stderr)
+        return 2
     try:
         req = {"op": "doc_get", "url": args.url, "project": code}
         if getattr(args, "links", False):
@@ -792,27 +972,90 @@ def _fetch_cmd(args) -> int:
         try:
             answer = keys.request(keys.call_socket(), req, timeout=TIMEOUT * (MAX_REDIRECTS + 1) + 10,
                                   download=Path(tmp))
-        except keys.KeysError as err:
-            print("failed: %s" % err, file=sys.stderr)
+        except (keys.KeysError, OSError):
+            print("failed: the key service request failed", file=sys.stderr)
+            return 2
+        if not isinstance(answer, dict) or type(answer.get("ok")) is not bool:
+            print("failed: the key service gave an invalid answer", file=sys.stderr)
             return 2
         if not answer.get("ok"):
             print(_refusal(answer.get("error") or "refused: the key service said no", args.url), file=sys.stderr)
             return 1
-        body = Path(tmp).read_text(encoding="utf-8", errors="replace")
+        body = _read_file(Path(tmp), PDF_TEXT_MAX + MAX_BYTES)
+    except (OSError, UnicodeError):
+        print("failed: the documentation stream cannot be read", file=sys.stderr)
+        return 2
     finally:
         try:
             os.unlink(tmp)
         except OSError:
             pass
-    head = header(answer.get("url") or args.url, answer.get("fetched") or "?", answer.get("kind"), answer.get("pages"))
+    source, fetched = answer.get("url") or args.url, answer.get("fetched") or "?"
+    try:
+        check_url(source)
+        if not isinstance(fetched, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC|\?", fetched):
+            raise DocError("invalid date")
+        if answer.get("kind") == "pdf" and (type(answer.get("pages")) is not int or
+                                             not 1 <= answer["pages"] <= 1000000):
+            raise DocError("invalid page count")
+    except DocError:
+        print("failed: the key service gave invalid source metadata", file=sys.stderr)
+        return 2
+    head = header(source, fetched, answer.get("kind"), answer.get("pages"))
     text = head + "\n\n" + body
+    if _public(text, "") != text:
+        print("refused: private documentation text withheld", file=sys.stderr)
+        return 1
     if out is None:
         sys.stdout.write(text)
         return 0
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(text, encoding="utf-8")
-    print("%s: %d characters, %s" % (os.path.relpath(out, root), len(text), head))
+    try:
+        _publish(root, out, text)
+    except OSError:
+        print("failed: the output file cannot be written safely", file=sys.stderr)
+        return 2
+    label = _public(os.path.relpath(out, root), "[file]")
+    if any(c in label for c in "\n\r\t"):
+        label = "[file]"
+    print("%s: %d characters, %s" % (label, len(text), head))
     return 0
+
+
+def _publish(root: Path, out: Path, text: str) -> None:
+    """Publish a complete private file in the project, never following an output link."""
+    import secrets
+
+    # Recheck after the download, then walk from the root using directory descriptors.
+    relative = out.relative_to(Path(os.path.abspath(root)))
+    if ".." in relative.parts:
+        raise OSError("outside project")
+    with _directory(root) as directory:
+        parent = os.dup(directory)
+        tmp = ".awb-doc-" + secrets.token_hex(16)
+        try:
+            for part in relative.parts[:-1]:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=parent)
+                except FileExistsError:
+                    pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                os.close(parent)
+                parent = child
+            try:
+                with _regular(parent, relative.name):
+                    pass
+            except FileNotFoundError:
+                pass
+            with _regular(parent, tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL) as fd:
+                with os.fdopen(os.dup(fd), "w", encoding="utf-8") as stream:
+                    stream.write(text)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            os.replace(tmp, relative.name, src_dir_fd=parent, dst_dir_fd=parent)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp, dir_fd=parent)
+            os.close(parent)
 
 
 def _hosts_cmd(args) -> int:
@@ -827,7 +1070,8 @@ def _hosts_cmd(args) -> int:
     if not hosts and not extra:
         print("no host: rules/allow-domains.txt is empty or missing", file=sys.stderr)
         return 1
-    print("\n".join(hosts + ["%s  (added on the host, not in the repository)" % h for h in extra]))
+    print("\n".join(_public(h, "[host withheld]") for h in
+                    hosts + ["%s  (added on the host, not in the repository)" % h for h in extra]))
     return 0
 
 
@@ -841,7 +1085,9 @@ def check_new_host(host: str, listed: list[str] | None = None) -> str:
 
     from awb import vendorhosts
 
-    text = (host or "").strip().lower()
+    if not isinstance(host, str):
+        raise DocError("refused: the host is not a plain host name")
+    text = host.strip().lower()
     if "://" in text:
         if not text.startswith("https://"):
             raise DocError("refused: https only")
@@ -856,7 +1102,7 @@ def check_new_host(host: str, listed: list[str] | None = None) -> str:
         raise DocError("refused: an address is not a host name")
     if re.fullmatch(r"[0-9.]+", text):
         raise DocError("refused: an address is not a host name")
-    if not _HOST_RE.match(text):
+    if not _HOST_RE.fullmatch(text):
         raise DocError("refused: the host is not a plain host name (no path, port, user info or space)")
     # Every TCP API host ends in .otc.t-systems.com (the probe host of build_probe too); importing build_probe here
     # would tie every service that reads this module to the build runner in the deploy map.
@@ -866,6 +1112,8 @@ def check_new_host(host: str, listed: list[str] | None = None) -> str:
         raise DocError("refused: a portal host of rules/vendor-hosts.txt")
     if text in (current_hosts() if listed is None else listed):
         raise DocError("refused: the host is already on the list")
+    if not _public(text, ""):
+        raise DocError("refused: private host withheld")
     return text
 
 
@@ -904,19 +1152,29 @@ def add_host(host: str, why: str | None = None, *, path: Path | None = None) -> 
     f = path or extra_file()
     if f is None:
         raise DocError("refused: paths.conf has no line %s = /ABSOLUTE/FILE" % EXTRA_KEY)
-    name = check_new_host(host, allowed_hosts() + extra_hosts(f))
+    name = check_new_host(host, allowed_hosts())
+    if why is not None and not isinstance(why, str):
+        raise DocError("refused: --why must be text")
     note = " ".join((why or "").split())
     if len(note) > WHY_MAX or any(ord(c) < 32 or ord(c) > 126 for c in note):
         raise DocError("refused: --why is plain ASCII of at most %d characters" % WHY_MAX)
+    if _public(note, "[withheld]") != note:
+        raise DocError("refused: private host note withheld")
     line = "%s  # %s%s\n" % (name, datetime.now(timezone.utc).strftime("%Y-%m-%d"), " " + note if note else "")
     try:
-        new = not f.exists()
-        with open(f, "a", encoding="utf-8") as fh:
-            fh.write(line)
-        if new:
-            os.chmod(f, 0o644)
-    except OSError as err:
-        raise DocError("refused: the file of %s cannot be written (%s)" % (EXTRA_KEY, err.strerror or "error")) from None
+        f = Path(f)
+        with _directory(f.parent) as directory, _regular(directory, f.name, os.O_RDWR | os.O_CREAT, 0o644) as fd:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            with os.fdopen(os.dup(fd), "rb") as fh:
+                old = fh.read(1024 * 1024 + 1)
+            addition = (("\n" if old and not old.endswith(b"\n") else "") + line).encode("utf-8")
+            if len(old) + len(addition) > 1024 * 1024:
+                raise OSError("file too large")
+            listed = [row.split("#", 1)[0].strip().lower() for row in old.decode("utf-8").splitlines()]
+            check_new_host(host, allowed_hosts() + listed)
+            _append(fd, addition)
+    except (OSError, UnicodeError):
+        raise DocError("refused: the file of %s cannot be written" % EXTRA_KEY) from None
     return name
 
 

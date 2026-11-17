@@ -438,3 +438,586 @@ def test_a_gzip_body_that_unpacks_past_the_cap_or_breaks_off_is_refused():
         doc.fetch("https://example.com/cut", getter=g, hosts=HOSTS)
     with pytest.raises(doc.DocError, match="encoded body"):
         doc.fetch("https://example.com/br", getter=g, hosts=HOSTS)
+
+
+# Review regressions. These use isolated files and in-process stubs, including on a build export.
+
+def _review_answer(monkeypatch, body="public guide\n", action=None, **fields):
+    def request(*args, download, **kwargs):
+        download.write_text(body, encoding="utf-8")
+        if action:
+            action(download)
+        return dict({"ok": True, "url": "https://learn.microsoft.com/x",
+                     "fetched": "2026-11-16 10:00 UTC", "kind": "text"}, **fields)
+    monkeypatch.setattr(keys, "request", request)
+
+
+def _review_fetch(out=None):
+    return doc.main(["fetch", "https://learn.microsoft.com/x"] + (["--out", str(out)] if out else []))
+
+
+def test_review_encoded_traversal_and_controls_never_reach_getter():
+    getter = Getter({})
+    for path in ("/.%2e/x", "/%2e./x", "/a%2f..%2fx", "/%252e%252e/x", "/%00x", "/%0dx", "/a%5cb"):
+        with pytest.raises(doc.DocError, match="not URL-safe"):
+            doc.fetch("https://example.com" + path, getter=getter, hosts=HOSTS)
+    assert getter.asked == []
+
+
+def test_review_service_rejects_malformed_requests_and_project_newlines(tmp_path):
+    getter = Getter({("example.com", "/x"): html_page()})
+    for req, project in (([], PROJECT), ({"url": "https://example.com/x", "links": "yes"}, PROJECT),
+                         ({"url": "https://example.com/x"}, PROJECT + "\n")):
+        answer, stream = doc.serve(req, project, doc.Limiter(lambda: None), None,
+                                   getter=getter, hosts=HOSTS, tmp_dir=tmp_path)
+        if stream:
+            stream.unlink()
+        assert answer["ok"] is False and stream is None
+    assert getter.asked == []
+
+
+def test_review_response_read_errors_are_private_and_close_response():
+    secret = "pass" + "word=never-print-7391"
+    response = Resp(b"")
+    response.read = lambda n: (_ for _ in ()).throw(OSError(secret))
+    with pytest.raises(doc.DocError) as error:
+        doc.fetch("https://example.com/x", hosts=HOSTS,
+                  getter=lambda *a: (200, {"content-type": "text/plain"}, response))
+    assert secret not in str(error.value) and response.closed
+    assert error.value.host == "example.com" and error.value.path == "/x"
+
+
+def test_review_getter_docerror_cannot_echo_values():
+    secret = "pass" + "word=never-print-7391"
+    def getter(*args):
+        raise doc.DocError(secret)
+    with pytest.raises(doc.DocError) as error:
+        doc.fetch("https://example.com/x", getter=getter, hosts=HOSTS)
+    assert secret not in str(error.value)
+
+
+def test_review_oversized_numeric_headers_fail_as_docerror_and_close():
+    response = Resp(b"body")
+    with pytest.raises(doc.DocError):
+        doc.fetch("https://example.com/x", hosts=HOSTS,
+                  getter=lambda *a: (200, {"content-type": "text/plain", "content-length": "9" * 5000}, response))
+    assert response.closed and response.stream.tell() == 0
+
+
+def test_review_gzip_trailing_members_and_junk_are_not_silently_dropped():
+    import gzip
+    for tail in (gzip.compress(b"hidden second member"), b"junk"):
+        with pytest.raises(doc.DocError, match="gzip"):
+            doc._gunzip_capped(gzip.compress(b"first") + tail, 1000)
+
+
+def test_review_malformed_links_are_skipped_and_valid_links_survive():
+    lines, root = doc.page_links('<a href="https://[broken">broken</a><a href="/guide">guide</a>',
+                                 "https://example.com/", HOSTS)
+    assert lines == ["- guide: https://example.com/guide"] and root is None
+
+
+def test_review_link_credentials_and_unsafe_help_roots_are_withheld():
+    secret = "pass" + "word-7391"
+    page = ('<html data-mc-path-to-help-system="https://reader:' + secret + '@example.com/">'
+            '<a href="https://reader:' + secret + '@example.com/guide">guide</a></html>')
+    lines, root = doc.page_links(page, "https://example.com/", HOSTS)
+    assert not lines and root is None
+
+
+def test_review_hidden_html_titles_and_mismatched_end_tags_stay_hidden():
+    secret = "pass" + "word=never-print-7391"
+    for hidden in ("<form><title>" + secret + "</title></form>",
+                   "<form></nav>" + secret + "</form>"):
+        text = doc.html_text(hidden + "<p>visible</p>")
+        assert secret not in text and "visible" in text
+    assert "visible" in doc.html_text("<svg/><p>visible</p>")
+
+
+def test_review_host_lists_refuse_links_invalid_utf8_and_oversize(tmp_path):
+    target = tmp_path / "target"
+    target.write_text("example.com\n")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    for reader in (doc.allowed_hosts, doc.extra_hosts):
+        assert reader(link) == []
+        target.write_bytes(b"\xff")
+        assert reader(target) == []
+        target.write_text("example.com\n" + "x" * (1024 * 1024))
+        assert reader(target) == []
+        target.write_text("example.com\n")
+
+
+def test_review_host_lists_filter_values_that_are_not_hosts(tmp_path):
+    secret = "pass" + "word=never-print-7391"
+    path = tmp_path / "hosts"
+    path.write_text("example.com\n" + secret + "\nhttps://example.com\n*.example.com\n")
+    assert doc.allowed_hosts(path) == doc.extra_hosts(path) == ["example.com"]
+
+
+def test_review_host_list_fifo_is_never_read_as_a_stream(tmp_path, monkeypatch):
+    path = tmp_path / "hosts"
+    os.mkfifo(path)
+    # Fail immediately on the old blocking path, rather than hanging the suite on a FIFO.
+    def unsafe_read(*a, **kw):
+        pytest.fail("host list opened as an unbounded stream")
+    monkeypatch.setattr(Path, "read_text", unsafe_read)
+    assert doc.allowed_hosts(path) == doc.extra_hosts(path) == []
+
+
+def test_review_host_add_refuses_links_and_fifos(tmp_path, monkeypatch):
+    from awb import config
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    target = tmp_path / "target"
+    target.write_text("example.com\n")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    with pytest.raises(doc.DocError):
+        doc.add_host("docs.vendor-q7m4.example", path=link)
+    assert target.read_text() == "example.com\n"
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    fd = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        # Avoid the old reader hanging before it gets to the append.
+        monkeypatch.setattr(doc, "extra_hosts", lambda path=None: [])
+        with pytest.raises(doc.DocError):
+            doc.add_host("docs.vendor-q7m4.example", path=fifo)
+    finally:
+        os.close(fd)
+
+
+def test_review_host_add_serializes_duplicate_checks(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from awb import config
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    path = tmp_path / "hosts"
+    barrier, local = threading.Barrier(2), threading.local()
+    original = doc.check_new_host
+    def checked(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if not getattr(local, "checked", False):
+            local.checked = True
+            barrier.wait(timeout=5)
+        return result
+    monkeypatch.setattr(doc, "check_new_host", checked)
+    def add():
+        try:
+            return doc.add_host("docs.vendor-q7m4.example", path=path)
+        except doc.DocError:
+            return None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: add(), range(2)))
+    assert results.count(None) == 1
+    assert len(path.read_text().splitlines()) == 1
+
+
+def test_review_host_add_preserves_a_final_unterminated_row(tmp_path, monkeypatch):
+    from awb import config
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    path = tmp_path / "hosts"
+    path.write_text("example.com")
+    doc.add_host("docs.vendor-q7m4.example", path=path)
+    assert doc.extra_hosts(path) == ["example.com", "docs.vendor-q7m4.example"]
+
+
+def test_review_host_write_failure_does_not_echo_oserror_values(tmp_path, monkeypatch):
+    import builtins
+    from awb import config
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    secret = "pass" + "word=never-print-7391"
+    path = tmp_path / "hosts"
+    old_open, old_os_open = builtins.open, os.open
+    def fail_open(file, *args, **kwargs):
+        if Path(file) == path:
+            raise OSError(13, secret, str(path))
+        return old_open(file, *args, **kwargs)
+    def fail_os_open(file, *args, **kwargs):
+        if file == path.name:
+            raise OSError(13, secret, str(path))
+        return old_os_open(file, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", fail_open)
+    monkeypatch.setattr(os, "open", fail_os_open)
+    with pytest.raises(doc.DocError) as error:
+        doc.add_host("docs.vendor-q7m4.example", path=path)
+    assert secret not in str(error.value)
+
+
+def test_review_unreadable_rate_ledger_fails_closed(tmp_path, monkeypatch):
+    import builtins
+    path = doc._ledger_path(tmp_path)
+    path.write_bytes(b"\xff")
+    with pytest.raises(doc.DocError):
+        doc.Limiter(lambda: tmp_path).take(PROJECT)
+    path.write_text("")
+    original, os_original = builtins.open, os.open
+    def denied(file, *a, **kw):
+        if Path(file) == path:
+            raise PermissionError("unreadable")
+        return original(file, *a, **kw)
+    def os_denied(file, *a, **kw):
+        if file == path.name:
+            raise PermissionError("unreadable")
+        return os_original(file, *a, **kw)
+    monkeypatch.setattr(builtins, "open", denied)
+    monkeypatch.setattr(os, "open", os_denied)
+    with pytest.raises(doc.DocError):
+        doc.Limiter(lambda: tmp_path).take(PROJECT)
+
+
+def test_review_rate_ledger_links_do_not_reset_or_supply_counts(tmp_path):
+    target = tmp_path / "target"
+    target.write_text("")
+    doc._ledger_path(tmp_path).symlink_to(target)
+    with pytest.raises(doc.DocError):
+        doc.Limiter(lambda: tmp_path).take(PROJECT)
+
+
+def test_review_ledger_writes_do_not_follow_parent_links(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked = tmp_path / "log"
+    linked.symlink_to(outside, target_is_directory=True)
+    doc.ledger_line(linked, PROJECT, "example.com", "/x", 1, "200")
+    assert list(outside.iterdir()) == []
+
+
+def test_review_ledger_never_records_unchecked_fields(tmp_path):
+    secret = "pass" + "word=never-print-7391"
+    doc.ledger_line(tmp_path, secret, "example.com", "/x?" + secret, 1, secret)
+    text = doc._ledger_path(tmp_path).read_text()
+    assert secret not in text and len(text.strip().split("\t")) == 6
+
+
+def test_review_stream_creation_and_write_failure_are_private_and_clean(tmp_path, monkeypatch):
+    secret = "pass" + "word=never-print-7391"
+    getter = Getter({("example.com", "/x"): html_page("<p>public guide</p>")})
+    original = os.fdopen
+    class Broken:
+        def __init__(self, fd):
+            self.fd = fd
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            os.close(self.fd)
+        def write(self, data):
+            os.write(self.fd, data[:2])
+            raise OSError(secret)
+    def fdopen(fd, mode="r", *a, **kw):
+        return Broken(fd) if mode == "wb" else original(fd, mode, *a, **kw)
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    answer, stream = doc.serve({"url": "https://example.com/x"}, PROJECT, doc.Limiter(lambda: None), None,
+                               getter=getter, hosts=HOSTS, tmp_dir=tmp_path)
+    assert not answer["ok"] and stream is None and secret not in answer["error"]
+    assert list(tmp_path.iterdir()) == []
+    answer, stream = doc.serve({"url": "https://example.com/x"}, PROJECT, doc.Limiter(lambda: None), None,
+                               getter=getter, hosts=HOSTS, tmp_dir=tmp_path / "missing")
+    assert not answer["ok"] and stream is None
+
+
+def test_review_output_parent_swap_cannot_escape_project(tmp_path, project_folder, monkeypatch, capsys):
+    parent = project_folder / "notes"
+    parent.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    def swap(_):
+        parent.rmdir()
+        parent.symlink_to(outside, target_is_directory=True)
+    _review_answer(monkeypatch, action=swap)
+    assert _review_fetch("notes/guide.md") == 2
+    assert list(outside.iterdir()) == []
+    assert "outside" not in capsys.readouterr().err
+
+
+def test_review_output_file_swap_cannot_overwrite_link_target(tmp_path, project_folder, monkeypatch):
+    target = tmp_path / "outside"
+    target.write_text("unchanged")
+    output = project_folder / "guide.md"
+    _review_answer(monkeypatch, action=lambda _: output.symlink_to(target))
+    assert _review_fetch("guide.md") == 2
+    assert target.read_text() == "unchanged"
+
+
+def test_review_output_refuses_special_and_hardlinked_files(tmp_path, project_folder, monkeypatch):
+    _review_answer(monkeypatch)
+    fifo = project_folder / "pipe"
+    os.mkfifo(fifo)
+    fd = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        assert _review_fetch("pipe") == 2
+    finally:
+        os.close(fd)
+    target = tmp_path / "target"
+    target.write_text("unchanged")
+    os.link(target, project_folder / "hardlink")
+    assert _review_fetch("hardlink") == 2 and target.read_text() == "unchanged"
+
+
+def test_review_output_is_published_complete_and_private(project_folder, monkeypatch):
+    output = project_folder / "guide.md"
+    output.write_text("previous version")
+    _review_answer(monkeypatch, body="new guide\n" * 10000)
+    original = os.replace
+    published = []
+    def replace(source, dest, **kwargs):
+        assert output.read_text() == "previous version"
+        fd = os.open(source, os.O_RDONLY, dir_fd=kwargs.get("src_dir_fd"))
+        with os.fdopen(fd, "r") as stream:
+            snapshot = stream.read()
+        assert snapshot.endswith("new guide\n" * 10000)
+        published.append(snapshot)
+        return original(source, dest, **kwargs)
+    monkeypatch.setattr(os, "replace", replace)
+    assert _review_fetch("guide.md") == 0
+    assert published == [output.read_text()]
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert not list(project_folder.glob(".awb-doc-*"))
+
+
+def test_review_failed_publication_preserves_existing_file(project_folder, monkeypatch, capsys):
+    output = project_folder / "guide.md"
+    output.write_text("previous version")
+    _review_answer(monkeypatch)
+    secret = "pass" + "word=never-print-7391"
+    def denied(*a, **kw):
+        raise OSError(secret)
+    monkeypatch.setattr(os, "replace", denied)
+    assert _review_fetch("guide.md") == 2
+    assert output.read_text() == "previous version"
+    assert secret not in capsys.readouterr().err
+    assert not list(project_folder.glob(".awb-doc-*"))
+
+
+def test_review_client_rejects_malformed_answers_and_private_headers(project_folder, monkeypatch, capsys):
+    for answer in ([], {"ok": "yes"}, {"ok": True, "url": ["invalid"]},
+                   {"ok": True, "fetched": "pass" + "word=never-print-7391"}):
+        monkeypatch.setattr(keys, "request", lambda *a, **k: answer)
+        assert _review_fetch() == 2
+        captured = capsys.readouterr()
+        assert not captured.out and "never-print" not in captured.err
+
+
+def test_review_client_request_errors_never_echo_values(project_folder, monkeypatch, capsys):
+    secret = "pass" + "word=never-print-7391"
+    def request(*a, **kw):
+        raise keys.KeysError(secret)
+    monkeypatch.setattr(keys, "request", request)
+    assert _review_fetch() == 2
+    captured = capsys.readouterr()
+    assert secret not in captured.err and not captured.out
+
+
+def test_review_client_missing_and_linked_downloads_fail_cleanly(tmp_path, project_folder, monkeypatch, capsys):
+    private = tmp_path / "private"
+    private.write_text("pass" + "word=never-print-7391")
+    def remove(download):
+        download.unlink()
+    def link(download):
+        download.unlink()
+        download.symlink_to(private)
+    for action in (remove, link):
+        _review_answer(monkeypatch, action=action)
+        assert _review_fetch() == 2
+        captured = capsys.readouterr()
+        assert not captured.out and "never-print" not in captured.err
+    assert private.read_text().endswith("never-print-7391")
+
+
+def test_review_private_names_and_secrets_are_withheld_from_output(home, project_folder, monkeypatch, capsys):
+    from tests import fixtures
+    secret = "pass" + "word=never-print-7391"
+    for private in (fixtures.CUSTOMER_FORMS[0], secret):
+        _review_answer(monkeypatch, body=private)
+        assert _review_fetch() == 1
+        captured = capsys.readouterr()
+        assert private not in captured.out + captured.err
+        _review_answer(monkeypatch)
+        assert _review_fetch(private + ".md") == 0
+        captured = capsys.readouterr()
+        assert private not in captured.out + captured.err
+
+
+def test_review_private_service_errors_and_offlist_hosts_are_withheld(home, project_folder, monkeypatch, capsys):
+    from tests import fixtures
+    secret = "pass" + "word=never-print-7391"
+    for private in (fixtures.CUSTOMER_FORMS[0], secret):
+        monkeypatch.setattr(keys, "request", lambda *a, **k: {"ok": False, "error": "refused: " + private})
+        assert _review_fetch() == 1
+        captured = capsys.readouterr()
+        assert private not in captured.out + captured.err
+    assert doc.main(["fetch", "https://" + fixtures.CUSTOMER_DOMAIN + "/x"]) == 1
+    assert fixtures.CUSTOMER_DOMAIN not in capsys.readouterr().err
+
+
+def test_review_private_paths_do_not_reach_network_or_ledger(home, tmp_path):
+    from tests import fixtures
+    getter = Getter({})
+    for value in (fixtures.CUSTOMER_FORMS[1], "pass" + "word=never-print-7391"):
+        url = "https://example.com/" + value
+        answer, stream = doc.serve({"url": url}, PROJECT, doc.Limiter(lambda: None), tmp_path,
+                                   getter=getter, hosts=HOSTS)
+        assert not answer["ok"] and stream is None
+        assert value not in answer["error"] + doc._ledger_path(tmp_path).read_text()
+    assert getter.asked == []
+
+
+def test_review_service_withholds_private_page_text(home, tmp_path):
+    from tests import fixtures
+    for private in (fixtures.CUSTOMER_FORMS[0], "pass" + "word=never-print-7391"):
+        answer, stream = doc.serve({"url": "https://example.com/x"}, PROJECT, doc.Limiter(lambda: None), None,
+                                   getter=Getter({("example.com", "/x"): html_page("<p>" + private + "</p>")}),
+                                   hosts=HOSTS, tmp_dir=tmp_path)
+        if stream:
+            stream.unlink()
+        assert not answer["ok"] and stream is None and private not in answer["error"]
+
+
+def test_review_host_add_withholds_private_notes(home, tmp_path, monkeypatch):
+    from awb import config
+    from tests import fixtures
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    path = tmp_path / "hosts"
+    for private in (fixtures.CUSTOMER_FORMS[0], "pass" + "word=never-print-7391"):
+        with pytest.raises(doc.DocError) as error:
+            doc.add_host("docs.vendor-q7m4.example", private, path=path)
+        assert private not in str(error.value)
+    assert not path.exists()
+
+
+def test_review_huge_help_chunk_counts_are_bounded():
+    replies = iter([{"url": "https://example.com/x", "help_root": "https://example.com/"},
+                    {"text": '<WebHelpSystem Toc="Data/Main.js"/>'},
+                    {"text": "numchunks:" + "9" * 5000 + ",prefix:'chunk'"}])
+    asked = []
+    def fetcher(url, **kwargs):
+        asked.append(url)
+        return next(replies, {"text": ""})
+    result = doc.find("https://example.com/x", "guide", fetcher=fetcher)
+    assert result["count"] == 0 and len(asked) == 3 + doc.MAX_CHUNKS
+
+
+def test_review_pdf_process_output_is_bounded_before_it_finishes(tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setattr(doc, "PDF_TEXT_MAX", 128)
+    for channel in ("stdout", "stderr"):
+        marker = tmp_path / (channel + ".done")
+        reader = tmp_path / (channel + "-reader")
+        reader.write_text("#!" + sys.executable + "\nimport sys\nfrom pathlib import Path\n"
+                          "sys." + channel + ".buffer.write(b'x' * (1024 * 1024))\n"
+                          "sys." + channel + ".flush()\nPath(" + repr(str(marker)) + ").touch()\n")
+        reader.chmod(0o700)
+        with pytest.raises(doc.DocError, match="larger than"):
+            doc.pdf_text(b"%PDF-1.7", tool=str(reader), timeout=5)
+        assert not marker.exists()
+
+
+def test_review_control_characters_in_service_errors_are_withheld(project_folder, monkeypatch, capsys):
+    for control in ("\x1b", "\x85", "\u202e"):
+        monkeypatch.setattr(keys, "request", lambda *a, **k: {"ok": False, "error": "refused: " + control + "value"})
+        assert _review_fetch() == 1
+        assert control not in capsys.readouterr().err
+
+
+def test_review_failed_name_check_withholds_values(home, project_folder, monkeypatch, capsys):
+    from awb import check
+    secret = "pass" + "word=never-print-7391"
+    _review_answer(monkeypatch, body="unchecked body")
+    def unavailable(*a, **kw):
+        raise check.CheckUnavailable(secret)
+    monkeypatch.setattr(check, "check_text", unavailable)
+    assert _review_fetch() == 1
+    captured = capsys.readouterr()
+    assert not captured.out and secret not in captured.err
+
+
+def test_review_hosts_command_withholds_registered_domains(home, tmp_path, monkeypatch, capsys):
+    from tests import fixtures
+    path = tmp_path / "hosts"
+    path.write_text(fixtures.CUSTOMER_DOMAIN + "\nexample.com\n")
+    monkeypatch.setattr(doc, "HOSTS_FILE", path)
+    assert doc.main(["hosts"]) == 0
+    output = capsys.readouterr().out
+    assert fixtures.CUSTOMER_DOMAIN not in output and "example.com" in output
+
+
+def test_review_client_temp_creation_failure_is_private(project_folder, monkeypatch, capsys):
+    secret = "pass" + "word=never-print-7391"
+    def denied(*a, **kw):
+        raise OSError(secret)
+    monkeypatch.setattr(tempfile, "mkstemp", denied)
+    assert _review_fetch() == 2
+    captured = capsys.readouterr()
+    assert not captured.out and secret not in captured.err
+
+
+def test_review_client_rejects_invalid_pdf_page_counts(project_folder, monkeypatch, capsys):
+    for pages in (True, -1, "private", 10 ** 5000):
+        _review_answer(monkeypatch, kind="pdf", pages=pages)
+        assert _review_fetch() == 2
+        assert not capsys.readouterr().out
+
+
+def test_review_failed_http_setup_closes_the_connection(monkeypatch):
+    import http.client
+    for failed_step in ("request", "response"):
+        closed = []
+        class Connection:
+            def __init__(self, *a, **kw):
+                pass
+            def request(self, *a, **kw):
+                if failed_step == "request":
+                    raise OSError("connection failed")
+            def getresponse(self):
+                raise OSError("response failed")
+            def close(self):
+                closed.append(True)
+        monkeypatch.setattr(http.client, "HTTPSConnection", Connection)
+        with pytest.raises(OSError):
+            doc.https_get("example.com", "/x")
+        assert closed == [True]
+
+
+def test_review_multiline_service_errors_cannot_forge_diagnostics(project_folder, monkeypatch, capsys):
+    monkeypatch.setattr(keys, "request", lambda *a, **k: {"ok": False, "error": "refused: no\nforged status"})
+    assert _review_fetch() == 1
+    captured = capsys.readouterr()
+    assert captured.err.count("\n") == 1 and "forged status" not in captured.err and not captured.out
+
+
+def test_review_output_filenames_cannot_forge_status_lines(project_folder, monkeypatch, capsys):
+    _review_answer(monkeypatch)
+    assert _review_fetch("guide\nforged status.md") == 0
+    captured = capsys.readouterr()
+    assert captured.out.count("\n") == 1 and "forged status" not in captured.out
+
+
+def _review_partial_write(monkeypatch, path):
+    original = os.write
+    target = path.stat().st_ino
+    def write(fd, data):
+        if os.fstat(fd).st_ino == target:
+            original(fd, data[:3])
+            raise OSError("disk full")
+        return original(fd, data)
+    monkeypatch.setattr(os, "write", write)
+
+
+def test_review_failed_host_append_rolls_back_partial_row(tmp_path, monkeypatch):
+    from awb import config
+    monkeypatch.setattr(config, "is_work_user", lambda: False)
+    path = tmp_path / "hosts"
+    path.write_text("example.com\n")
+    _review_partial_write(monkeypatch, path)
+    with pytest.raises(doc.DocError):
+        doc.add_host("docs.vendor-q7m4.example", path=path)
+    assert path.read_text() == "example.com\n"
+
+
+def test_review_failed_ledger_append_rolls_back_partial_row(tmp_path, monkeypatch):
+    path = doc._ledger_path(tmp_path)
+    doc.ledger_line(tmp_path, PROJECT, "example.com", "/x", 1, "200")
+    before = path.read_bytes()
+    _review_partial_write(monkeypatch, path)
+    doc.ledger_line(tmp_path, PROJECT, "example.com", "/x", 1, "200")
+    assert path.read_bytes() == before
