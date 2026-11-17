@@ -91,10 +91,12 @@ import shutil
 import stat
 import sys
 import tempfile
+import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date
+from functools import wraps
 from pathlib import Path
 
 from awb import codes, config
@@ -163,6 +165,8 @@ def locate(deliverable) -> tuple[Path, str]:
 
 
 def review_dir(project: Path, name: str) -> Path:
+    if not name or Path(name).is_absolute() or ".." in Path(name).parts or "\x00" in name:
+        raise ReviewError("the review name must be a path inside the project")
     return Path(project) / REVIEWS / name
 
 
@@ -177,25 +181,129 @@ def _scope(project: Path, contract: "Contract") -> str:
     return "hcs" if _platform(project) == "hcs" and contract.scope == "hcs" else "tcp"
 
 
-def _write_atomic(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=str(path.parent))
+@contextmanager
+def _directory(path: Path, create: bool = False):
+    """Pin each directory component without following links, including during publication."""
+    path = Path(os.path.abspath(path))
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(path.anchor, flags)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(text)
-        os.chmod(tmp, 0o640)
-        os.replace(tmp, path)
-    except BaseException:
+        for part in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o750, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    with _directory(path.parent, create=True) as parent:
+        tmp = ".tmp-" + os.urandom(16).hex()
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
         try:
-            os.unlink(tmp)
-        except OSError:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fchmod(fh.fileno(), 0o640)
+            os.replace(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+        finally:
+            try:
+                os.unlink(tmp, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+
+
+def _remove_record(folder: Path) -> None:
+    with _directory(folder) as parent:
+        try:
+            os.unlink(RECORD, dir_fd=parent)
+        except FileNotFoundError:
             pass
-        raise
+
+
+_LOCK_SECONDS = 60
+
+
+def _serialized(fn):
+    """Serialize review mutations across processes, keeping the lock inode permanently in place."""
+    @wraps(fn)
+    def locked(deliverable, *args, **kwargs):
+        import fcntl
+
+        project, rel = locate(deliverable)
+        folder = review_dir(project, rel)
+        with _directory(folder, create=True) as parent:
+            fd = os.open(".review.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                         0o600, dir_fd=parent)
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise ReviewError("the review lock is not a regular file")
+                deadline = time.monotonic() + _LOCK_SECONDS
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            raise ReviewError("the review is busy; try again later") from None
+                        time.sleep(0.02)
+                if fn.__name__ == "run_pass":
+                    _remove_record(folder)
+                return fn(deliverable, *args, **kwargs)
+            finally:
+                os.close(fd)
+    return locked
+
+
+def _file_bytes(path: Path, limit: int = 4_000_000) -> bytes:
+    with os.fdopen(_open_regular(path), "rb") as fh:
+        if os.fstat(fh.fileno()).st_size > limit:
+            raise OSError("the review input is too large")
+        raw = fh.read(limit + 1)
+        if len(raw) > limit:
+            raise OSError("the review input is too large")
+        return raw
+
+
+def _file_text(path: Path) -> str:
+    return _file_bytes(path).decode("utf-8")
+
+
+def _json_file(path: Path):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON field")
+            result[key] = value
+        return result
+
+    try:
+        return json.loads(_file_text(path), object_pairs_hook=unique)
+    except RecursionError:
+        raise ValueError("JSON nesting is too deep") from None
+
+
+def _lens_files(folder: Path) -> list[Path]:
+    try:
+        with _directory(folder) as fd, os.scandir(fd) as entries:
+            return sorted(folder / entry.name for entry in entries if entry.name.endswith(".json"))
+    except FileNotFoundError:
+        # A dangling link is not an absent optional directory.
+        if folder.is_symlink():
+            raise OSError("the lens folder is a link") from None
+        return []
 
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
+    with os.fdopen(_open_regular(path), "rb") as fh:
         for block in iter(lambda: fh.read(1 << 16), b""):
             h.update(block)
     return h.hexdigest()
@@ -226,7 +334,7 @@ def _check(text: str, reg: Path) -> list[dict]:
     try:
         return list(check.check_text(text, reg))
     except check.CheckUnavailable as err:
-        raise ReviewError(str(err) or "name check unavailable") from None
+        raise ReviewError("name check unavailable") from None
     except register.RegisterError:
         raise ReviewError("the register cannot be read, names cannot be checked") from None
 
@@ -235,14 +343,22 @@ def _is_clean(text: str, reg: Path) -> bool:
     """True only when the name check ran and found nothing. Used before a path is printed."""
     try:
         _ensure_checkable(reg)
-        return not _check(text, reg)
+        return not _check(text, reg) and not _secrets(text)
     except ReviewError:
         return False
 
 
 def _counts(hits: list[dict]) -> str:
-    c = Counter(h.get("cls", "unknown") if isinstance(h, dict) else "unknown" for h in hits)
+    allowed = {"name", "path", "opaque", "unknown"} | {kind.lower() for kind in codes.DATA_KINDS}
+    c = Counter(h.get("cls") if isinstance(h, dict) and isinstance(h.get("cls"), str)
+                and h["cls"] in allowed else "unknown" for h in hits)
     return ", ".join("%s %d" % kv for kv in sorted(c.items()))
+
+
+def _secrets(text: str) -> bool:
+    from awb import check
+
+    return bool(check._secret_classes(text))
 
 
 FINAL_SUFFIX = ".final.md"
@@ -272,7 +388,7 @@ def project_tier(project) -> int:
     """The review tier of a project: the `- review-tier:` line of its SCOPE.md (the owner sets it with awb start,
     awb spawn or awb projects tier), 3 when the line is missing or not 1, 2 or 3."""
     try:
-        text = (Path(project) / "SCOPE.md").read_text(encoding="utf-8")
+        text = _file_text(Path(project) / "SCOPE.md")
     except (OSError, UnicodeError):
         return SEND_TIER
     m = re.search(r"(?m)^- review-tier: *([123]) *$", text)
@@ -289,7 +405,8 @@ DEFAULT_KIND_WORD = "doc"
 def guess_language(path) -> str:
     """en, de or ru by the letters and the common words of the start of a text file; en when it cannot say."""
     try:
-        raw = Path(path).read_bytes()[:20000].decode("utf-8")
+        with os.fdopen(_open_regular(path), "rb") as fh:
+            raw = fh.read(20000).decode("utf-8")
     except (OSError, UnicodeError):
         return "en"
     letters = [c for c in raw if c.isalpha()]
@@ -339,13 +456,13 @@ def _read_plain(data: bytes) -> str | None:
 
 def _read_bytes(path: Path) -> bytes:
     try:
-        return Path(path).read_bytes()
+        return _file_bytes(Path(path), 64_000_000)
     except OSError as err:
         raise ReviewError("the deliverable cannot be read (%s)" % type(err).__name__) from None
 
 
 @contextmanager
-def _snapshot(path: Path, data: bytes):
+def _review_snapshot(path: Path, data: bytes):
     """A private copy of `data` under the name of the deliverable (mode 600 in a folder of mode 700, removed
     afterwards), for the readers that need a file: what they read are exactly the bytes that are hashed."""
     folder = tempfile.mkdtemp(prefix="awb-review-")
@@ -372,9 +489,12 @@ def _deliverable_text(path: Path, data: bytes | None = None) -> tuple[str, bool]
         from awb import extract
     except ImportError:
         raise ReviewError("the deliverable is not a text file and no reader is installed") from None
-    ex = extract.extract(path)
+    try:
+        ex = extract.extract(path)
+    except Exception:
+        raise ReviewError("the deliverable reader failed") from None
     if ex.state != "ok" or not (ex.text or "").strip():
-        raise ReviewError("the deliverable cannot be read as text (state %s)" % ex.state)
+        raise ReviewError("the deliverable cannot be read as text")
     return ex.text, False
 
 
@@ -388,7 +508,7 @@ def _deliverable_hits(path: Path, rel: str, text: str, plain: bool, reg: Path) -
         try:
             hits = list(check.check_file(path, reg))
         except check.CheckUnavailable as err:
-            raise ReviewError(str(err) or "name check unavailable") from None
+            raise ReviewError("name check unavailable") from None
         except register.RegisterError:
             raise ReviewError("the register cannot be read, names cannot be checked") from None
         except OSError as err:
@@ -402,8 +522,10 @@ def _deliverable_hits(path: Path, rel: str, text: str, plain: bool, reg: Path) -
 def _existing_file(deliverable) -> tuple[Path, Path, str]:
     project, rel = locate(deliverable)
     path = project / DELIVERABLES / rel
-    if not path.is_file():
-        raise ReviewError("the deliverable is not a readable file")
+    try:
+        os.close(_open_regular(path))
+    except (OSError, ValueError):
+        raise ReviewError("the deliverable is not a readable file") from None
     return path, project, rel
 
 
@@ -469,13 +591,16 @@ def render_contract(rel: str, tier: int, budget: int, mode: str, scope: str, rea
 
 def load_contract(path: Path, default_scope: str = "tcp") -> Contract:
     try:
-        text = Path(path).read_text(encoding="utf-8")
+        text = _file_text(Path(path))
     except FileNotFoundError:
         raise ReviewError("there is no contract.md: run awb review init first") from None
     except (OSError, UnicodeDecodeError):
         raise ReviewError("contract.md cannot be read") from None
     head = text.split("\n## ", 1)[0]
-    fields = {k: v for k, v in _CONTRACT_FIELD_RE.findall(head)}
+    pairs = _CONTRACT_FIELD_RE.findall(head)
+    fields = dict(pairs)
+    if len(fields) != len(pairs):
+        raise ReviewError("contract.md: a field is repeated")
     tier = fields.get("tier", "")
     if not re.fullmatch(r"[0-3]", tier):
         raise ReviewError("contract.md: the tier must be 0, 1, 2 or 3")
@@ -503,6 +628,18 @@ def _clean_reader(reader) -> str:
     return reader
 
 
+def _review_date(today: str | None) -> str:
+    if today is None:
+        return date.today().isoformat()
+    if not isinstance(today, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", today):
+        raise ReviewError("the review date must be an ISO date")
+    try:
+        return date.fromisoformat(today).isoformat()
+    except ValueError:
+        raise ReviewError("the review date must be an ISO date") from None
+
+
+@_serialized
 def init(deliverable, request, tier: int | None, budget: int, reader: str | None = None, mode: str = "doc",
          force: bool = False, register_path=None, today: str | None = None, lowered: str | None = None) -> Path:
     """Write `reviews/<name>/contract.md`. The request text, the reader and his words that lowered the tier must
@@ -514,9 +651,9 @@ def init(deliverable, request, tier: int | None, budget: int, reader: str | None
     project, rel = locate(deliverable)
     if tier is None:
         tier = project_tier(project)
-    if tier not in TIERS:
+    if type(tier) is not int or tier not in TIERS:
         raise ReviewError("the tier must be 0, 1, 2 or 3")
-    if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
+    if type(budget) is not int or not 0 < budget <= 9_999_999:
         raise ReviewError("the budget must be a positive number of words")
     if mode not in MODES:
         raise ReviewError("the mode must be mail, doc or chat")
@@ -527,7 +664,7 @@ def init(deliverable, request, tier: int | None, budget: int, reader: str | None
     if len(lowered) > MAX_LOWERED:
         raise ReviewError("his words for the lowered tier are longer than %d characters" % MAX_LOWERED)
     try:
-        data = Path(request).read_bytes()
+        data = _file_bytes(Path(request))
     except OSError as err:
         raise ReviewError("the request file cannot be read (%s)" % type(err).__name__) from None
     text = _read_plain(data)
@@ -535,6 +672,8 @@ def init(deliverable, request, tier: int | None, budget: int, reader: str | None
         raise ReviewError("the request must be a UTF-8 text file")
     if not text.strip():
         raise ReviewError("the request is empty")
+    if any(_secrets(value) for value in (text, reader, lowered, rel)):
+        raise Refused("the contract carries a secret; nothing was written")
     reg = _register(register_path)
     _ensure_checkable(reg)
     hits = _check(text, reg)
@@ -550,10 +689,10 @@ def init(deliverable, request, tier: int | None, budget: int, reader: str | None
             raise Refused("the words for the lowered tier were refused by the name check (%s); nothing was written"
                           % _counts(hits))
     target = review_dir(project, rel) / CONTRACT
-    if target.exists() and not force:
+    if os.path.lexists(target) and not force:
         raise ReviewError("contract.md exists already; give --force to write it again")
     body = render_contract(rel, tier, budget, mode, _platform(project), reader, text,
-                           today or date.today().isoformat(), lowered)
+                           _review_date(today), lowered)
     hits = _check(body.replace("%s/%s" % (DELIVERABLES, rel), _checked_path(rel)), reg)
     if hits:
         raise Refused("the contract was refused by the name check (%s); nothing was written" % _counts(hits))
@@ -922,7 +1061,7 @@ def render_claims(rows: list[Claim]) -> str:
 def load_claims(path: Path) -> list[Claim]:
     """The rows of a claims.tsv. Strict header; a row may lack trailing empty fields. Errors name the line only."""
     try:
-        text = Path(path).read_text(encoding="utf-8")
+        text = _file_text(Path(path))
     except (OSError, UnicodeDecodeError):
         raise ReviewError("claims.tsv cannot be read") from None
     lines = text.splitlines()
@@ -946,7 +1085,7 @@ def load_claims(path: Path) -> list[Claim]:
         if cid in seen:
             raise ReviewError("claims.tsv line %d: the id is used twice" % no)
         seen.add(cid)
-        if not line.isdigit():
+        if not re.fullmatch(r"[0-9]{1,9}", line):
             raise ReviewError("claims.tsv line %d: the line must be a number" % no)
         out.append(Claim(id=cid, line=int(line), kind=kind, risk=risk, sentence=sentence, evidence=evidence,
                          grade=grade.lower(), verdict=verdict.lower()))
@@ -982,7 +1121,7 @@ def kb_candidates(sentence: str, scope: str = "tcp", kb_where=None, today: date 
 def _created(project: Path) -> str:
     """The created date of the project's SCOPE.md (ISO), empty when there is none."""
     try:
-        text = (Path(project) / "SCOPE.md").read_text(encoding="utf-8")
+        text = _file_text(Path(project) / "SCOPE.md")
     except (OSError, UnicodeError):
         return ""
     m = re.search(r"(?m)^- created: (\d{4}-\d{2}-\d{2})", text)
@@ -1011,6 +1150,7 @@ def render_kb(rows: list[Claim], candidates: dict[str, list[dict]], created: str
     return "\n".join(lines) + "\n"
 
 
+@_serialized
 def write_claims(deliverable, register_path=None, kb_where=None, today: date | None = None) -> ClaimsResult:
     """`awb review claims`: write reviews/<name>/claims.tsv and next to it kb.tsv, the knowledge entries that
     `kb find` returns for each claim (V-04: the knowledge is consulted before any agent runs). Refused when the
@@ -1019,21 +1159,29 @@ def write_claims(deliverable, register_path=None, kb_where=None, today: date | N
     reg = _register(register_path)
     _ensure_checkable(reg)
     text, plain = _deliverable_text(path)
+    if _secrets(text):
+        raise Refused("the deliverable carries a secret; nothing was written")
     names = [h for h in _deliverable_hits(path, rel, text, plain, reg) if h.get("cls") in ("name", "path")]
     if names:
         raise Refused("the deliverable carries %d name hits; replace them with codes before the claims are "
                       "listed" % len(names))
     target = review_dir(project, rel) / CLAIMS
-    old = load_claims(target) if target.exists() else []
+    old = load_claims(target) if os.path.lexists(target) else []
     rows, kept, gone = merge_claims_report(find_claims(text), old, text)
     dropped = len(gone)
     dropped_manual = [r.id for r in gone if is_manual(r)]
-    _write_atomic(target, render_claims(rows))
+    body = render_claims(rows)
+    if _secrets(body) or any(h.get("cls") == "name" for h in _check(body, reg)):
+        raise Refused("the claim list carries a name or secret; nothing was written")
     scope = _platform(project)
     candidates = {r.id: kb_candidates(r.sentence, scope, kb_where, today) for r in rows}
     kb_path = review_dir(project, rel) / KB_FILE
     created = _created(project)
-    _write_atomic(kb_path, render_kb(rows, candidates, created))
+    kb_body = render_kb(rows, candidates, created)
+    if _secrets(kb_body) or any(h.get("cls") == "name" for h in _check(kb_body, reg)):
+        raise Refused("the knowledge list carries a name or secret; nothing was written")
+    _write_atomic(target, body)
+    _write_atomic(kb_path, kb_body)
     return ClaimsResult(path=target, rows=rows, kept=kept, dropped=dropped, dropped_manual=dropped_manual,
                         kb_path=kb_path,
                         kb_rows=sum(1 for v in candidates.values() if v),
@@ -1187,10 +1335,29 @@ def _evidence_problem(project: Path, evidence: str, deliverable: Path, high: boo
             full.relative_to(root)
         except ValueError:
             return "an evidence path leaves the project"
-        if not full.exists():
-            return "an evidence path does not exist"
         if full == Path(os.path.abspath(deliverable)):
             return "the deliverable cannot be its own evidence"
+        try:
+            with _directory(full.parent) as parent:
+                fd = os.open(full.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                info = os.fstat(fd)
+                if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                    return "an evidence path is not a readable file or directory"
+                if stat.S_ISDIR(info.st_mode):
+                    with os.scandir(fd) as entries:
+                        next(entries, None)
+                else:
+                    with os.fdopen(_open_regular(deliverable), "rb") as source:
+                        own = os.fstat(source.fileno())
+                    if (info.st_dev, info.st_ino) == (own.st_dev, own.st_ino):
+                        return "the deliverable cannot be its own evidence"
+            finally:
+                os.close(fd)
+        except FileNotFoundError:
+            return "an evidence path does not exist"
+        except (OSError, ValueError):
+            return "an evidence path is not readable inside the project"
     return None
 
 
@@ -1234,7 +1401,7 @@ def l0(deliverable, register_path=None, kb_where=None) -> L0Result:
     data = _read_bytes(path)
     if _read_plain(data) is not None:
         return _l0_of(path, path, rel, project, folder, contract, reg, data, kb_where)
-    with _snapshot(path, data) as snap:
+    with _review_snapshot(path, data) as snap:
         return _l0_of(path, snap, rel, project, folder, contract, reg, data, kb_where)
 
 
@@ -1254,11 +1421,15 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
         problems.append("writing: %s" % exc)
         blocking = []
     for cls, line in blocking:
+        if not _is_clean(cls, reg) or not re.fullmatch(r"[a-z][a-z0-9-]{0,40}", cls):
+            cls = "unknown"
         problems.append("writing: %s line %d" % (cls, line))
 
     hits = _deliverable_hits(source, rel, text, plain, reg)
     if hits:
         problems.append("name check: %d hits (%s)" % (len(hits), _counts(hits)))
+    if _secrets(text) or _secrets(rel):
+        problems.append("the deliverable carries a secret")
 
     if _platform(project) != "hcs":
         # offered is what the latest service description lists: a deliverable never proposes anything else
@@ -1276,7 +1447,7 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
     high = sum(1 for c in fresh if c.risk == "high")
     stale = 0
     cpath = folder / CLAIMS
-    if not cpath.exists():
+    if not os.path.lexists(cpath):
         if fresh:
             problems.append("claims.tsv is missing: run awb review claims")
     else:
@@ -1306,6 +1477,13 @@ def _is_blocking(finding: dict) -> bool:
     return finding.get("blocking") is True or str(finding.get("severity") or "").strip().lower() == "blocking"
 
 
+def _valid_findings(findings) -> bool:
+    return isinstance(findings, list) and all(
+        isinstance(x, dict) and ("blocking" not in x or type(x["blocking"]) is bool)
+        and all(key not in x or isinstance(x[key], str) for key in ("severity", "outcome"))
+        for x in findings)
+
+
 def _lens_label(n: int, stem: str, reg: Path | None) -> str:
     if reg is not None and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", stem) and _is_clean(stem, reg):
         return "lens %d (%s)" % (n, stem)
@@ -1316,7 +1494,7 @@ def lens_summary(folder: Path, tier: int, register_path=None) -> tuple[dict, lis
     """(summary, problems) of the lens files in `folder`. At tier 3 at least one file is required. In any file,
     a blocking finding without the outcome confirmed-fixed or refuted is a problem."""
     folder = Path(folder)
-    files = sorted(p for p in folder.glob("*.json") if p.is_file()) if folder.is_dir() else []
+    files = _lens_files(folder)
     summary = {"required": tier >= LENSES_REQUIRED_FROM, "files": len(files), "findings": 0, "blocking": 0,
                "open_blocking": 0, "refuted": 0, "confirmed_fixed": 0}
     problems: list[str] = []
@@ -1326,12 +1504,12 @@ def lens_summary(folder: Path, tier: int, register_path=None) -> tuple[dict, lis
     for n, f in enumerate(files, start=1):
         label = _lens_label(n, f.stem, reg)
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
+            data = _json_file(f)
         except (OSError, UnicodeDecodeError, ValueError):
             problems.append("%s cannot be read as JSON" % label)
             continue
         findings = data.get("findings") if isinstance(data, dict) else None
-        if not isinstance(findings, list) or not all(isinstance(x, dict) for x in findings):
+        if not _valid_findings(findings):
             problems.append("%s has no list of findings" % label)
             continue
         open_blocking = 0
@@ -1360,7 +1538,7 @@ def lens_counts(folder: Path, register_path=None) -> list[dict]:
     plus the findings the workflow dropped for lack of a quote or evidence (V-09). A file that cannot be read is
     counted with the state unreadable."""
     folder = Path(folder)
-    files = sorted(p for p in folder.glob("*.json") if p.is_file()) if folder.is_dir() else []
+    files = _lens_files(folder)
     reg = _register(register_path) if files else None
     out: list[dict] = []
     for n, f in enumerate(files, start=1):
@@ -1368,16 +1546,16 @@ def lens_counts(folder: Path, register_path=None) -> list[dict]:
         row = {"lens": label, "kind": "", "findings": 0, "blocking": 0, "open_blocking": 0, "open_other": 0,
                "refuted": 0, "confirmed_fixed": 0, "softened": 0, "plausible": 0, "dropped": 0, "state": "read"}
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
+            data = _json_file(f)
         except (OSError, UnicodeDecodeError, ValueError):
             data = None
         findings = data.get("findings") if isinstance(data, dict) else None
-        if not isinstance(findings, list) or not all(isinstance(x, dict) for x in findings):
+        if not _valid_findings(findings):
             row["state"] = "unreadable"
             out.append(row)
             continue
         kind = data.get("kind")
-        row["kind"] = kind if isinstance(kind, str) and re.fullmatch(r"[a-z-]{1,20}", kind) else ""
+        row["kind"] = kind if isinstance(kind, str) and re.fullmatch(r"[a-z-]{1,20}", kind) and _is_clean(kind, reg) else ""
         dropped = data.get("dropped")
         row["dropped"] = dropped if isinstance(dropped, int) and not isinstance(dropped, bool) and dropped > 0 else 0
         for x in findings:
@@ -1406,8 +1584,10 @@ def claim_counts(path: Path) -> dict:
         "rows": len(rows),
         "readable": True,
         "high": sum(1 for r in rows if r.risk == "high"),
-        "by_verdict": dict(sorted(Counter(r.verdict or "none" for r in rows).items())),
-        "by_grade": dict(sorted(Counter(r.grade or "none" for r in rows).items())),
+        "by_verdict": dict(sorted(Counter(r.verdict if r.verdict in VERDICTS else
+                                        ("invalid" if r.verdict else "none") for r in rows).items())),
+        "by_grade": dict(sorted(Counter(r.grade if r.grade in GRADES else
+                                      ("invalid" if r.grade else "none") for r in rows).items())),
         "kb_evidence": sum(1 for r in rows if _KB_EVIDENCE_RE.search(r.evidence or "")),
     }
 
@@ -1419,7 +1599,7 @@ def contract_counts(path: Path, contract: Contract) -> dict:
     """What the record keeps of the contract (V-18): tier, budget, mode, scope, whether he lowered the tier and
     the questions to answer with how many are ticked."""
     try:
-        text = Path(path).read_text(encoding="utf-8")
+        text = _file_text(Path(path))
     except (OSError, UnicodeDecodeError):
         text = ""
     boxes = _QUESTION_BOX_RE.findall(text)
@@ -1433,9 +1613,9 @@ def run_counts(folder: Path) -> dict:
     "tokens"), summed. Zero when the files carry none."""
     folder = Path(folder)
     agents = tokens = 0
-    for f in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+    for f in _lens_files(folder):
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
+            data = _json_file(f)
         except (OSError, UnicodeDecodeError, ValueError):
             continue
         run = data.get("run") if isinstance(data, dict) else None
@@ -1464,7 +1644,7 @@ class PassResult:
 
 def _hash_or_none(path: Path) -> str | None:
     try:
-        return sha256_file(path)
+        return hashlib.sha256(_file_bytes(path)).hexdigest()
     except FileNotFoundError:
         return None
     except OSError:
@@ -1477,14 +1657,17 @@ def bindings(folder: Path) -> dict:
     folder = Path(folder)
     lens_dir = folder / LENSES
     lenses: dict[str, str | None] = {}
-    if lens_dir.is_dir():
-        for f in sorted(lens_dir.glob("*.json")):
-            if f.is_file():
-                lenses[f.name] = _hash_or_none(f)
+    for f in _lens_files(lens_dir):
+        if not f.is_file():
+            continue
+        # Bind names without copying them into the record: even a well-formed name can be private.
+        key = "sha256:" + hashlib.sha256(os.fsencode(f.name)).hexdigest()
+        lenses[key] = _hash_or_none(f)
     return {"contract": _hash_or_none(folder / CONTRACT), "claims": _hash_or_none(folder / CLAIMS),
             "lenses": lenses}
 
 
+@_serialized
 def run_pass(deliverable, register_path=None, today: str | None = None, kb_where=None) -> PassResult:
     """`awb review pass`: l0, the lens check, then record.json. A failed pass removes an older record.
 
@@ -1512,10 +1695,7 @@ def run_pass(deliverable, register_path=None, today: str | None = None, kb_where
         problems.append("the contract, the claim list or a lens file changed while the pass ran")
     record_path = folder / RECORD
     if problems:
-        try:
-            record_path.unlink()
-        except FileNotFoundError:
-            pass
+        _remove_record(folder)
         return PassResult(False, problems, None, record_path, res, lenses)
     per_lens = lens_counts(folder / LENSES, register_path)
     claims = claim_counts(folder / CLAIMS)
@@ -1523,7 +1703,7 @@ def run_pass(deliverable, register_path=None, today: str | None = None, kb_where
         "deliverable": "%s/%s" % (DELIVERABLES, rel),
         "sha256": res.sha256,
         "tier": res.tier,
-        "date": today or date.today().isoformat(),
+        "date": _review_date(today),
         "l0": res.summary(),
         "lenses": lenses,
         "bound": bound,
@@ -1555,9 +1735,9 @@ def _verify_checked(lens_dir: Path) -> int | None:
     if not lens_dir.is_dir():
         return None
     checked: int | None = None
-    for f in sorted(lens_dir.glob("*.json")):
+    for f in _lens_files(lens_dir):
         try:
-            data = json.loads(f.read_text(encoding="utf-8"))
+            data = _json_file(f)
         except (OSError, UnicodeDecodeError, ValueError):
             continue
         if not isinstance(data, dict) or (data.get("kind") != VERIFY_KIND and f.stem != VERIFY_KIND):
@@ -1581,7 +1761,7 @@ def _not_blind(path: Path, project: Path, folder: Path, rel: str) -> int:
     if _read_plain(data) is not None:
         text, _ = _deliverable_text(path, data)
     else:
-        with _snapshot(path, data) as snap:
+        with _review_snapshot(path, data) as snap:
             text, _ = _deliverable_text(snap, data)
     high = [c for c in find_claims(text) if c.risk == "high"]
     try:
@@ -1636,12 +1816,12 @@ def _record_state(deliverable: Path, record: Path) -> tuple[str, int | None]:
     """valid only when the record's hash is the deliverable's, its bindings (contract, claims, lens files) are
     those of the review folder now, and it says that l0 passed with no open blocking lens finding."""
     try:
-        data = json.loads(record.read_text(encoding="utf-8"))
+        data = _json_file(record)
     except (OSError, UnicodeDecodeError, ValueError):
         return MISSING, None
     if not isinstance(data, dict) or not isinstance(data.get("sha256"), str):
         return MISSING, None
-    tier = data.get("tier") if isinstance(data.get("tier"), int) else None
+    tier = data.get("tier") if type(data.get("tier")) is int else None
     try:
         digest = sha256_file(deliverable)
     except OSError:
@@ -1652,7 +1832,8 @@ def _record_state(deliverable: Path, record: Path) -> tuple[str, int | None]:
     if not isinstance(l0_summary, dict) or l0_summary.get("blocked") is not False \
             or l0_summary.get("sha256") != digest:
         return STALE, tier
-    if not isinstance(lenses, dict) or lenses.get("open_blocking") != 0:
+    if not isinstance(lenses, dict) or type(lenses.get("open_blocking")) is not int \
+            or lenses["open_blocking"] != 0:
         return STALE, tier
     if tier not in TIERS or data.get("bound") != bindings(record.parent):
         return STALE, tier
@@ -1662,10 +1843,11 @@ def _record_state(deliverable: Path, record: Path) -> tuple[str, int | None]:
 def _unreadable(path: Path) -> bool:
     """True for a deliverable that no review can read as text (an image, an unknown binary, an Outlook file)."""
     try:
+        os.close(_open_regular(path))
         from awb import extract
         return extract.sniff(path) in UNREADABLE_KINDS
     except Exception:
-        return False
+        return True
 
 
 def _placeholder(path: Path, rel_parts: tuple[str, ...]) -> bool:
@@ -1684,16 +1866,35 @@ def status(project: Path) -> list[dict]:
     project = Path(project)
     base = project / DELIVERABLES
     rows: list[dict] = []
-    if not base.is_dir():
+    try:
+        with _directory(base):
+            pass
+    except FileNotFoundError:
         return rows
-    for f in sorted(base.rglob("*")):
+
+    def fail(err):
+        raise err
+
+    files = []
+    for parent, dirs, names in os.walk(base, followlinks=False, onerror=fail):
+        for name in dirs[:]:
+            if (Path(parent) / name).is_symlink():
+                dirs.remove(name)
+                names.append(name)
+        files.extend(Path(parent) / name for name in names)
+    for f in sorted(files):
         rel_parts = f.relative_to(base).parts
-        if not f.is_file() or _placeholder(f, rel_parts):
+        if not f.is_symlink() and _placeholder(f, rel_parts):
             continue
         rel = "/".join(rel_parts)
-        state, tier = _record_state(f, review_dir(project, rel) / RECORD)
-        if state != VALID and _unreadable(f):
-            state = UNREADABLE
+        try:
+            os.close(_open_regular(f))
+        except OSError:
+            state, tier = UNREADABLE, None
+        else:
+            state, tier = _record_state(f, review_dir(project, rel) / RECORD)
+            if state != VALID and _unreadable(f):
+                state = UNREADABLE
         rows.append({"file": "%s/%s" % (DELIVERABLES, rel), "state": state, "tier": tier})
     return rows
 
@@ -1724,7 +1925,7 @@ def final_check(project: Path, name: str) -> dict | None:
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 1_000_000:
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = _json_file(path)
     except (OSError, UnicodeError, ValueError):
         return None
     if not isinstance(data, dict) or data.get("kind") != FINAL_CHECK_KIND \
@@ -1879,7 +2080,8 @@ def _open_regular(path) -> int:
     """A read descriptor of the regular file at `path`: a last link is not followed and a fifo does not block the
     open. OSError for anything else (a fifo, a device, a socket, a folder, a link put in its place)."""
     flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOCTTY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags)
+    with _directory(Path(path).parent) as parent:
+        fd = os.open(Path(path).name, flags, dir_fd=parent)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError("not a regular file")
@@ -2168,7 +2370,7 @@ def _request_lens_for(folder: Path, rel: str) -> bool:
     lens_dir = folder / LENSES
     if not lens_dir.is_dir():
         return False
-    for f in sorted(lens_dir.glob("*.json")):
+    for f in _lens_files(lens_dir):
         try:
             with os.fdopen(_open_regular(f), "rb") as fh:       # a fifo or a device never blocks the gate
                 raw = fh.read(_LENS_MAX_BYTES + 1)
@@ -2265,7 +2467,7 @@ def _secret_hits(f: Path) -> list[str]:
 
 def _record_digest(record: Path) -> str | None:
     try:
-        data = json.loads(record.read_text(encoding="utf-8"))
+        data = _json_file(record)
     except (OSError, UnicodeDecodeError, ValueError):
         return None
     return data.get("sha256") if isinstance(data, dict) and isinstance(data.get("sha256"), str) else None
@@ -2552,7 +2754,8 @@ def _cmd_show(args) -> int:
         final = fc["final"] if fc["final"] and (fc["final"] == final_name(rel) and _is_clean(
             "%s/%s" % (DELIVERABLES, rel), reg) or _is_clean(fc["final"], reg)) else "the final text"
         print("final check: %s, %s%s, %s; %d open points in %s"
-              % (fc["date"] or "no date", fc["model"] or "no model", " effort " + fc["effort"] if fc["effort"] else "",
+              % (fc["date"] or "no date", fc["model"] if fc["model"] and _is_clean(fc["model"], reg) else "no model",
+                 " effort " + fc["effort"] if fc["effort"] else "",
                  final, fc["open_points"], fc["table"] if _is_clean(fc["table"], reg) else "the table"))
     return EXIT_OK
 
@@ -2642,6 +2845,9 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_ERROR
     except OSError as err:
         print("%s: %s (operating system error)" % (prog, type(err).__name__), file=sys.stderr)
+        return EXIT_ERROR
+    except (ValueError, RecursionError):
+        print("%s: malformed review input" % prog, file=sys.stderr)
         return EXIT_ERROR
 
 

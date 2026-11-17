@@ -22532,8 +22532,337 @@
    "name": "tool guard: counts refuse linked and oversized logs",
    "run": ".venv/bin/pytest tests/test_guard.py::test_guard_counts_refuse_linked_and_oversized_logs",
    "status": "passing"
+  },
+  {
+   "id": "REVIEW-H01",
+   "phase": "T",
+   "name": "review: nontext l0 uses private snapshot",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_nontext_l0_uses_private_snapshot",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H02",
+   "phase": "T",
+   "name": "review: deliverable links are refused",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_deliverable_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H03",
+   "phase": "T",
+   "name": "review: linked parent cannot write outside project",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_linked_parent_cannot_write_outside_project",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H04",
+   "phase": "T",
+   "name": "review: request links are refused",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_request_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H05",
+   "phase": "T",
+   "name": "review: review input links are refused",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_review_input_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H06",
+   "phase": "T",
+   "name": "review: special input never blocks",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_special_input_never_blocks",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H07",
+   "phase": "T",
+   "name": "review: atomic write pins parent",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_atomic_write_pins_parent",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H08",
+   "phase": "T",
+   "name": "review: evidence links and aliases are refused",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_evidence_links_and_aliases_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H09",
+   "phase": "T",
+   "name": "review: evidence unreadable file is refused",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_evidence_unreadable_file_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H10",
+   "phase": "T",
+   "name": "review: claim line rejects unicode and unbounded numbers",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_claim_line_rejects_unicode_and_unbounded_numbers",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H11",
+   "phase": "T",
+   "name": "review: contract duplicate fields are refused",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_contract_duplicate_fields_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H12",
+   "phase": "T",
+   "name": "review: lenses reject malformed blocking flags",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lenses_reject_malformed_blocking_flags",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H13",
+   "phase": "T",
+   "name": "review: lenses reject duplicate keys and deep json",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lenses_reject_duplicate_keys_and_deep_json",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H14",
+   "phase": "T",
+   "name": "review: lenses do not ignore nonfiles",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lenses_do_not_ignore_nonfiles",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H15",
+   "phase": "T",
+   "name": "review: lens listing failure is not empty",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lens_listing_failure_is_not_empty",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H16",
+   "phase": "T",
+   "name": "review: lens size is bounded",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lens_size_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H17",
+   "phase": "T",
+   "name": "review: check errors do not echo values",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_check_errors_do_not_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H18",
+   "phase": "T",
+   "name": "review: request secrets are not persisted",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_request_secrets_are_not_persisted",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H19",
+   "phase": "T",
+   "name": "review: claims secrets are not persisted",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_claims_secrets_are_not_persisted",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H20",
+   "phase": "T",
+   "name": "review: kept claim metadata is screened",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_kept_claim_metadata_is_screened",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H21",
+   "phase": "T",
+   "name": "review: l0 blocks secrets",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_l0_blocks_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H22",
+   "phase": "T",
+   "name": "review: summary metadata does not leak names",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_summary_metadata_does_not_leak_names",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H23",
+   "phase": "T",
+   "name": "review: lens kind does not leak registered names",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lens_kind_does_not_leak_registered_names",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H24",
+   "phase": "T",
+   "name": "review: lens filenames do not leak into record",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lens_filenames_do_not_leak_into_record",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H25",
+   "phase": "T",
+   "name": "review: final model is screened",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_final_model_is_screened",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H26",
+   "phase": "T",
+   "name": "review: writing class is screened",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_writing_class_is_screened",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H27",
+   "phase": "T",
+   "name": "review: failed pass exception removes previous record",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_failed_pass_exception_removes_previous_record",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H28",
+   "phase": "T",
+   "name": "review: boolean record tier is stale",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_boolean_record_tier_is_stale",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H29",
+   "phase": "T",
+   "name": "review: init serializes competing creators",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_init_serializes_competing_creators",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H30",
+   "phase": "T",
+   "name": "review: pass serializes publication",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_pass_serializes_publication",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H31",
+   "phase": "T",
+   "name": "review: review name cannot escape",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_review_name_cannot_escape",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H32",
+   "phase": "T",
+   "name": "review: cli invalid path is value free",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_cli_invalid_path_is_value_free",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H33",
+   "phase": "T",
+   "name": "review: init numeric fields round trip",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_init_numeric_fields_round_trip",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H34",
+   "phase": "T",
+   "name": "review: dangling contract is not overwritten",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_dangling_contract_is_not_overwritten",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H35",
+   "phase": "T",
+   "name": "review: dangling claims are not treated as absent",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_dangling_claims_are_not_treated_as_absent",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H36",
+   "phase": "T",
+   "name": "review: extractor errors and states do not echo values",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_extractor_errors_and_states_do_not_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H37",
+   "phase": "T",
+   "name": "review: name hit classes are not values",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_name_hit_classes_are_not_values",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H38",
+   "phase": "T",
+   "name": "review: status reports links and special files unreadable",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_status_reports_links_and_special_files_unreadable",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H39",
+   "phase": "T",
+   "name": "review: status listing errors are not empty",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_status_listing_errors_are_not_empty",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H40",
+   "phase": "T",
+   "name": "review: unreadable deliverable does not look readable",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_unreadable_deliverable_does_not_look_readable",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H41",
+   "phase": "T",
+   "name": "review: scope link cannot lower default tier",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_scope_link_cannot_lower_default_tier",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H42",
+   "phase": "T",
+   "name": "review: lock is shared between processes and bounded",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lock_is_shared_between_processes_and_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H43",
+   "phase": "T",
+   "name": "review: lock link is not followed",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_lock_link_is_not_followed",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H44",
+   "phase": "T",
+   "name": "review: bindings bound metadata reads",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_bindings_bound_metadata_reads",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H45",
+   "phase": "T",
+   "name": "review: record requires integer lens count",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_record_requires_integer_lens_count",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H46",
+   "phase": "T",
+   "name": "review: dates cannot carry output values",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_dates_cannot_carry_output_values",
+   "status": "passing"
+  },
+  {
+   "id": "REVIEW-H47",
+   "phase": "T",
+   "name": "review: secret filename cannot enter record",
+   "run": ".venv/bin/pytest tests/test_review.py::test_hardening_secret_filename_cannot_enter_record",
+   "status": "passing"
   }
  ],
- "total_tests": 3219,
+ "total_tests": 3266,
  "checked": "2026-11-09"
 }

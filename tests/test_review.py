@@ -856,3 +856,572 @@ def test_pd1_a_manual_row_whose_sentence_is_gone_is_reported_by_its_id(project, 
     assert code == 0
     assert "1 rows added by hand were dropped because their sentence is gone: C-20" in out
     assert not [r for r in rows_of(project) if r["id"] == "C-20"]
+
+
+# --------------------------------------------------------------------------- review hardening
+
+
+def _review_secret() -> str:
+    return 'pass' + 'word' + ' = ' + 'TestOnly' + '9x!42z'
+
+
+def test_hardening_nontext_l0_uses_private_snapshot(project, tmp_path, writing, monkeypatch):
+    from awb import check, extract
+    d = start(project, tmp_path, text='A short note.')
+    raw = b'%PDF fixture bytes'
+    d.write_bytes(raw)
+    seen = []
+
+    def extract_copy(path):
+        seen.append(Path(path))
+        assert Path(path) != d
+        assert Path(path).read_bytes() == raw
+        assert Path(path).stat().st_mode & 0o777 == 0o600
+        return types.SimpleNamespace(state='ok', text='A short note.')
+
+    monkeypatch.setattr(extract, 'extract', extract_copy)
+    monkeypatch.setattr(check, 'check_file', lambda *a: [])
+    result = review.l0(d)
+    assert not result.blocked and result.sha256 == hashlib.sha256(raw).hexdigest()
+    assert seen and all(not p.exists() for p in seen)
+
+
+def test_hardening_deliverable_links_are_refused(project, tmp_path):
+    outside = tmp_path / 'outside.md'
+    outside.write_text('A short note.')
+    d = project / 'deliverables' / NAME
+    d.symlink_to(outside)
+    with pytest.raises((review.ReviewError, OSError)):
+        review.write_claims(d)
+    assert not claims_path(project).exists()
+
+
+def test_hardening_linked_parent_cannot_write_outside_project(project, tmp_path):
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (project / 'reviews').rmdir()
+    (project / 'reviews').symlink_to(outside, target_is_directory=True)
+    with pytest.raises((review.ReviewError, OSError)):
+        review.init(deliver(project), request_file(tmp_path), 2, 400)
+    assert list(outside.iterdir()) == []
+
+
+def test_hardening_request_links_are_refused(project, tmp_path):
+    req = request_file(tmp_path)
+    link = tmp_path / 'linked-request'
+    link.symlink_to(req)
+    with pytest.raises((review.ReviewError, OSError)):
+        review.init(deliver(project), link, 2, 400)
+
+
+def test_hardening_review_input_links_are_refused(project, tmp_path, writing):
+    d = start(project, tmp_path)
+    fill(project)
+    for name in ('contract.md', 'claims.tsv'):
+        path = project / 'reviews' / NAME / name
+        raw = path.read_bytes()
+        outside = tmp_path / name
+        outside.write_bytes(raw)
+        path.unlink()
+        path.symlink_to(outside)
+        with pytest.raises((review.ReviewError, OSError)):
+            review.l0(d)
+        path.unlink()
+        path.write_bytes(raw)
+
+
+def test_hardening_special_input_never_blocks(tmp_path):
+    import os
+    fifo = tmp_path / 'request'
+    os.mkfifo(fifo)
+    script = ('import sys; sys.path.insert(0, sys.argv[1]); from awb import review; '
+              'from pathlib import Path; '
+              '\ntry: review.load_contract(Path(sys.argv[2]))'
+              '\nexcept (review.ReviewError, OSError): sys.exit(0)'
+              '\nsys.exit(1)')
+    result = subprocess.run([sys.executable, '-c', script, str(REPO), str(fifo)],
+                            capture_output=True, timeout=3)
+    assert result.returncode == 0
+
+
+def test_hardening_atomic_write_pins_parent(project, tmp_path, monkeypatch):
+    import os
+    parent = project / 'reviews' / NAME
+    parent.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    original = os.replace
+    moved = project / 'reviews' / 'moved'
+
+    def swap(src, dst, *args, **kwargs):
+        parent.rename(moved)
+        parent.symlink_to(outside, target_is_directory=True)
+        return original(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, 'replace', swap)
+    review._write_atomic(parent / 'contract.md', 'checked text')
+    assert list(outside.iterdir()) == []
+    assert (moved / 'contract.md').read_text() == 'checked text'
+    assert not list(moved.glob('.tmp-*'))
+
+
+def test_hardening_evidence_links_and_aliases_are_refused(project, tmp_path, writing):
+    import os
+    d = start(project, tmp_path)
+    outside = tmp_path / 'outside.md'
+    outside.write_text('Evidence notes.')
+    (project / 'evidence' / 'link').symlink_to(outside)
+    (project / 'evidence' / 'folder').symlink_to(tmp_path, target_is_directory=True)
+    os.link(d, project / 'evidence' / 'self')
+    for evidence in ('evidence/link', 'evidence/folder/outside.md', 'evidence/self'):
+        fill(project, evidence=evidence)
+        assert review.l0(d).blocked, evidence
+
+
+def test_hardening_evidence_unreadable_file_is_refused(project, tmp_path, writing, monkeypatch):
+    import os
+    d = start(project, tmp_path)
+    fill(project)
+    original = os.open
+
+    def deny(path, *args, **kwargs):
+        if Path(path).name == 'source.md':
+            raise PermissionError(_review_secret())
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, 'open', deny)
+    assert review.l0(d).blocked
+
+
+def test_hardening_claim_line_rejects_unicode_and_unbounded_numbers(tmp_path):
+    path = tmp_path / 'claims.tsv'
+    for line in ('²', '9' * 5000):
+        path.write_text('\t'.join(review.CLAIM_FIELDS) + '\nC-1\t' + line + '\tmanual\tlow\tText\n')
+        with pytest.raises(review.ReviewError, match='line'):
+            review.load_claims(path)
+
+
+def test_hardening_contract_duplicate_fields_are_refused(project, tmp_path):
+    d = start(project, tmp_path)
+    path = project / 'reviews' / NAME / 'contract.md'
+    path.write_text(path.read_text().replace('- tier: 2', '- tier: 3\n- tier: 2'))
+    with pytest.raises(review.ReviewError):
+        review.load_contract(path)
+
+
+def test_hardening_lenses_reject_malformed_blocking_flags(project):
+    path = lens(project, 'partner', [])
+    for flag in ('true', 1, [], None):
+        path.write_text(json.dumps({'findings': [{'blocking': flag}]}))
+        assert review.lens_summary(path.parent, 2)[1]
+
+
+def test_hardening_lenses_reject_duplicate_keys_and_deep_json(project):
+    path = lens(project, 'partner', [])
+    for raw in ('{"findings":[{"blocking":true}],"findings":[]}', '[' * 2000 + ']' * 2000):
+        path.write_text(raw)
+        assert review.lens_summary(path.parent, 2)[1]
+
+
+def test_hardening_lenses_do_not_ignore_nonfiles(project, tmp_path):
+    folder = project / 'reviews' / NAME / 'lenses'
+    folder.mkdir(parents=True)
+    (folder / 'partner.json').symlink_to(tmp_path / 'missing')
+    assert review.lens_summary(folder, 2)[1]
+    (folder / 'partner.json').unlink()
+    (folder / 'partner.json').mkdir()
+    assert review.lens_summary(folder, 2)[1]
+
+
+def test_hardening_lens_listing_failure_is_not_empty(project, monkeypatch):
+    import os
+    folder = lens(project, 'partner', []).parent
+    original = os.scandir
+
+    def deny(path):
+        if path == folder or isinstance(path, int):
+            raise PermissionError(_review_secret())
+        return original(path)
+
+    monkeypatch.setattr(os, 'scandir', deny)
+    with pytest.raises((review.ReviewError, OSError)):
+        review.lens_summary(folder, 2)
+
+
+def test_hardening_lens_size_is_bounded(project):
+    path = lens(project, 'partner', [])
+    path.write_text('{"findings":[],"padding":"' + 'x' * 4_000_001 + '"}')
+    assert review.lens_summary(path.parent, 2)[1]
+
+
+def test_hardening_check_errors_do_not_echo_values(project, tmp_path, monkeypatch, capsys):
+    from awb import check
+    secret = _review_secret()
+
+    def unavailable(*args, **kwargs):
+        raise check.CheckUnavailable(secret + fixtures.CUSTOMER_FORMS[0])
+
+    monkeypatch.setattr(check, 'check_text', unavailable)
+    code, out, err = run(['review', 'init', str(deliver(project)), '--request',
+                          str(request_file(tmp_path)), '--budget', '400'], capsys)
+    assert code == 2
+    assert secret not in out + err
+    fixtures.assert_no_fixture_name(out + err, 'unavailable check')
+
+
+def test_hardening_request_secrets_are_not_persisted(project, tmp_path):
+    secret = _review_secret()
+    with pytest.raises(review.Refused):
+        review.init(deliver(project), request_file(tmp_path, secret), 2, 400)
+    assert not (project / 'reviews' / NAME / 'contract.md').exists()
+
+
+def test_hardening_claims_secrets_are_not_persisted(project):
+    d = deliver(project, 'There are 12 users. ' + _review_secret())
+    with pytest.raises(review.Refused):
+        review.write_claims(d)
+    assert not claims_path(project).exists()
+
+
+def test_hardening_kept_claim_metadata_is_screened(project, tmp_path):
+    d = start(project, tmp_path)
+    fill(project, evidence=fixtures.CUSTOMER_FORMS[0] + '/' + _review_secret())
+    before = claims_path(project).read_bytes()
+    with pytest.raises(review.Refused):
+        review.write_claims(d)
+    assert claims_path(project).read_bytes() == before
+
+
+def test_hardening_l0_blocks_secrets(project, tmp_path, writing):
+    d = start(project, tmp_path, text='A short note.')
+    d.write_text('A short note. ' + _review_secret())
+    # Supply the claim table directly, so missing claims cannot mask a missing secret check.
+    claims_path(project).write_text(review.render_claims(review.find_claims(d.read_text())))
+    result = review.l0(d)
+    assert result.blocked and any('secret' in p for p in result.problems)
+    assert _review_secret() not in str(result.problems)
+
+
+def test_hardening_summary_metadata_does_not_leak_names(project, tmp_path, writing):
+    d = start(project, tmp_path)
+    fill(project)
+    add_row(project, 'C-20', 'A sentence no longer present.', 30, verdict=fixtures.CUSTOMER_FORMS[0])
+    result = review.run_pass(d)
+    assert result.passed
+    fixtures.assert_no_fixture_name(json.dumps(result.record), 'record claim summaries')
+
+
+def test_hardening_lens_kind_does_not_leak_registered_names(project, tmp_path, home):
+    path = lens(project, 'partner', [])
+    # A syntactically valid kind can still be a registered form.
+    form = fixtures.CUSTOMER_FORMS[1].lower()
+    assert re.fullmatch('[a-z-]{1,20}', form)
+    path.write_text(json.dumps({'kind': form, 'findings': []}))
+    fixtures.assert_no_fixture_name(json.dumps(review.lens_counts(path.parent)), 'lens kind')
+
+
+def test_hardening_lens_filenames_do_not_leak_into_record(project, tmp_path, writing):
+    d = start(project, tmp_path)
+    fill(project)
+    lens(project, fixtures.CUSTOMER_FORMS[1], [])
+    result = review.run_pass(d)
+    assert result.passed
+    fixtures.assert_no_fixture_name(json.dumps(result.record), 'bound lens names')
+
+
+def test_hardening_final_model_is_screened(project, tmp_path, capsys):
+    d = start(project, tmp_path)
+    path = project / 'reviews' / NAME / 'final-check.json'
+    path.write_text(json.dumps({'kind': 'final-check', 'deliverable': 'deliverables/' + NAME,
+                                'model': fixtures.PERSON_FORMS[0]}))
+    code, out, err = run(['review', 'show', str(d)], capsys)
+    assert code == 0
+    fixtures.assert_no_fixture_name(out + err, 'final check model')
+
+
+def test_hardening_writing_class_is_screened(project, tmp_path, writing, capsys):
+    d = start(project, tmp_path)
+    fill(project)
+    writing.state['tells'] = [{'blocking': True, 'cls': fixtures.CUSTOMER_FORMS[0], 'line': 1}]
+    code, out, err = run(['review', 'l0', str(d)], capsys)
+    assert code == 1
+    fixtures.assert_no_fixture_name(out + err, 'writing class')
+
+
+def test_hardening_failed_pass_exception_removes_previous_record(project, tmp_path, writing):
+    d = start(project, tmp_path)
+    fill(project)
+    assert review.run_pass(d).passed
+    claims_path(project).write_text('malformed claims')
+    with pytest.raises(review.ReviewError):
+        review.run_pass(d)
+    assert not (project / 'reviews' / NAME / 'record.json').exists()
+
+
+def test_hardening_boolean_record_tier_is_stale(project, tmp_path, writing):
+    d = start(project, tmp_path, tier=1)
+    fill(project)
+    result = review.run_pass(d)
+    result.record['tier'] = True
+    result.record_path.write_text(json.dumps(result.record))
+    assert review.status(project)[0]['state'] == review.STALE
+
+
+def test_hardening_init_serializes_competing_creators(project, tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    d = deliver(project)
+    req = request_file(tmp_path)
+    entered, release, second_write = Event(), Event(), Event()
+    original = review._write_atomic
+
+    def held(path, text):
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(5)
+        else:
+            second_write.set()
+        return original(path, text)
+
+    def create():
+        try:
+            review.init(d, req, 2, 400)
+            return 'written'
+        except review.ReviewError:
+            return 'refused'
+
+    monkeypatch.setattr(review, '_write_atomic', held)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(create)
+        assert entered.wait(5)
+        second = pool.submit(create)
+        try:
+            overlapped = second_write.wait(0.3)
+        finally:
+            release.set()
+        outcomes = [first.result(timeout=5), second.result(timeout=5)]
+    assert not overlapped
+    assert sorted(outcomes) == ['refused', 'written']
+
+
+def test_hardening_pass_serializes_publication(project, tmp_path, writing, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    d = start(project, tmp_path)
+    fill(project)
+    entered, release, second_check = Event(), Event(), Event()
+    original_write, original_l0 = review._write_atomic, review.l0
+
+    def held(path, text):
+        if path.name == 'record.json' and not entered.is_set():
+            entered.set()
+            assert release.wait(5)
+        return original_write(path, text)
+
+    def checked(*args, **kwargs):
+        if entered.is_set():
+            second_check.set()
+        return original_l0(*args, **kwargs)
+
+    monkeypatch.setattr(review, '_write_atomic', held)
+    monkeypatch.setattr(review, 'l0', checked)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(review.run_pass, d)
+        assert entered.wait(5)
+        second = pool.submit(review.run_pass, d)
+        try:
+            overlapped = second_check.wait(0.3)
+        finally:
+            release.set()
+        assert first.result(timeout=5).passed and second.result(timeout=5).passed
+    assert not overlapped
+    assert review.status(project)[0]['state'] == review.VALID
+
+
+def test_hardening_review_name_cannot_escape(project, tmp_path):
+    for name in ('../outside', str(tmp_path / 'outside'), 'a/../../outside'):
+        with pytest.raises(review.ReviewError):
+            review.review_dir(project, name)
+
+
+def test_hardening_cli_invalid_path_is_value_free(project, capsys):
+    secret = _review_secret()
+    code, out, err = run(['review', 'l0', str(project / 'deliverables') + '/' + secret + '\x00'], capsys)
+    assert code == 2 and secret not in out + err
+
+
+def test_hardening_init_numeric_fields_round_trip(project, tmp_path):
+    d = deliver(project)
+    req = request_file(tmp_path)
+    for tier, budget in ((True, 400), (2.0, 400), (2, 10_000_000)):
+        with pytest.raises(review.ReviewError):
+            review.init(d, req, tier, budget, force=True)
+
+
+def test_hardening_dangling_contract_is_not_overwritten(project, tmp_path):
+    d = deliver(project)
+    folder = project / 'reviews' / NAME
+    folder.mkdir()
+    path = folder / 'contract.md'
+    path.symlink_to(tmp_path / 'missing')
+    with pytest.raises((review.ReviewError, OSError)):
+        review.init(d, request_file(tmp_path), 2, 400)
+    assert path.is_symlink()
+
+
+def test_hardening_dangling_claims_are_not_treated_as_absent(project, tmp_path, writing):
+    d = start(project, tmp_path, text='A short note.')
+    path = claims_path(project)
+    path.unlink()
+    path.symlink_to(tmp_path / 'missing')
+    with pytest.raises((review.ReviewError, OSError)):
+        review.write_claims(d)
+    with pytest.raises((review.ReviewError, OSError)):
+        review.l0(d)
+    assert path.is_symlink()
+
+
+def test_hardening_extractor_errors_and_states_do_not_echo_values(tmp_path, monkeypatch):
+    from awb import extract
+    path = tmp_path / 'note.pdf'
+    raw = b'%PDF fixture'
+    path.write_bytes(raw)
+    secret = _review_secret()
+
+    def failed(_):
+        raise ValueError(secret)
+
+    for fn in (failed, lambda _: types.SimpleNamespace(state=secret, text='')):
+        monkeypatch.setattr(extract, 'extract', fn)
+        with pytest.raises(review.ReviewError) as caught:
+            review._deliverable_text(path, raw)
+        assert secret not in str(caught.value)
+
+
+def test_hardening_name_hit_classes_are_not_values():
+    secret = _review_secret()
+    hits = [{'cls': fixtures.CUSTOMER_FORMS[0]}, {'cls': secret}, {'cls': []}, {'cls': 'name'}]
+    output = review._counts(hits)
+    assert output == 'name 1, unknown 3'
+    assert secret not in output
+    fixtures.assert_no_fixture_name(output, 'hit classes')
+
+
+def test_hardening_status_reports_links_and_special_files_unreadable(project, tmp_path):
+    import os
+    outside = tmp_path / 'outside.md'
+    outside.write_text('A short note.')
+    base = project / 'deliverables'
+    (base / 'link.md').symlink_to(outside)
+    (base / 'missing.md').symlink_to(tmp_path / 'missing')
+    os.mkfifo(base / 'pipe.md')
+    rows = review.status(project)
+    assert len(rows) == 3
+    assert all(row['state'] == review.UNREADABLE for row in rows)
+
+
+def test_hardening_status_listing_errors_are_not_empty(project, monkeypatch):
+    import os
+    original = os.scandir
+
+    def deny(path):
+        if Path(path) == project / 'deliverables':
+            raise PermissionError(_review_secret())
+        return original(path)
+
+    monkeypatch.setattr(os, 'scandir', deny)
+    with pytest.raises((review.ReviewError, OSError)):
+        review.status(project)
+
+
+def test_hardening_unreadable_deliverable_does_not_look_readable(project, monkeypatch):
+    from awb import extract
+    d = deliver(project)
+
+    def unavailable(_):
+        raise PermissionError(_review_secret())
+
+    monkeypatch.setattr(extract, 'sniff', unavailable)
+    assert review.status(project)[0]['state'] == review.UNREADABLE
+
+
+def test_hardening_scope_link_cannot_lower_default_tier(project, tmp_path):
+    scope = project / 'SCOPE.md'
+    scope.unlink()
+    outside = tmp_path / 'scope'
+    outside.write_text('- review-tier: 1\n')
+    scope.symlink_to(outside)
+    assert review.project_tier(project) == review.SEND_TIER
+
+
+def test_hardening_lock_is_shared_between_processes_and_bounded(project, tmp_path):
+    import fcntl
+    d = deliver(project)
+    req = request_file(tmp_path)
+    folder = project / 'reviews' / NAME
+    folder.mkdir()
+    script = ('import sys; sys.path.insert(0, sys.argv[1]); from awb import review; '
+              'review._LOCK_SECONDS = 0.05; '
+              '\ntry: review.init(sys.argv[2], sys.argv[3], 2, 400)'
+              '\nexcept review.ReviewError as e: sys.exit(0 if "busy" in str(e) else 2)'
+              '\nsys.exit(1)')
+    with (folder / '.review.lock').open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        result = subprocess.run([sys.executable, '-c', script, str(REPO), str(d), str(req)],
+                                capture_output=True, timeout=3)
+    assert result.returncode == 0
+    assert not (folder / 'contract.md').exists()
+
+
+def test_hardening_lock_link_is_not_followed(project, tmp_path):
+    d = deliver(project)
+    folder = project / 'reviews' / NAME
+    folder.mkdir()
+    outside = tmp_path / 'lock'
+    outside.write_text('untouched')
+    (folder / '.review.lock').symlink_to(outside)
+    with pytest.raises((review.ReviewError, OSError)):
+        review.init(d, request_file(tmp_path), 2, 400)
+    assert outside.read_text() == 'untouched'
+    assert not (folder / 'contract.md').exists()
+
+
+def test_hardening_bindings_bound_metadata_reads(tmp_path):
+    path = tmp_path / 'claims.tsv'
+    with path.open('wb') as output:
+        output.truncate(4_000_001)
+    assert review._hash_or_none(path) == 'unreadable'
+
+
+def test_hardening_record_requires_integer_lens_count(project, tmp_path, writing):
+    d = start(project, tmp_path)
+    fill(project)
+    result = review.run_pass(d)
+    for count in (False, 0.0):
+        result.record['lenses']['open_blocking'] = count
+        result.record_path.write_text(json.dumps(result.record))
+        assert review.status(project)[0]['state'] == review.STALE
+
+
+def test_hardening_dates_cannot_carry_output_values(project, tmp_path, writing):
+    d = start(project, tmp_path)
+    fill(project)
+    for value in (_review_secret(), '2026-02-30'):
+        with pytest.raises(review.ReviewError) as caught:
+            review.init(d, request_file(tmp_path), 2, 400, today=value, force=True)
+        assert value not in str(caught.value)
+        with pytest.raises(review.ReviewError) as caught:
+            review.run_pass(d, today=value)
+        assert value not in str(caught.value)
+        assert not (project / 'reviews' / NAME / 'record.json').exists()
+
+
+def test_hardening_secret_filename_cannot_enter_record(project, tmp_path, writing):
+    d = start(project, tmp_path, text='A short note.')
+    name = _review_secret() + '.md'
+    renamed = d.with_name(name)
+    d.rename(renamed)
+    (project / 'reviews' / NAME).rename(project / 'reviews' / name)
+    result = review.run_pass(renamed)
+    assert not result.passed and any('secret' in p for p in result.problems)
+    assert result.record is None and not result.record_path.exists()
