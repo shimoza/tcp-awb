@@ -688,6 +688,42 @@ def test_wl_review_large_get_checks_names(lab, monkeypatch, capsys):
     assert not (lab.root / "result.txt.awb-part").exists()
 
 
+def test_wl_a_large_compressed_get_gets_the_whole_check_and_no_name_check_per_piece(lab, monkeypatch, capsys):
+    """tcp-bytg 2026-11-17: a 1.78 GB gzip chunk of a disk image took hours, each 4 MiB piece of its bytes some
+    hundred calls of the rate limited name check. A compressed file gets the whole check (it opens the archive) at
+    any size and the fast secret check per piece, never the name check per piece."""
+    import gzip
+
+    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
+    monkeypatch.setattr(winlabsession, "PIECE", 64)
+    lab.files[(WINDIR + "img.vhdx.0.gz").lower()] = bytearray(gzip.compress(b"plain sectors\n" * 200))
+    whole, pieces = [], []
+    from awb import hooks
+
+    real = hooks.file_hits
+    monkeypatch.setattr(hooks, "file_hits", lambda path, *a, **k: whole.append(1) or real(path, *a, **k))
+    real_count = winlabsession._name_count
+    # the paths of the command go through the name check as text; a piece of the file's bytes carries newlines
+    monkeypatch.setattr(winlabsession, "_name_count",
+                        lambda text: (pieces.append(1) if "\n" in text else None) or real_count(text))
+    assert cli.main(["winlab", "get", WINDIR + "img.vhdx.0.gz", "img.vhdx.0.gz"]) == 0, capsys.readouterr().err
+    assert whole == [1] and pieces == []
+    assert (lab.root / "img.vhdx.0.gz").exists()
+
+
+def test_wl_a_large_compressed_get_with_a_registered_name_inside_is_deleted(lab, monkeypatch, capsys):
+    import gzip
+
+    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
+    data = ("plain\n" * 10 + "for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
+    lab.files[(WINDIR + "named.txt.gz").lower()] = bytearray(gzip.compress(data))
+    assert cli.main(["winlab", "get", WINDIR + "named.txt.gz", "named.txt.gz"]) == 1
+    err = capsys.readouterr().err
+    assert "registered name(s): the copy was deleted" in err
+    assert not (lab.root / "named.txt.gz").exists()
+    fixtures.assert_no_fixture_name(err + logs(lab.root), "refusal and log")
+
+
 def test_wl_review_put_checks_the_bytes_it_sends(lab, monkeypatch, capsys):
     src = lab.root / "winlab-out" / "a.txt"
     src.write_bytes(b"plain")

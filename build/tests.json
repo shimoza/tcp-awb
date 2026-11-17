@@ -21372,6 +21372,20 @@
    "status": "passing"
   },
   {
+   "id": "WL-BY-001",
+   "phase": "WL",
+   "name": "Windows lab: a large compressed get gets the whole check and no name check per piece",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_large_compressed_get_gets_the_whole_check_and_no_name_check_per_piece",
+   "status": "passing"
+  },
+  {
+   "id": "WL-BY-002",
+   "phase": "WL",
+   "name": "Windows lab: a large compressed get with a registered name inside is deleted",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_large_compressed_get_with_a_registered_name_inside_is_deleted",
+   "status": "passing"
+  },
+  {
    "id": "WL-RH-053",
    "phase": "WL",
    "name": "Windows lab review: put checks the bytes it sends",
@@ -21995,6 +22009,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 3142,
+ "total_tests": 3144,
  "checked": "2026-11-09"
 }

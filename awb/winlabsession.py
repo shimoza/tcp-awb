@@ -1532,7 +1532,12 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
             raise WinlabError("the SHA-256 of the copy does not match %s on %s: the part was deleted, nothing kept"
                               % (winpath, name))
         try:
-            if size <= CHECK_WHOLE_MAX:
+            # A compressed file or a disk image shows no name in the pieces of its bytes, and a piece costs some
+            # hundred calls of the rate limited name check (hours for a chunk of an image): it gets the whole
+            # check alone, which opens the archive, at any size (B-040; tcp-bytg 2026-11-17).
+            with open(snapshot, "rb") as fh:
+                packed = fh.read(8).startswith(_COMPRESSED) or disk_image(snapshot, size) is not None
+            if size <= CHECK_WHOLE_MAX or packed:
                 names = [h for h in hooks.file_hits(snapshot) if h.get("cls") in NAME_CLASSES]
                 if names:
                     raise WinlabError("the file carries %d registered name(s): the copy was deleted" % len(names))
@@ -1540,9 +1545,9 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
                 tail = ""
                 while data := fh.read(PIECE):
                     text = tail + _piece_text(data)
-                    if _name_count(text):
+                    if not packed and _name_count(text):
                         raise WinlabError("the file carries registered name(s): the copy was deleted")
-                    if _secret_count(text):
+                    if (_image_secret_count(text) if packed else _secret_count(text)):
                         raise WinlabError("the file carries secret(s): the copy was deleted")
                     tail = text[-OVERLAP:]
         except (WinlabError, hooks.Unavailable) as exc:
