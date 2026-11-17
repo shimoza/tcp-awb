@@ -23295,8 +23295,288 @@
    "name": "Calibration keeps failure detection after the pronoun defect is removed",
    "run": ".venv/bin/pytest tests/test_review_board.py::test_calibration_still_finds_failures_after_pronoun_case_removal",
    "status": "passing"
+  },
+  {
+   "id": "BUCKET-H01",
+   "phase": "T",
+   "name": "bucket: reply requires complete object and boolean success",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_reply_requires_complete_object_and_boolean_success",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H02",
+   "phase": "T",
+   "name": "bucket: reply limit includes the chunk with newline",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_reply_limit_includes_the_chunk_with_newline",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H03",
+   "phase": "T",
+   "name": "bucket: service errors never echo values",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_service_errors_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H04",
+   "phase": "T",
+   "name": "bucket: failed and invalid download replies leave destination untouched",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_failed_and_invalid_download_replies_leave_destination_untouched",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H05",
+   "phase": "T",
+   "name": "bucket: short download preserves existing file and removes stage",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_short_download_preserves_existing_file_and_removes_stage",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H06",
+   "phase": "T",
+   "name": "bucket: download refuses linked files and parents",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_download_refuses_linked_files_and_parents",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H07",
+   "phase": "T",
+   "name": "bucket: download checks requested etag before publication",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_download_checks_requested_etag_before_publication",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H08",
+   "phase": "T",
+   "name": "bucket: listing schema and scope are checked",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_listing_schema_and_scope_are_checked",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H09",
+   "phase": "T",
+   "name": "bucket: upload refuses missing linked and special sources",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_upload_refuses_missing_linked_and_special_sources",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H10",
+   "phase": "T",
+   "name": "bucket: upload uses the opened file even if path changes",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_upload_uses_the_opened_file_even_if_path_changes",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H11",
+   "phase": "T",
+   "name": "bucket: unknown project does not echo input",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_unknown_project_does_not_echo_input",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H12",
+   "phase": "T",
+   "name": "bucket: registered project cannot escape projects root",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_registered_project_cannot_escape_projects_root",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H13",
+   "phase": "T",
+   "name": "bucket: original operations enforce session guard with any client",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_original_operations_enforce_session_guard_with_any_client",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H14",
+   "phase": "T",
+   "name": "bucket: history refuses links and special files",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_history_refuses_links_and_special_files",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H15",
+   "phase": "T",
+   "name": "bucket: history rejects corruption and unreadable storage",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_history_rejects_corruption_and_unreadable_storage",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H16",
+   "phase": "T",
+   "name": "bucket: history cannot be forged by etag or key",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_history_cannot_be_forged_by_etag_or_key",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H17",
+   "phase": "T",
+   "name": "bucket: fetch refuses linked inbox",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_fetch_refuses_linked_inbox",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H18",
+   "phase": "T",
+   "name": "bucket: fetch does not follow dangling name collision",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_fetch_does_not_follow_dangling_name_collision",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H19",
+   "phase": "T",
+   "name": "bucket: failed fetch leaves no partial file or history",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_failed_fetch_leaves_no_partial_file_or_history",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H20",
+   "phase": "T",
+   "name": "bucket: fetch verifies bytes before remembering listing etag",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_fetch_verifies_bytes_before_remembering_listing_etag",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H21",
+   "phase": "T",
+   "name": "bucket: concurrent fetches download and remember once",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_concurrent_fetches_download_and_remember_once",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H22",
+   "phase": "T",
+   "name": "bucket: put refuses links and special sources",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_put_refuses_links_and_special_sources",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H23",
+   "phase": "T",
+   "name": "bucket: put reviews and scrubs one snapshot",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_put_reviews_and_scrubs_one_snapshot",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H24",
+   "phase": "T",
+   "name": "bucket: secret filename never reaches key or html title",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_secret_filename_never_reaches_key_or_html_title",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H25",
+   "phase": "T",
+   "name": "bucket: cli hides registered filename and untrusted review",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_cli_hides_registered_filename_and_untrusted_review",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H26",
+   "phase": "T",
+   "name": "bucket: bad markdown is rejected before upload or archive",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_bad_markdown_is_rejected_before_upload_or_archive",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H27",
+   "phase": "T",
+   "name": "bucket: reveal cannot reintroduce a secret",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_reveal_cannot_reintroduce_a_secret",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H28",
+   "phase": "T",
+   "name": "bucket: concurrent put without replace does not overwrite",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_concurrent_put_without_replace_does_not_overwrite",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H29",
+   "phase": "T",
+   "name": "bucket: move compares etags and rechecks source before delete",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_move_compares_etags_and_rechecks_source_before_delete",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H30",
+   "phase": "T",
+   "name": "bucket: move rejects unsafe folder and out of scope listing",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_move_rejects_unsafe_folder_and_out_of_scope_listing",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H31",
+   "phase": "T",
+   "name": "bucket: archive error and reason are safe",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_archive_error_and_reason_are_safe",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H32",
+   "phase": "T",
+   "name": "bucket: cli dependency errors are private",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_cli_dependency_errors_are_private",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H33",
+   "phase": "T",
+   "name": "bucket: download verifies bytes even when service repeats requested etag",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_download_verifies_bytes_even_when_service_repeats_requested_etag",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H34",
+   "phase": "T",
+   "name": "bucket: successful download is complete and private",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_successful_download_is_complete_and_private",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H35",
+   "phase": "T",
+   "name": "bucket: history failed append rolls back partial row",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_history_failed_append_rolls_back_partial_row",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H36",
+   "phase": "T",
+   "name": "bucket: put read failure is private and changes no remote file",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_put_read_failure_is_private_and_changes_no_remote_file",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H37",
+   "phase": "T",
+   "name": "bucket: version listing cannot archive another project",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_version_listing_cannot_archive_another_project",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H38",
+   "phase": "T",
+   "name": "bucket: history read is bounded",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_history_read_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H39",
+   "phase": "T",
+   "name": "bucket: cli parser never echoes quoted argument",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_cli_parser_never_echoes_quoted_argument",
+   "status": "passing"
+  },
+  {
+   "id": "BUCKET-H40",
+   "phase": "T",
+   "name": "bucket: malformed text cannot bypass secret scrubbing",
+   "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_malformed_text_cannot_bypass_secret_scrubbing",
+   "status": "passing"
   }
  ],
- "total_tests": 3328,
- "checked": "2026-11-09"
+ "total_tests": 3368,
+ "checked": "2026-11-16"
 }

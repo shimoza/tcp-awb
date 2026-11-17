@@ -33,20 +33,28 @@ and never the name of a folder that matches no project.
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import functools
+import hashlib
 import html
 import json
 import mimetypes
 import os
 import re
+import secrets
+import shutil
 import socket
+import stat
 import sys
 import tempfile
+import unicodedata
 from collections import Counter
 from datetime import date
 from pathlib import Path
 
 from awb import config, obs
-from awb.bucket_layout import IN, KEEP, KEEP_TEXT, MONTH, OUT, OWNER_BUCKET, REGION, folder_of, is_keep
+from awb.bucket_layout import IN, KEEP, KEEP_TEXT, MONTH, OUT, OWNER_BUCKET, REGION, TEXT_SUFFIXES, folder_of, is_keep
 
 PULLED = "bucket-pulled.tsv"
 ORIGINALS = ("pull", "move")
@@ -59,6 +67,88 @@ _IN_SEGMENT = IN.rstrip("/")
 
 class BucketError(Exception):
     """A bucket step cannot be done. The message carries codes, months and counts only."""
+
+
+def _plain(value) -> bool:
+    return isinstance(value, str) and not any(unicodedata.category(c).startswith("C") for c in value)
+
+
+def _key(value) -> bool:
+    return (_plain(value) and bool(value) and "\\" not in value
+            and all(part not in (".", "..", "") for part in value.rstrip("/").split("/")))
+
+
+@contextlib.contextmanager
+def _directory(path: Path, *, create: bool = False):
+    """Pin all path components, including parents, before accessing a local file."""
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in Path(os.path.abspath(path)).parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    except (OSError, ValueError, UnicodeError):
+        raise BucketError("a bucket file or folder cannot be accessed safely") from None
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def _regular(directory: int, name: str, flags: int = os.O_RDONLY):
+    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise BucketError("a bucket file must be regular and have no links")
+        with os.fdopen(fd, "r+b" if flags & os.O_RDWR else "rb", closefd=False) as stream:
+            yield stream
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def _stage(directory: int):
+    name = ".bucket-" + secrets.token_hex(16)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            yield name, stream
+    finally:
+        try:
+            os.unlink(name, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+
+
+def _serialized(function):
+    @functools.wraps(function)
+    def run(p, *args, **kwargs):
+        # The directory itself is the lock: no replaceable lock file and one lock across processes and threads.
+        with _directory(p.vault, create=True) as directory:
+            fcntl.flock(directory, fcntl.LOCK_EX)
+            try:
+                return function(p, *args, **kwargs)
+            finally:
+                fcntl.flock(directory, fcntl.LOCK_UN)
+    return run
+
+
+def _public(text: str, p: config.Paths) -> str:
+    """Keep ordinary output readable, withholding metadata when its privacy check cannot run."""
+    from awb import check, putcopy
+    try:
+        if (not _plain(text) or any(putcopy.scrub_text(value)[1] for value in (text, text.rsplit(".", 1)[0]))
+                or check.check_text(text, p.register)):
+            return "[withheld]"
+        return text
+    except Exception:
+        return "[withheld]"
 
 
 # --------------------------------------------------------------------------- settings and client
@@ -101,72 +191,131 @@ class KeyServiceClient:
         self.sock = sock
 
     def _ask(self, req: dict, *, upload: Path | None = None, download: Path | None = None) -> dict:
-        """One request line on the admin socket, the bytes of a put after it and the bytes of a get after the answer
-        (the wire of awb.tcp.keys.request, written out here: the core imports no awb.tcp)."""
-        sock = self.sock or Path(os.environ.get(ADMIN_SOCKET_ENV) or config.paths().vault / "keys-admin.sock")
-        if upload is not None:
-            req = dict(req, length=upload.stat().st_size)
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(TIMEOUT)
-        try:
-            s.connect(str(sock))
-            s.sendall(json.dumps(req).encode("utf-8") + b"\n")
+        """One bounded reply line; only a complete successful transfer can replace a local file."""
+        with contextlib.ExitStack() as stack:
+            source = None
             if upload is not None:
-                try:
-                    with open(upload, "rb") as fh:
-                        while chunk := fh.read(1 << 16):
-                            s.sendall(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass            # the service refused before the bytes were all sent: its answer is waiting
-            buf = bytearray()
-            while b"\n" not in buf:
-                chunk = s.recv(1 << 16)
-                if not chunk:
-                    break
-                buf += chunk
-                if len(buf) > MAX_ANSWER and b"\n" not in buf:
-                    raise BucketError("the answer of the key service is too large")
-            head, _, rest = bytes(buf).partition(b"\n")
+                directory = stack.enter_context(_directory(upload.parent))
+                source = stack.enter_context(_regular(directory, upload.name))
+                req = dict(req, length=os.fstat(source.fileno()).st_size)
+            sock = self.sock or Path(os.environ.get(ADMIN_SOCKET_ENV) or config.paths().vault / "keys-admin.sock")
             try:
-                answer = json.loads(head)
-            except ValueError:
-                raise BucketError("the key service gave no readable answer") from None
-            length = answer.get("length") if isinstance(answer, dict) else None
-            if download is not None and isinstance(length, int):
-                with open(download, "wb") as out:
-                    out.write(rest[:length])
-                    got = min(len(rest), length)
-                    while got < length:
-                        chunk = s.recv(min(1 << 16, length - got))
-                        if not chunk:
-                            raise BucketError("the file from the key service ended early")
-                        out.write(chunk)
-                        got += len(chunk)
-        except (FileNotFoundError, ConnectionRefusedError, PermissionError):
-            raise BucketError(LOCKED_LINE) from None
-        except (OSError, socket.timeout) as err:
-            raise BucketError("no answer from the key service (%s)" % type(err).__name__) from None
-        finally:
-            s.close()
-        if not isinstance(answer, dict):
-            raise BucketError("the key service gave no readable answer")
-        if answer.get("ok"):
-            return answer
-        if answer.get("kind") == "locked" or "locked" in str(answer.get("error")):
-            raise BucketError(LOCKED_LINE)
-        if answer.get("kind") == "http":
-            raise obs.OBSError(str(answer.get("error")), int(answer.get("status") or 0))
-        raise BucketError("the key service: %s" % (answer.get("error") or "no answer"))
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                stack.callback(s.close)
+                s.settimeout(TIMEOUT)
+                s.connect(str(sock))
+                s.sendall(json.dumps(req).encode("utf-8") + b"\n")
+                if source is not None:
+                    remaining = req["length"]
+                    try:
+                        while remaining:
+                            chunk = source.read(min(1 << 16, remaining))
+                            if not chunk:
+                                raise BucketError("the upload changed while being read")
+                            s.sendall(chunk)
+                            remaining -= len(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass  # A refusal may arrive before all upload bytes have been sent.
+                buf = bytearray()
+                while b"\n" not in buf:
+                    chunk = s.recv(min(1 << 16, MAX_ANSWER + 1 - len(buf)))
+                    if not chunk:
+                        raise BucketError("the key service gave no readable answer")
+                    buf += chunk
+                    if (buf.find(b"\n") if b"\n" in buf else len(buf)) > MAX_ANSWER:
+                        raise BucketError("the answer of the key service is too large")
+                head, _, rest = bytes(buf).partition(b"\n")
+                try:
+                    def pairs(items):
+                        out = {}
+                        for key, value in items:
+                            if key in out:
+                                raise ValueError()
+                            out[key] = value
+                        return out
+                    def constant(value):
+                        raise ValueError()
+                    answer = json.loads(head, object_pairs_hook=pairs, parse_constant=constant)
+                except (ValueError, UnicodeError, RecursionError):
+                    raise BucketError("the key service gave no readable answer") from None
+                if not isinstance(answer, dict) or type(answer.get("ok")) is not bool:
+                    raise BucketError("the key service gave no readable answer")
+                if not answer["ok"]:
+                    if answer.get("kind") == "locked" or "locked" in str(answer.get("error")):
+                        raise BucketError(LOCKED_LINE)
+                    if answer.get("kind") == "http":
+                        status = answer.get("status")
+                        status = status if type(status) is int and 100 <= status <= 599 else 0
+                        raise obs.OBSError("the key service: HTTP %d" % status, status)
+                    # Retain the useful established archive failure hint without echoing the service text.
+                    if "md5" in str(answer.get("error")):
+                        raise BucketError("the key service: md5 comparison failed")
+                    raise BucketError("the key service refused the request")
+                if download is not None:
+                    length = answer.get("length")
+                    if type(length) is not int or length < 0:
+                        raise BucketError("the key service gave no valid file length")
+                    if req.get("if_match") is not None and answer.get("etag") != req["if_match"].strip('"'):
+                        raise BucketError("the file changed since it was listed")
+                    with _directory(download.parent) as directory:
+                        try:
+                            with _regular(directory, download.name):
+                                pass
+                        except FileNotFoundError:
+                            pass
+                        with _stage(directory) as (name, out):
+                            digest = hashlib.md5()
+                            digest.update(rest[:length])
+                            out.write(rest[:length])
+                            got = min(len(rest), length)
+                            while got < length:
+                                chunk = s.recv(min(1 << 16, length - got))
+                                if not chunk:
+                                    raise BucketError("the file from the key service ended early")
+                                out.write(chunk)
+                                digest.update(chunk)
+                                got += len(chunk)
+                            expected = (req.get("if_match") or "").strip('"')
+                            if re.fullmatch(r"[a-fA-F0-9]{32}", expected) and digest.hexdigest() != expected.lower():
+                                raise BucketError("the file changed since it was listed")
+                            out.flush()
+                            os.fsync(out.fileno())
+                            # Replace a directory entry, never truncate through a newly planted link.
+                            os.replace(name, download.name, src_dir_fd=directory, dst_dir_fd=directory)
+                return answer
+            except (FileNotFoundError, ConnectionRefusedError, PermissionError):
+                raise BucketError(LOCKED_LINE) from None
+            except (OSError, ValueError, UnicodeError) as err:
+                raise BucketError("no answer from the key service (%s)" % type(err).__name__) from None
+
+    def _listing(self, op: str, prefix: str, delimiter: str) -> obs.Listing:
+        a = self._ask({"op": op, "prefix": prefix, "delimiter": delimiter})
+        try:
+            objects, prefixes, modified = a["objects"], a["prefixes"], a["modified"]
+            if not isinstance(objects, list) or not isinstance(prefixes, list) or not isinstance(modified, dict):
+                raise ValueError()
+            seen = set()
+            for row in objects:
+                if not isinstance(row, (list, tuple)) or len(row) != 3:
+                    raise ValueError()
+                key, size, etag = row
+                if (not _key(key) or not key.startswith(prefix) or key in seen or type(size) is not int
+                        or size < 0 or not _plain(etag)):
+                    raise ValueError()
+                seen.add(key)
+            if not all(_key(k) and k.startswith(prefix) and k.endswith("/") for k in prefixes):
+                raise ValueError()
+            if not all(_key(k) and k.startswith(prefix) and _plain(v) for k, v in modified.items()):
+                raise ValueError()
+            return obs.Listing([tuple(row) for row in objects], prefixes, modified)
+        except (KeyError, TypeError, ValueError):
+            raise BucketError("the key service gave no valid listing") from None
 
     def list(self, prefix: str = "", delimiter: str = "", page: int = 0) -> obs.Listing:
-        a = self._ask({"op": "bucket_list", "prefix": prefix, "delimiter": delimiter})
-        return obs.Listing([(k, int(n), e) for k, n, e in a["objects"]], list(a["prefixes"]), dict(a["modified"]))
+        return self._listing("bucket_list", prefix, delimiter)
 
     def lab_list(self, prefix: str = "", delimiter: str = "") -> obs.Listing:
-        """The one listing of the lab bucket the owner's CLI has (`awb files inventory --buckets`): the top with "/",
-        inbox/ and a project's folder."""
-        a = self._ask({"op": "lab_list", "prefix": prefix, "delimiter": delimiter})
-        return obs.Listing([(k, int(n), e) for k, n, e in a["objects"]], list(a["prefixes"]), dict(a["modified"]))
+        return self._listing("lab_list", prefix, delimiter)
 
     def head(self, key: str) -> dict | None:
         for k, size, etag in self.list(key).objects:
@@ -177,7 +326,7 @@ class KeyServiceClient:
     def get(self, key: str, to: Path, if_match: str | None = None) -> Path:
         if _is_original(key):
             owner_terminal("a get of a file of in/")       # before the socket: an original never reaches a session
-        self._ask({"op": "bucket_get", "key": key}, download=Path(to))
+        self._ask({"op": "bucket_get", "key": key, "if_match": if_match}, download=Path(to))
         return Path(to)
 
     def put_file(self, key: str, path: Path, content_type: str = "application/octet-stream") -> None:
@@ -245,7 +394,7 @@ def _project(p: config.Paths, code: str):
     for row in projects.load(p):
         if row.code == code:
             return row
-    raise BucketError("%s is not a registered project" % code)
+    raise BucketError("not a registered project")
 
 
 def ensure_folder(c: obs.Client, project) -> tuple[str, bool]:
@@ -289,29 +438,63 @@ def _pulled_file(p: config.Paths) -> Path:
 
 
 def pulled(p: config.Paths) -> set[tuple[str, str]]:
-    try:
-        text = _pulled_file(p).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return set()
-    return {tuple(line.split("\t")[:2]) for line in text.splitlines() if line.count("\t") >= 2}
+    with _directory(p.vault, create=True) as directory:
+        try:
+            with _regular(directory, PULLED) as source:
+                raw = source.read(MAX_ANSWER + 1)
+        except FileNotFoundError:
+            return set()
+        try:
+            if len(raw) > MAX_ANSWER or (raw and not raw.endswith(b"\n")):
+                raise ValueError()
+            result = set()
+            for line in raw.decode("utf-8").splitlines():
+                key, etag, when = line.split("\t")
+                if not _key(key) or not _plain(etag) or date.fromisoformat(when).isoformat() != when:
+                    raise ValueError()
+                result.add((key, etag))
+            return result
+        except (ValueError, UnicodeError):
+            raise BucketError("the bucket pull history is malformed") from None
 
 
 def _remember(p: config.Paths, key: str, etag: str) -> None:
-    f = _pulled_file(p)
-    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-    with os.fdopen(fd, "a", encoding="utf-8") as out:
-        out.write("%s\t%s\t%s\n" % (key, etag, date.today().isoformat()))
+    if not _key(key) or not _plain(etag):
+        raise BucketError("the bucket pull history needs a valid key and etag")
+    with _directory(p.vault) as directory, _regular(directory, PULLED, os.O_RDWR | os.O_CREAT) as out:
+        fcntl.flock(out.fileno(), fcntl.LOCK_EX)
+        os.fchmod(out.fileno(), 0o600)
+        out.seek(0, os.SEEK_END)
+        before = out.tell()
+        try:
+            row = ("%s\t%s\t%s\n" % (key, etag, date.today().isoformat())).encode("utf-8")
+            if os.write(out.fileno(), row) != len(row):
+                raise OSError("short history write")
+            os.fsync(out.fileno())
+        except OSError:
+            os.ftruncate(out.fileno(), before)
+            raise
 
 
-def _local_name(rel: str, folder: Path) -> str:
+def _local_name(rel: str, folder: Path | int) -> str:
     base = _UNSAFE_RE.sub(" ", rel.rsplit("/", 1)[-1]).strip() or "file"
     if base.startswith("."):
         base = "_" + base
     stem, dot, suffix = base.rpartition(".")
     if not dot:
         stem, suffix = base, ""
+    def exists(name):
+        try:
+            if isinstance(folder, int):
+                os.stat(name, dir_fd=folder, follow_symlinks=False)
+            else:
+                (folder / name).lstat()
+            return True
+        except FileNotFoundError:
+            return False
+
     name, n = base, 1
-    while (folder / name).exists():
+    while exists(name):
         n += 1
         name = "%s (%d)%s" % (stem, n, "." + suffix if suffix else "")
     return name
@@ -330,9 +513,11 @@ def pull(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> d
     return result
 
 
+@_serialized
 def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> dict:
     """The new files of in/ into the vault inbox, without the intake (`awb import` runs it): the counts and the
     downloaded files under "files"."""
+    owner_terminal("awb bucket pull")
     _project(p, code)
     folder = find_folder(c, code)
     if folder is None:
@@ -341,20 +526,46 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
     incoming = [o for o in objects if o[0].startswith(folder + IN)]
     outside = [o for o in objects if not o[0].startswith((folder + IN, folder + OUT))]
     done = set() if again else pulled(p)
-    fresh = [o for o in incoming if (o[0], o[2]) not in done and "\t" not in o[0] and "\n" not in o[0]]
+    fresh = [o for o in incoming if (o[0], o[2]) not in done and _key(o[0]) and _plain(o[2])]
     result = {"new": len(fresh), "known": len(incoming) - len(fresh), "outside": len(outside), "intake": None,
               "files": [], "keys": []}
     if not fresh:
         return result
-    config.ensure_layout(p)
     files = []
-    for key, _, etag in fresh:
-        dst = p.inbox / _local_name(key[len(folder) + len(IN):], p.inbox)
-        c.get(key, dst)
-        os.chmod(dst, 0o600)
-        files.append(dst)
-        result["keys"].append(key)
-        _remember(p, key, etag)
+    with _directory(p.inbox, create=True) as directory:
+        for key, size, etag in fresh:
+            # A failed get never leaves an original or a partly written file in the inbox.
+            with tempfile.TemporaryDirectory(prefix="awb-bucket-") as tmp:
+                download = Path(tmp) / "download"
+                c.get(key, download, if_match=etag or None)
+                with _directory(download.parent) as source_dir, _regular(source_dir, download.name) as source:
+                    digest = hashlib.md5()
+                    count = 0
+                    with _stage(directory) as (stage, target):
+                        while chunk := source.read(1 << 16):
+                            digest.update(chunk)
+                            count += len(chunk)
+                            target.write(chunk)
+                        if count != size or (re.fullmatch(r"[a-fA-F0-9]{32}", etag)
+                                             and digest.hexdigest() != etag.lower()):
+                            raise BucketError("the file changed since it was listed")
+                        target.flush()
+                        os.fsync(target.fileno())
+                        while True:
+                            name = _local_name(key[len(folder) + len(IN):], directory)
+                            try:
+                                os.link(stage, name, src_dir_fd=directory, dst_dir_fd=directory,
+                                        follow_symlinks=False)
+                                break
+                            except FileExistsError:
+                                continue
+                        try:
+                            _remember(p, key, etag)
+                        except BaseException:
+                            os.unlink(name, dir_fd=directory)
+                            raise
+                files.append(p.inbox / name)
+                result["keys"].append(key)
     result["files"] = files
     return result
 
@@ -362,6 +573,7 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
 # --------------------------------------------------------------------------- put and move
 
 
+@_serialized
 def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool = False,
         reveal: bool = False, report: list | None = None, outcome: dict | None = None) -> tuple[str, dict | None]:
     """`file` into out/ of the project's folder (created when missing). With `reveal` the real names are put back
@@ -377,25 +589,60 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
     The same name stays the matter of `replace`. `outcome` receives {"same": key or None, "archived": [(key,
     target)], "failed": [(key, reason)]}."""
     project = _project(p, code)
-    file = Path(os.path.realpath(file))
-    if not file.is_file():
-        raise BucketError("the file to put is not there")
+    if reveal:
+        owner_terminal("awb bucket put --reveal")
+    root = Path(os.path.abspath(project.path))
+    if root == p.projects_root or not root.is_relative_to(p.projects_root):
+        raise BucketError("the registered project is outside the projects root")
+    with _directory(root):
+        pass
+    file = Path(os.path.abspath(file))
+    with _directory(file.parent) as directory, _regular(directory, file.name):
+        pass
     from awb import putcopy
     folder, _ = ensure_folder(c, project)
-    key = folder + OUT + file.name
+    name = file.name
+    if not _key(name) or "/" in name:
+        raise BucketError("the upload needs a plain file name")
+    if any(putcopy.scrub_text(value)[1] for value in (name, file.stem)):
+        name = "file" + (file.suffix if re.fullmatch(r"\.[a-zA-Z0-9]{1,10}", file.suffix) else "")
+    key = folder + OUT + name
     page = html_key(key)
     if not replace and any(k and c.head(k) is not None for k in (key, page)):
         raise BucketError("out/ of %s already holds a file of that name; give --replace" % code)
     ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
-    line = putcopy.review_line(Path(project.path), file)
     done = {} if outcome is None else outcome
     done.update(same=None, archived=[], failed=[])
     stats = None
     # what leaves is a private copy, its secrets replaced, never the path again
-    tmp_root = config.make_dir(p.vault / "tmp", 0o700)
+    with _directory(p.vault / "tmp", create=True):
+        pass
+    tmp_root = p.vault / "tmp"
     with tempfile.TemporaryDirectory(dir=tmp_root) as tmp:
-        copy = Path(tmp) / file.name
-        secrets = putcopy.scrub(file, copy)
+        (Path(tmp) / "source").mkdir(mode=0o700)
+        snapshot = Path(tmp) / "source" / name
+        with _directory(file.parent) as directory, _regular(directory, file.name) as source:
+            before = os.fstat(source.fileno())
+            with open(snapshot, "xb") as target:
+                os.chmod(snapshot, 0o600)
+                shutil.copyfileobj(source, target)
+            after = os.fstat(source.fileno())
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise BucketError("the upload changed while being read")
+        line = putcopy.review_line(root, snapshot)
+        if not isinstance(line, str) or not re.fullmatch(
+                r"review: (?:none|passed(?: [0-9]{4}-[0-9]{2}-[0-9]{2})?)", line):
+            line = "review: none"
+        if file.suffix.lower() in TEXT_SUFFIXES:
+            try:
+                text = snapshot.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                raise BucketError("a text deliverable must be UTF-8 text") from None
+            if "\x00" in text:
+                raise BucketError("a text deliverable cannot contain NUL bytes")
+        copy = Path(tmp) / name
+        secrets = putcopy.scrub(snapshot, copy)
         os.chmod(copy, 0o600)
         upload = copy
         if reveal:
@@ -404,8 +651,18 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
                 text = copy.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 raise BucketError("--reveal takes a text file") from None
-            upload = Path(tmp) / ("named-" + file.name)
-            stats = _reveal.write_named(text, upload, p)
+            named = Path(tmp) / ("named-" + name)
+            stats = _reveal.write_named(text, named, p)
+            upload = Path(tmp) / ("scrubbed-" + name)
+            secrets += putcopy.scrub(named, upload)
+            os.chmod(upload, 0o600)
+        page_bytes = None
+        if page:
+            try:
+                text = upload.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                raise BucketError("a Markdown deliverable must be UTF-8 text") from None
+            page_bytes = md_to_html(text, md_title(text, "Document")).encode("utf-8")
         same, older = out_versions(c, folder, code, key, page, upload)
         if same is not None:
             done["same"] = same
@@ -422,7 +679,8 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
             else:
                 done["failed"].append((old, reason))
         c.put_file(key, upload, ctype)
-        _put_page(c, page, upload)
+        if page_bytes is not None:
+            c.put_bytes(page, page_bytes, "text/html")
     return key, stats
 
 
@@ -447,6 +705,8 @@ def out_versions(c, folder: str, code: str, key: str, page: str | None, upload: 
     groups = {mine} | ({group(page)} if page else set())
     same, older = None, []
     for k, n, etag in c.list(folder + OUT).objects:
+        if not _key(k) or not k.startswith(folder + OUT):
+            raise BucketError("the bucket listed a file outside out/")
         name = k[len(folder + OUT):]
         if not name or "/" in name or is_keep(k):
             continue
@@ -464,13 +724,13 @@ def archive_out(c, key: str, target: str) -> tuple[str, str]:
     nothing is deleted without its compared copy."""
     from awb import filestidy
 
-    if getattr(c, "can_copy", True):
-        return filestidy.move_object(c, key, target)
     try:
-        a = c.archive(key, target)
-    except (BucketError, obs.OBSError) as err:
-        return filestidy.FAILED, str(err)
-    return filestidy.OK, str(a.get("reason") or "moved")
+        if getattr(c, "can_copy", True):
+            return filestidy.move_object(c, key, target)
+        c.archive(key, target)
+    except (BucketError, obs.OBSError, OSError) as err:
+        return filestidy.FAILED, "md5 comparison failed" if "md5" in str(err) else "the archive failed"
+    return filestidy.OK, "moved"
 
 
 PAGE_SUFFIXES = (".md", ".markdown")
@@ -501,13 +761,15 @@ def get_it_line(key: str, code: str) -> str:
             % (OWNER_BUCKET, key.rsplit("/", 1)[0] + "/", code))
 
 
+@_serialized
 def move(p: config.Paths, c: obs.Client, old: str, code: str) -> dict:
     """Move a folder whose name drifted to `<its month>/<code>/`: copy every object inside the object storage,
     compare names and sizes, then delete the old objects. Nothing is deleted when the comparison fails."""
+    owner_terminal("awb bucket move")
     _project(p, code)
     if not getattr(c, "can_copy", True):
         raise BucketError("the key service has no copy and no delete: move the folder in the object storage console")
-    if not (_MONTH_RE.match(old or "") and old.endswith("/") and old.count("/") == 2):
+    if not (_key(old) and _MONTH_RE.match(old) and old.endswith("/") and old.count("/") == 2):
         raise BucketError("give the folder as <YYYY-MM>/<name>/")
     target = folder_of(old[:7], code)
     if target == old:
@@ -517,11 +779,14 @@ def move(p: config.Paths, c: obs.Client, old: str, code: str) -> dict:
     objects = c.list(old).objects
     if not objects:
         raise BucketError("that folder is empty or not there")
+    if any(not _key(k) or not k.startswith(old) for k, _, _ in objects):
+        raise BucketError("the bucket listed a file outside the source folder")
     for key, _, _ in objects:
         c.copy(key, target + key[len(old):])
-    want = {k[len(old):]: s for k, s, _ in objects}
-    got = {k[len(target):]: s for k, s, _ in c.list(target).objects}
-    if got != want:
+    want = {k[len(old):]: (s, e) for k, s, e in objects}
+    got = {k[len(target):]: (s, e) for k, s, e in c.list(target).objects if k.startswith(target)}
+    current = {k[len(old):]: (s, e) for k, s, e in c.list(old).objects}
+    if got != want or current != want:
         raise BucketError("the copy does not match the folder (names or sizes differ); nothing was deleted")
     for key, _, _ in objects:
         c.delete(key)
@@ -704,8 +969,14 @@ def main(argv: list[str] | None = None) -> int:
     from awb import intake
     from awb.cli import SafeParser
 
-    ap = SafeParser(prog="awb bucket", description="The owner's bucket: one folder per project, in/ and out/.")
-    sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
+    class BucketParser(SafeParser):
+        def error(self, message):
+            self.print_usage(sys.stderr)
+            print("awb bucket: invalid command arguments", file=sys.stderr)
+            raise SystemExit(2)
+
+    ap = BucketParser(prog="awb bucket", description="The owner's bucket: one folder per project, in/ and out/.")
+    sub = ap.add_subparsers(dest="command", parser_class=BucketParser)
     sub.add_parser("sync", help="the folders of every active project; folders that match no project")
     s = sub.add_parser("folder", help="the folder of one project, created when missing")
     s.add_argument("code")
@@ -765,20 +1036,21 @@ def main(argv: list[str] | None = None) -> int:
             key, stats = put(p, c, args.code, args.file, replace=args.replace, reveal=args.reveal, report=said,
                              outcome=done)
             if done["same"] is not None:
-                print("%s: %s is the same file (size and md5): not put again" % (args.code, key))
+                print("%s: %s is the same file (size and md5): not put again" % (args.code, _public(key, p)))
                 print(get_it_line(key, args.code))
                 return 0
             for old, target in done["archived"]:
-                print("%s: %s archived to %s (an older version)" % (args.code, old, target))
+                print("%s: %s archived to %s (an older version)" % (args.code, _public(old, p), _public(target, p)))
             for old, reason in done["failed"]:
-                print("%s: %s not archived, it stays in out/: %s" % (args.code, old, reason), file=sys.stderr)
-            line = "%s: %s" % (args.code, key)
+                print("%s: %s not archived, it stays in out/: %s"
+                      % (args.code, _public(old, p), _public(reason, p)), file=sys.stderr)
+            line = "%s: %s" % (args.code, _public(key, p))
             if stats is not None:
                 line += "  (%d codes replaced by names)" % stats["replaced"]
             print(line)
             if html_key(key):
                 print("%s: %s  (the same text as HTML: open it, select all, paste into the mail)"
-                      % (args.code, html_key(key)))
+                      % (args.code, _public(html_key(key), p)))
             for one in said:
                 print(one, file=sys.stderr)          # beside the lines of the objects, never between them
             print(get_it_line(key, args.code))
@@ -787,9 +1059,13 @@ def main(argv: list[str] | None = None) -> int:
             r = move(p, c, args.folder, args.code)
             print("%s: %d objects moved to %s" % (args.code, r["moved"], r["target"]))
             return 0
-    except (BucketError, obs.OBSError, projects.ProjectError, intake.IntakeError, register.RegisterError,
-            _reveal.RevealError) as err:
-        print("awb bucket: %s" % err, file=sys.stderr)
+    except BucketError as err:
+        message = str(err)
+        print("awb bucket: %s" % (message if message == LOCKED_LINE else _public(message, p)), file=sys.stderr)
+        return 2
+    except (obs.OBSError, projects.ProjectError, intake.IntakeError, register.RegisterError,
+            _reveal.RevealError, OSError, ValueError) as err:
+        print("awb bucket: the operation failed (%s)" % type(err).__name__, file=sys.stderr)
         return 2
     return 2
 
