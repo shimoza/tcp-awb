@@ -1348,10 +1348,16 @@ def _evidence_problem(project: Path, evidence: str, deliverable: Path, high: boo
                     with os.scandir(fd) as entries:
                         next(entries, None)
                 else:
-                    with os.fdopen(_open_regular(deliverable), "rb") as source:
-                        own = os.fstat(source.fileno())
-                    if (info.st_dev, info.st_ino) == (own.st_dev, own.st_ino):
-                        return "the deliverable cannot be its own evidence"
+                    # a missing deliverable cannot be the evidence: its absence is no missing evidence path
+                    try:
+                        own_fd = _open_regular(deliverable)
+                    except FileNotFoundError:
+                        own_fd = None
+                    if own_fd is not None:
+                        with os.fdopen(own_fd, "rb") as source:
+                            own = os.fstat(source.fileno())
+                        if (info.st_dev, info.st_ino) == (own.st_dev, own.st_ino):
+                            return "the deliverable cannot be its own evidence"
             finally:
                 os.close(fd)
         except FileNotFoundError:
