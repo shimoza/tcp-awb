@@ -69,18 +69,18 @@ import os
 import re
 import secrets as _secrets
 import stat
-import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin
 from xml.sax.saxutils import escape
 
-from awb import labruns, labsecrets
+from awb import labruns
 
 SETTING = "lab_obs_max_gb"
 DEFAULT_MAX_GB = 200
@@ -103,20 +103,26 @@ SCRATCH = "/tmp/claude-%d"
 ACTIVE = ("hashing", "running", "verifying")
 RESUMABLE = ("interrupted", "failed")
 ENDED = ("done", "failed", "interrupted", "aborted")
-JOB_RE = re.compile(r"^obs-\d{8}-\d{6}-[a-z0-9]{4}$")
-_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
-_KEY_RE = re.compile(r"^[A-Za-z0-9_.=~@+-][A-Za-z0-9_.:/=~@+-]{0,799}$")
+JOB_RE = re.compile(r"obs-[0-9]{8}-[0-9]{6}-[a-z0-9]{4}\Z")
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
+_KEY_RE = re.compile(r"^[A-Za-z0-9_.=~@+-][A-Za-z0-9_.:/=~@+-]{0,799}\Z")
 RESUME_LINE = "%s the same file again to resume"
 LIMIT_LINE = "refused: the %s is %.1f GB, over the limit of %s GB (lab_obs_max_gb in keys.conf)"
 VENDOR_FILE = Path(__file__).resolve().parent.parent.parent / "rules" / "vendor-hosts.txt"
 FETCH_MAX_GB = 16
 MAX_REDIRECTS = 3
 VENDOR_AGENT = "Architect-Workbench-vendor-fetch/1 (+https://github.com/shimoza/tcp-awb)"
-_HASH_RE = re.compile(r"^(?:sha256:[0-9a-f]{64}|sha1:[0-9a-f]{40})$")
+_HASH_RE = re.compile(r"^(?:sha256:[0-9a-f]{64}|sha1:[0-9a-f]{40})\Z")
 PORTAL_LINE = ("refused: %s sits behind a vendor portal login (%s): hand this download to the owner, do not try "
                "again; a direct file link on a host of awb lab obs hosts works")
 READONLY_LINE = ("aborted: the owner switched %s back to read-only; after awb tenant mode %s write a new put or get "
                  "starts it again")
+
+
+MAX_RECORD = 4 * 1024 * 1024
+_ADMISSION = threading.RLock()
+_LOG_LOCK = threading.Lock()
+_LIVE_IDS: set[str] = set()
 
 
 class _Stopped(Exception):
@@ -154,6 +160,7 @@ class Jobs:
     def __init__(self):
         self.lock = threading.RLock()
         self.live: dict[str, Live] = {}
+        self.ending_runs: set[str] = set()
 
     def stop_all(self, why: str, state: str = "interrupted", wait: float | None = None, only=None) -> list[str]:
         """Tell every running job (or those of `only`) to stop, wait for them up to `wait` seconds (STOP_WAIT),
@@ -211,37 +218,101 @@ def _new_id() -> str:
     return "obs-%s-%s" % (stamp, "".join(_secrets.choice("abcdefghijkmnpqrstuvwxyz23456789") for _ in range(4)))
 
 
-def save_job(p, job: dict) -> None:
-    folder = jobs_dir(p)
-    folder.mkdir(parents=True, exist_ok=True)
-    os.chmod(folder, 0o700)
-    fd, tmp = tempfile.mkstemp(prefix=".job.", dir=folder)
+@contextmanager
+def _directory(path: Path, create: bool = False):
+    """Pin every directory component, refusing links even when a parent is swapped."""
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(job, fh, indent=1, sort_keys=True)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, folder / ("%s.json" % job["id"]))
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
+        for part in Path(os.path.abspath(path)).parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read_record(folder: int, name: str) -> dict | None:
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    with os.fdopen(fd, "rb") as fh:
+        st = os.fstat(fh.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > MAX_RECORD:
+            raise ValueError("unsafe job record")
+        raw = fh.read(MAX_RECORD + 1)
+        if len(raw) > MAX_RECORD:
+            raise ValueError("oversized job record")
+    job = json.loads(raw)
+    if not isinstance(job, dict) or job.get("id") != name[:-5]:
+        return None
+    if job.get("action") not in ("put", "get", "fetch") or job.get("state") not in ACTIVE + ENDED:
+        return None
+    for key in ("project", "run", "tenant", "region", "bucket", "key", "error", "sha256", "sha1",
+                "url", "source", "host", "expected", "file_name", "vendor_hash", "etag", "upload_id",
+                "object_sha256", "started", "ended"):
+        if job.get(key) is not None and not isinstance(job[key], str):
+            return None
+    for key in ("size", "done", "parts", "part_size", "pid", "rate", "seconds"):
+        if key in job and (type(job[key]) is not int or job[key] < 0):
+            return None
+    if "started_ts" in job and (type(job["started_ts"]) not in (int, float) or
+                                not 0 <= job["started_ts"] <= 253402300799):
+        return None
+    if job.get("done", 0) > job.get("size", 0):
+        return None
+    for key in ("file", "etags"):
+        if key in job and not isinstance(job[key], dict):
+            return None
+    return job
+
+
+def save_job(p, job: dict) -> None:
+    if not isinstance(job.get("id"), str) or not JOB_RE.fullmatch(job["id"]):
+        raise _refused("refused: invalid job identifier")
+    raw = json.dumps(job, indent=1, sort_keys=True).encode("utf-8")
+    if len(raw) > MAX_RECORD:
+        raise _refused("refused: oversized job record")
+    try:
+        with _directory(jobs_dir(p), create=True) as folder:
+            os.fchmod(folder, 0o700)
+            tmp = ".job." + _secrets.token_hex(16)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(raw)
+                os.replace(tmp, job["id"] + ".json", src_dir_fd=folder, dst_dir_fd=folder)
+            finally:
+                try:
+                    os.unlink(tmp, dir_fd=folder)
+                except FileNotFoundError:
+                    pass
+    except OSError:
+        raise _refused("refused: the job record cannot be saved") from None
 
 
 def load_jobs(p) -> list[dict]:
     out = []
     try:
-        names = sorted(os.listdir(jobs_dir(p)))
-    except OSError:
+        with _directory(jobs_dir(p)) as folder:
+            for name in sorted(os.listdir(folder)):
+                if not name.endswith(".json") or not JOB_RE.fullmatch(name[:-5]):
+                    continue
+                try:
+                    job = _read_record(folder, name)
+                except FileNotFoundError:
+                    continue
+                except (ValueError, UnicodeError, RecursionError):
+                    continue
+                if job is not None:
+                    out.append(job)
+    except FileNotFoundError:
         return []
-    for name in names:
-        if not name.endswith(".json") or not JOB_RE.match(name[:-5]):
-            continue
-        try:
-            job = json.loads((jobs_dir(p) / name).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(job, dict) and job.get("id") == name[:-5]:
-            out.append(job)
+    except OSError:
+        raise _refused("refused: the job records cannot be read") from None
     return out
 
 
@@ -253,6 +324,8 @@ def _alive(pid) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
+        return True
+    except (OverflowError, ValueError):
         return False
     return True
 
@@ -260,7 +333,7 @@ def _alive(pid) -> bool:
 def _settle(svc, p, job: dict) -> dict:
     """A job record as it stands: one in an active state that no process runs any longer is saved as interrupted."""
     with svc.obs_jobs.lock:
-        if job.get("state") in ACTIVE and job["id"] not in svc.obs_jobs.live and \
+        if job.get("state") in ACTIVE and job["id"] not in _LIVE_IDS and job["id"] not in svc.obs_jobs.live and \
                 (job.get("pid") == os.getpid() or not _alive(job.get("pid"))):
             job["state"] = "interrupted"
             job["error"] = "the key service restarted during the job: %s" % (
@@ -272,19 +345,27 @@ def _settle(svc, p, job: dict) -> dict:
 
 def row(job: dict) -> dict:
     """What a session sees of a job: never an upload id, a key or a path of the service."""
-    return {k: job.get(k) for k in ("id", "action", "run", "tenant", "bucket", "key", "size", "done", "state",
+    result = {k: job.get(k) for k in ("id", "action", "run", "tenant", "bucket", "key", "size", "done", "state",
                                     "rate", "error", "sha256", "started", "ended", "seconds", "parts", "part_size",
                                     "url", "sha1", "expected", "file_name", "vendor_hash")} \
         | {"parts_done": len(job.get("etags") or {})}
+    return {k: _public_text(v) if isinstance(v, str) else v for k, v in result.items()}
 
 
 # --------------------------------------------------------------------------- the checks of a request
 
 
+def _public_text(text: str) -> str:
+    # Use the same fail-closed name and secret screen as the session client.
+    from awb import labclient
+
+    return labclient._safe_text(text)
+
+
 def _refused(msg: str):
     from awb.tcp import keys
 
-    return keys.Refused(msg)
+    return keys.Refused(_public_text(msg))
 
 
 def _target(svc, req: dict, project: str, customer: bool = False) -> tuple[str, str]:
@@ -312,7 +393,9 @@ def _fd_path(fd: int) -> str:
 def _inside(path: str, folder: str) -> bool:
     if not path.startswith("/") or not folder:
         return False
-    folder = os.path.realpath(folder)
+    folder = os.path.abspath(folder)
+    if os.path.realpath(folder) != folder or os.path.normpath(path) != path:
+        return False
     try:
         return os.path.commonpath([path, folder]) == folder and path != folder
     except ValueError:
@@ -321,7 +404,7 @@ def _inside(path: str, folder: str) -> bool:
 
 def _project_folder(p, project: str) -> str:
     root = getattr(p, "projects_root", None)
-    return os.path.realpath(os.path.join(str(root), project)) if root else ""
+    return os.path.abspath(os.path.join(str(root), project)) if root else ""
 
 
 def _file_fd(fds: list[int], action: str, uid: int, p, project: str) -> tuple[int, os.stat_result]:
@@ -334,13 +417,16 @@ def _file_fd(fds: list[int], action: str, uid: int, p, project: str) -> tuple[in
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode):
         raise _refused("refused: a lab obs %s takes a regular file" % action)
-    mode = fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    mode = flags & os.O_ACCMODE
     if action == "put":
         if mode not in (os.O_RDONLY, os.O_RDWR):
             raise _refused("refused: the file of a put is not open for reading")
         return fd, st
     if mode != os.O_RDWR:
         raise _refused("refused: the file of a %s is open for reading and writing" % action)
+    if flags & os.O_APPEND or st.st_nlink != 1:
+        raise _refused("refused: a download takes an unshared file without append mode")
     where = _fd_path(fd)
     if not (_inside(where, _project_folder(p, project)) or _inside(where, SCRATCH % uid)):
         raise _refused("refused: a %s writes only inside the project folder or the session scratch folder" % action)
@@ -354,7 +440,8 @@ def _log_fd(fds: list[int], p, project: str, run: str) -> int:
     fd = fds[1]
     flags = fcntl.fcntl(fd, fcntl.F_GETFL)
     want = os.path.join(_project_folder(p, project), "notes", "lab-runs", "%s.log" % run)
-    if not stat.S_ISREG(os.fstat(fd).st_mode) or not flags & os.O_APPEND or \
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or not flags & os.O_APPEND or \
             flags & os.O_ACCMODE == os.O_RDONLY or _fd_path(fd) != want:
         raise _refused("refused: the second descriptor is not the run log notes/lab-runs/%s.log of %s, open for "
                        "append" % (run, project))
@@ -453,7 +540,11 @@ def _code(raw: bytes) -> str:
     from awb import obs
 
     code = obs.xml_error(raw[:4096])[0]
-    return code if re.match(r"^[A-Za-z0-9._]{1,40}$", code or "") else ""
+    # A syntactically plain server value can still contain a name or a credential.
+    known = {"NoSuchUpload", "NoSuchKey", "NoSuchBucket", "AccessDenied", "InvalidAccessKeyId",
+             "SignatureDoesNotMatch", "ExpiredToken", "InvalidToken", "InternalError", "SlowDown",
+             "EntityTooSmall", "InvalidPart", "InvalidPartOrder", "BucketNotEmpty"}
+    return code if code in known else ("UnknownError" if code else "")
 
 
 def _xml(raw: bytes):
@@ -520,6 +611,8 @@ def _save(svc, p, live: Live, job: dict) -> None:
         elapsed = time.monotonic() - live.t0
         if job.get("state") not in ("hashing",) and elapsed > 0:
             job["rate"] = int(max(0, int(job.get("done") or 0) - live.done0) / elapsed)
+        if job.get("action") in ("get", "fetch"):
+            job["file"] = _identity(os.fstat(live.fd))
         save_job(p, job)
 
 
@@ -669,10 +762,28 @@ def _put(svc, p, live: Live, job: dict) -> None:
     status, rh, _r = o.small("HEAD", _path(job))
     head = _lower(rh)
     if status != 200 or str(head.get("content-length")) != str(job["size"]):
-        raise _Failed("the object is not the size of the file: HTTP %d, %s of %d bytes" % (
-            status, head.get("content-length"), job["size"]))
+        raise _Failed("the object is not the size of the file: HTTP %d" % status)
     if head.get("x-obs-meta-sha256") != job["sha256"]:
         raise _Failed("the object does not carry the SHA-256 of the file as its metadata")
+
+
+def _size_header(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9]{1,20}", value) is not None
+
+
+def _download_headers(status: int, headers: dict, done: int, size: int, vendor: bool = False) -> None:
+    head = _lower(headers)
+    if vendor and str(head.get("content-type") or "").lower().startswith(("text/html", "application/xhtml")):
+        raise _Failed("the vendor link answers a web page, not a file: hand this download to the owner")
+    if head.get("content-encoding", "identity").lower() != "identity":
+        raise _Failed("the download has an unsupported content encoding")
+    # Preserve the established behavior when Content-Range is omitted. A supplied
+    # range must describe the requested remainder, including the total size.
+    value = head.get("content-range")
+    if status == 206 and value is not None:
+        match = re.fullmatch(r"bytes ([0-9]{1,20})-([0-9]{1,20})/([0-9]{1,20})", str(value))
+        if not match or tuple(map(int, match.groups())) != (done, size - 1, size):
+            raise _Failed("the download has an invalid byte range")
 
 
 def _get(svc, p, live: Live, job: dict) -> None:
@@ -704,6 +815,8 @@ def _get(svc, p, live: Live, job: dict) -> None:
         try:
             status, rh, resp = _stream("GET", url, hdrs)
             try:
+                if status in (200, 206):
+                    _download_headers(status, rh, done if status == 206 else 0, job["size"])
                 if status == 200 and done:
                     done = 0
                     h = hashlib.sha256()
@@ -715,16 +828,21 @@ def _get(svc, p, live: Live, job: dict) -> None:
                         chunk = resp.read(CHUNK)
                         if not chunk:
                             break
-                        chunk = chunk[:job["size"] - done]
+                        if len(chunk) > job["size"] - done:
+                            raise _Failed("the download exceeds its declared size")
                         view = memoryview(chunk)
                         while view:
                             wrote = os.pwrite(live.fd, view, done)
+                            if wrote <= 0:
+                                raise _Failed("the download file could not be written")
                             view = view[wrote:]
                             done += wrote
                         h.update(chunk)
                         if done - last >= SAVE_EVERY:
                             job["done"], last = done, done
                             _save(svc, p, live, job)
+                    if done == job["size"] and resp.read(1):
+                        raise _Failed("the download exceeds its declared size")
                     raw = b""
                 else:
                     raw = resp.read(64 * 1024)
@@ -733,6 +851,8 @@ def _get(svc, p, live: Live, job: dict) -> None:
         except (_Stopped, _Failed):
             raise
         except Exception:          # no answer, a broken connection, http.client.IncompleteRead and the like
+            if done >= job["size"]:
+                raise _Broken("the download ended without a confirmed size: try it again") from None
             status, raw = 0, b""
         if done >= job["size"]:
             break
@@ -771,9 +891,33 @@ class _NoAnswer(Exception):
 
 def vendor_hosts(path: Path | None = None) -> tuple[list[str], list[str]]:
     """(download hosts, portal hosts) of rules/vendor-hosts.txt (awb/vendorhosts.py)."""
-    from awb import vendorhosts
+    from awb.tcp import doc
 
-    return vendorhosts.read(path or VENDOR_FILE)
+    path = Path(path or VENDOR_FILE)
+    try:
+        with _directory(path.parent) as folder:
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+            with os.fdopen(fd, "rb") as fh:
+                st = os.fstat(fh.fileno())
+                if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > 65536:
+                    return [], []
+                raw = fh.read(65537)
+                if len(raw) > 65536:
+                    return [], []
+        text = raw.decode("utf-8")
+    except (OSError, UnicodeError):
+        return [], []
+    hosts, portals = [], []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip().lower()
+        if not line:
+            continue
+        portal = line.startswith("portal ")
+        host = line.split(None, 1)[1].strip() if portal else line
+        if not doc._HOST_RE.fullmatch(host):
+            return [], []
+        (portals if portal else hosts).append(host)
+    return hosts, portals
 
 
 def check_vendor_url(url, hosts: list[str] | None = None, portals: list[str] | None = None) -> str:
@@ -793,7 +937,7 @@ def check_vendor_url(url, hosts: list[str] | None = None, portals: list[str] | N
                    "owner")
         raise _refused(msg) from None
     if host in portals:
-        raise _refused(PORTAL_LINE % (url, host))
+        raise _refused(PORTAL_LINE % ("the requested file", host))
     return host
 
 
@@ -824,7 +968,7 @@ def _vendor_head(url: str) -> tuple[str, int, dict]:
         try:
             status, rh, resp = _vendor_open("HEAD", url, {}, timeout=60.0)
         except _NoAnswer as err:
-            raise _refused("refused: no answer from the vendor host (%s)" % err) from None
+            raise _refused("refused: no answer from the vendor host") from None
         resp.close()
         rh = _lower(rh)
         if status in (301, 302, 303, 307, 308) and isinstance(rh.get("location"), str):
@@ -867,8 +1011,10 @@ def _fetch(svc, p, live: Live, job: dict) -> None:
             if job.get("etag"):
                 headers["If-Range"] = job["etag"]
         try:
-            status, _rh, resp = _vendor_open("GET", job["source"], headers)
+            status, rh, resp = _vendor_open("GET", job["source"], headers)
             try:
+                if status in (200, 206):
+                    _download_headers(status, rh, done if status == 206 else 0, job["size"], vendor=True)
                 if status == 200 and done:
                     done = 0
                     h256, h1 = hashlib.sha256(), hashlib.sha1()
@@ -880,10 +1026,13 @@ def _fetch(svc, p, live: Live, job: dict) -> None:
                         chunk = resp.read(CHUNK)
                         if not chunk:
                             break
-                        chunk = chunk[:job["size"] - done]
+                        if len(chunk) > job["size"] - done:
+                            raise _Failed("the download exceeds its declared size")
                         view = memoryview(chunk)
                         while view:
                             wrote = os.pwrite(live.fd, view, done)
+                            if wrote <= 0:
+                                raise _Failed("the download file could not be written")
                             view = view[wrote:]
                             done += wrote
                         h256.update(chunk)
@@ -891,18 +1040,22 @@ def _fetch(svc, p, live: Live, job: dict) -> None:
                         if done - last >= SAVE_EVERY:
                             job["done"], last = done, done
                             _save(svc, p, live, job)
+                    if done == job["size"] and resp.read(1):
+                        raise _Failed("the download exceeds its declared size")
             finally:
                 resp.close()
         except (_Stopped, _Failed):
             raise
         except Exception:          # no answer, a broken connection, http.client.IncompleteRead and the like
+            if done >= job["size"]:
+                raise _Broken("the download ended without a confirmed size: try it again") from None
             status = 0
         if done >= job["size"]:
             break
         if status in (301, 302, 303, 307, 308):
             raise _Failed("the vendor host sends the file elsewhere now: fetch it again")
         if status in (401, 403, 407):
-            raise _Failed(PORTAL_LINE % (job["url"], job.get("host") or "-"))
+            raise _Failed(PORTAL_LINE % ("the requested file", job.get("host") or "-"))
         if status in (404, 410):
             raise _Failed("the vendor host answers HTTP %d: the file is gone" % status)
         if status and status not in (200, 206, 408, 429) and status < 500:
@@ -943,11 +1096,19 @@ def _log_line(live: Live, job: dict) -> None:
         lines += ["sha1: %s" % (job.get("sha1") or "-"), "vendor hash: %s" % (job.get("vendor_hash") or "-")]
     lines += ["duration: %s s" % job.get("seconds", "-"),
               "state: %s%s" % (job["state"], ": %s" % job["error"] if job.get("error") else "")]
-    text, _counts = labsecrets.shorten("\n".join(lines) + "\n")
+    text = _public_text("\n".join(lines) + "\n")
     data = (text + "\n").encode("utf-8")
     try:
-        while data:
-            data = data[os.write(live.log_fd, data):]
+        with _LOG_LOCK:
+            fcntl.flock(live.log_fd, fcntl.LOCK_EX)
+            try:
+                while data:
+                    written = os.write(live.log_fd, data)
+                    if written <= 0:
+                        break
+                    data = data[written:]
+            finally:
+                fcntl.flock(live.log_fd, fcntl.LOCK_UN)
     except OSError:
         pass
 
@@ -965,19 +1126,22 @@ def _work(svc, p, live: Live, job: dict) -> None:
     except _Failed as err:
         state, error = "failed", str(err)
     except (keys.KeysError, labadmin.LabAdminError) as err:
-        state, error = "interrupted", "%s: %s" % (err, RESUME_LINE % job["action"])
+        state, error = "interrupted", "the transfer was interrupted (%s): %s" % (
+            type(err).__name__, RESUME_LINE % job["action"])
     except Exception as err:
         state, error = "failed", "the transfer stopped (%s)" % type(err).__name__
     try:
         with svc.obs_jobs.lock:
             if live.stop.is_set() and state != "done":
                 state, error = live.end_state, live.why or error
-            job["state"], job["error"] = state, error
+            job["state"], job["error"] = state, _public_text(error) if error else None
             job["ended"] = _now()
             job["seconds"] = int(time.time() - float(job.get("started_ts") or time.time()))
             elapsed = time.monotonic() - live.t0
             if elapsed > 0:
                 job["rate"] = int(max(0, int(job.get("done") or 0) - live.done0) / elapsed)
+            if job.get("action") in ("get", "fetch"):
+                job["file"] = _identity(os.fstat(live.fd))
             save_job(p, job)
         svc._log(job.get("uid", "-"), job["tenant"], "admin", job["action"].upper(), "obs-job", job["region"],
                  state, job["project"])
@@ -985,6 +1149,7 @@ def _work(svc, p, live: Live, job: dict) -> None:
     finally:
         with svc.obs_jobs.lock:
             svc.obs_jobs.live.pop(job["id"], None)
+            _LIVE_IDS.discard(job["id"])
         for fd in (live.fd, live.log_fd):
             try:
                 os.close(fd)
@@ -993,14 +1158,27 @@ def _work(svc, p, live: Live, job: dict) -> None:
 
 
 def _start(svc, p, job: dict, fd: int, log_fd: int) -> None:
-    live = Live(job["id"], os.dup(fd), os.dup(log_fd))
-    live.done0 = int(job.get("done") or 0)
-    job["pid"] = os.getpid()
-    with svc.obs_jobs.lock:
-        svc.obs_jobs.live[job["id"]] = live
-        save_job(p, job)
-    live.thread = threading.Thread(target=_work, args=(svc, p, live, job), daemon=True, name="awb-lab-obs")
-    live.thread.start()
+    copied = []
+    try:
+        for source in (fd, log_fd):
+            copied.append(os.dup(source))
+        live = Live(job["id"], *copied)
+        live.done0 = int(job.get("done") or 0)
+        job["pid"] = os.getpid()
+        with svc.obs_jobs.lock:
+            svc.obs_jobs.live[job["id"]] = live
+            _LIVE_IDS.add(job["id"])
+            save_job(p, job)
+            live.thread = threading.Thread(target=_work, args=(svc, p, live, job), daemon=True, name="awb-lab-obs")
+            live.thread.start()
+    except BaseException:
+        with svc.obs_jobs.lock:
+            svc.obs_jobs.live.pop(job["id"], None)
+            _LIVE_IDS.discard(job["id"])
+        for copied_fd in copied:
+            os.close(copied_fd)
+        raise
+
 
 
 # --------------------------------------------------------------------------- the op lab_obs
@@ -1031,6 +1209,21 @@ def _region(svc, req: dict, alias: str) -> str:
 
 
 def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int]) -> dict:
+    # Serialize admission across request threads and service processes. Workers do not
+    # hold this lock while transferring, so unrelated objects still move concurrently.
+    with _ADMISSION:
+        try:
+            with _directory(jobs_dir(svc.paths_fn()), create=True) as folder:
+                fcntl.flock(folder, fcntl.LOCK_EX)
+                try:
+                    return _transfer_locked(svc, req, uid, project, action, fds)
+                finally:
+                    fcntl.flock(folder, fcntl.LOCK_UN)
+        except OSError:
+            raise _refused("refused: the transfer files cannot be accessed") from None
+
+
+def _transfer_locked(svc, req: dict, uid: int, project: str, action: str, fds: list[int]) -> dict:
     from awb.tcp import labadmin
 
     alias = req.get("tenant")
@@ -1049,16 +1242,17 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
     fd, st = _file_fd(fds, action, uid, p, project)
     log_fd = _log_fd(fds, p, project, run["id"])
     limit, written = max_bytes(svc.settings)
-    with svc.obs_jobs.lock:
-        running = set(svc.obs_jobs.live)
+    current = [_settle(svc, p, j) for j in load_jobs(p)]
+    running = {j["id"] for j in current if j.get("state") in ACTIVE and
+               (j["id"] in _LIVE_IDS or _alive(j.get("pid")))} | set(svc.obs_jobs.live)
     if len(running) >= MAX_LIVE:
         raise _refused("refused: %d lab obs jobs run already: awb lab obs status" % MAX_LIVE)
-    busy = next((j["id"] for j in load_jobs(p) if j["id"] in running and (
+    busy = next((j["id"] for j in current if j["id"] in running and (
         (action != "fetch" and j.get("bucket") == bucket and j.get("key") == key) or
         (j.get("file") or {}).get("ino") == st.st_ino and (j.get("file") or {}).get("dev") == st.st_dev)), None)
     if busy:
         raise _refused("refused: job %s moves that object already: awb lab obs status %s" % (busy, busy))
-    old = [j for j in _jobs_of(svc, p, project) if j.get("run") == run["id"] and j.get("action") == action
+    old = [j for j in _jobs_of(svc, p, project) if j.get("run") == run["id"] and j.get("region") == region and j.get("action") == action
            and j.get("bucket") == bucket and j.get("key") == key and j.get("state") in RESUMABLE
            and (action != "fetch" or j.get("url") == req.get("url"))]
     base = {"run": run["id"], "project": project, "tenant": alias, "region": region, "action": action,
@@ -1090,20 +1284,19 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
         try:
             status, rh, raw = o.small("HEAD", "/%s/%s" % (bucket, key))
         except labadmin.LabAdminError as err:
-            raise _refused(str(err)) from None
+            raise _refused("refused: the object metadata cannot be read") from None
         head = _lower(rh)
         if status == 404:
             raise _refused("refused: obs://%s/%s is not there" % (bucket, key))
         size = head.get("content-length")
-        if status != 200 or not str(size).isdigit():
+        if status != 200 or not _size_header(size):
             raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
         size = int(size)
         if size > limit:
             raise _refused(LIMIT_LINE % ("object", size / GB, written))
         etag = head.get("etag") if isinstance(head.get("etag"), str) else None
-        same = next((j for j in reversed(old) if j.get("etag") == etag and j.get("size") == size and
-                     (j.get("file") or {}).get("dev") == st.st_dev and (j.get("file") or {}).get("ino") ==
-                     st.st_ino), None)
+        same = next((j for j in reversed(old) if etag and j.get("etag") == etag and j.get("size") == size and
+                     j.get("file") == _identity(st)), None)
         done = min(int(same.get("done") or 0), st.st_size) if same is not None else 0
         vfs = os.fstatvfs(fd)
         free = vfs.f_bavail * vfs.f_frsize
@@ -1112,7 +1305,7 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
             raise _refused("refused: the disk of the file has %.1f GB free, the object needs %.1f GB and %d MB to "
                            "spare" % (free / GB, (size - done) / GB, DISK_RESERVE // (1024 * 1024)))
         meta = head.get("x-obs-meta-sha256")
-        meta = meta if isinstance(meta, str) and re.match(r"^[0-9a-f]{64}$", meta) else None
+        meta = meta if isinstance(meta, str) and re.fullmatch(r"[0-9a-f]{64}", meta) else None
         if same is not None:
             job = dict(same, **{k: v for k, v in base.items() if k not in ("run",)})
             job.update(done=done, state="running")
@@ -1122,11 +1315,26 @@ def _transfer(svc, req: dict, uid: int, project: str, action: str, fds: list[int
                        file={"dev": st.st_dev, "ino": st.st_ino}, state="running", started=_now(),
                        started_ts=time.time())
             resumed = False
+    if not resumed:
+        occupied = {j["id"] for j in current}
+        for _ in range(32):
+            if job["id"] not in occupied:
+                break
+            job["id"] = _new_id()
+        else:
+            raise _refused("refused: a unique job identifier could not be allocated")
     job["uid"] = uid
     answer = {"ok": True, "job": job["id"], "run": run["id"], "state": job["state"], "size": job["size"],
               "parts": job.get("parts"), "part_size": job.get("part_size"), "resumed": resumed,
               "done": job.get("done", 0), "parts_done": len(job.get("etags") or {})}
-    _start(svc, p, job, fd, log_fd)
+    # HEAD and disk checks may outlive the run or its write permission.
+    with svc.lab.lock:
+        labadmin._tenant(svc, alias, project)
+        _run_of(svc, req, project, alias, p)
+        with svc.obs_jobs.lock:
+            if run["id"] in svc.obs_jobs.ending_runs:
+                raise _refused("refused: the lab run is ending")
+            _start(svc, p, job, fd, log_fd)
     svc._log(uid, alias, "admin", action.upper(), "obs-job", region, "resumed" if resumed else "started", project)
     return answer
 
@@ -1137,15 +1345,15 @@ def _fetch_job(req: dict, base: dict, old: list[dict], fd: int, st: os.stat_resu
     url = req["url"]
     source, status, head = _vendor_head(url)
     if status in (401, 403, 407):
-        raise _refused(PORTAL_LINE % (url, host))
+        raise _refused(PORTAL_LINE % ("the requested file", host))
     if status in (404, 410):
         raise _refused("refused: the vendor host answers HTTP %d: the link is gone" % status)
     if status != 200:
         raise _refused("refused: the vendor host answered HTTP %d" % status)
     if str(head.get("content-type") or "").lower().startswith(("text/html", "application/xhtml")):
-        raise _refused(PORTAL_LINE % (url, host) + " (the link answers a web page, not a file)")
+        raise _refused(PORTAL_LINE % ("the requested file", host) + " (the link answers a web page, not a file)")
     size = head.get("content-length")
-    if not str(size).isdigit() or int(size) <= 0:
+    if not _size_header(size) or int(size) <= 0:
         raise _refused("refused: the vendor host names no size for the file")
     size = int(size)
     cap = min(limit, FETCH_MAX_GB * GB)
@@ -1153,8 +1361,8 @@ def _fetch_job(req: dict, base: dict, old: list[dict], fd: int, st: os.stat_resu
         raise _refused("refused: the file is %.1f GB, over the limit of %s GB of a fetch" % (
             size / GB, FETCH_MAX_GB if cap < limit else written))
     etag = head.get("etag") if isinstance(head.get("etag"), str) else None
-    same = next((j for j in reversed(old) if j.get("size") == size and j.get("etag") == etag and
-                 (j.get("file") or {}).get("dev") == st.st_dev and (j.get("file") or {}).get("ino") == st.st_ino),
+    same = next((j for j in reversed(old) if etag and j.get("size") == size and j.get("etag") == etag and
+                 j.get("file") == _identity(st)),
                 None)
     done = min(int(same.get("done") or 0), st.st_size) if same is not None else 0
     vfs = os.fstatvfs(fd)
@@ -1229,6 +1437,8 @@ def abort(svc, p, job: dict, why: str) -> None:
 def end_jobs(svc, run: dict) -> None:
     """Stop every job of the run and mark it aborted: an ended run is resumed by no job."""
     p = svc.paths_fn()
+    with svc.obs_jobs.lock:
+        svc.obs_jobs.ending_runs.add(run["id"])
     mine = [j for j in load_jobs(p) if j.get("run") == run["id"]]
     svc.obs_jobs.stop_all("the lab run ended", "aborted", only={j["id"] for j in mine})
     with svc.obs_jobs.lock:

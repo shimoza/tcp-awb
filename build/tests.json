@@ -22007,8 +22007,309 @@
    "name": "egress: conntrack errors and oversized counts cannot report success",
    "run": ".venv/bin/pytest tests/test_egress.py::test_conntrack_errors_and_oversized_counts_cannot_report_success",
    "status": "passing"
+  },
+  {
+   "id": "LO-H01",
+   "phase": "T",
+   "name": "lab obs: identifiers reject trailing newlines",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_identifiers_reject_trailing_newlines",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H02",
+   "phase": "T",
+   "name": "lab obs: vendor hash rejects trailing newline",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_vendor_hash_rejects_trailing_newline",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H03",
+   "phase": "T",
+   "name": "lab obs: record id cannot escape storage",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_record_id_cannot_escape_storage",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H04",
+   "phase": "T",
+   "name": "lab obs: record links are not read",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_record_links_are_not_read",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H05",
+   "phase": "T",
+   "name": "lab obs: record folder links are not written",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_record_folder_links_are_not_written",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H06",
+   "phase": "T",
+   "name": "lab obs: record parent swap stays in pinned directory",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_record_parent_swap_stays_in_pinned_directory",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H07",
+   "phase": "T",
+   "name": "lab obs: special record is not opened for blocking read",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_special_record_is_not_opened_for_blocking_read",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H08",
+   "phase": "T",
+   "name": "lab obs: oversized record is not loaded",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_oversized_record_is_not_loaded",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H09",
+   "phase": "T",
+   "name": "lab obs: malformed record fields are not loaded",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_malformed_record_fields_are_not_loaded",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H10",
+   "phase": "T",
+   "name": "lab obs: unreadable record is not treated as absent",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_unreadable_record_is_not_treated_as_absent",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H11",
+   "phase": "T",
+   "name": "lab obs: missing and invalid json records are ignored",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_missing_and_invalid_json_records_are_ignored",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H12",
+   "phase": "T",
+   "name": "lab obs: append download descriptor is refused",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_append_download_descriptor_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H13",
+   "phase": "T",
+   "name": "lab obs: hardlinked download and log are refused",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_hardlinked_download_and_log_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H14",
+   "phase": "T",
+   "name": "lab obs: linked project does not authorize outside write",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_linked_project_does_not_authorize_outside_write",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H15",
+   "phase": "T",
+   "name": "lab obs: failed start closes duplicates and clears live",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_failed_start_closes_duplicates_and_clears_live",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H16",
+   "phase": "T",
+   "name": "lab obs: concurrent admission starts only one job",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_concurrent_admission_starts_only_one_job",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H17",
+   "phase": "T",
+   "name": "lab obs: other service live record is not settled",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_other_service_live_record_is_not_settled",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H18",
+   "phase": "T",
+   "name": "lab obs: dependency errors do not reach record or log",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_dependency_errors_do_not_reach_record_or_log",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H19",
+   "phase": "T",
+   "name": "lab obs: metadata failure does not echo dependency value",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_metadata_failure_does_not_echo_dependency_value",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H20",
+   "phase": "T",
+   "name": "lab obs: arbitrary xml error codes are not public",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_arbitrary_xml_error_codes_are_not_public",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H21",
+   "phase": "T",
+   "name": "lab obs: status and log screen names and secrets",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_status_and_log_screen_names_and_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H22",
+   "phase": "T",
+   "name": "lab obs: failed name check withholds output",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_failed_name_check_withholds_output",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H23",
+   "phase": "T",
+   "name": "lab obs: portal refusal does not echo private path",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_portal_refusal_does_not_echo_private_path",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H24",
+   "phase": "T",
+   "name": "lab obs: download rejects bytes beyond head size",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_download_rejects_bytes_beyond_head_size",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H25",
+   "phase": "T",
+   "name": "lab obs: download checks eof at chunk boundary",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_download_checks_eof_at_chunk_boundary",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H26",
+   "phase": "T",
+   "name": "lab obs: download rejects wrong content range",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_download_rejects_wrong_content_range",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H27",
+   "phase": "T",
+   "name": "lab obs: vendor get rechecks content type",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_vendor_get_rechecks_content_type",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H28",
+   "phase": "T",
+   "name": "lab obs: download rejects encoded body",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_download_rejects_encoded_body",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H29",
+   "phase": "T",
+   "name": "lab obs: zero byte write fails without spinning",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_zero_byte_write_fails_without_spinning",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H30",
+   "phase": "T",
+   "name": "lab obs: non ascii size is a clean refusal",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_non_ascii_size_is_a_clean_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H31",
+   "phase": "T",
+   "name": "lab obs: put verification does not echo header",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_put_verification_does_not_echo_header",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H32",
+   "phase": "T",
+   "name": "lab obs: get without etag restarts instead of mixing versions",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_get_without_etag_restarts_instead_of_mixing_versions",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H33",
+   "phase": "T",
+   "name": "lab obs: vendor allowlist refuses links and special files",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_vendor_allowlist_refuses_links_and_special_files",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H34",
+   "phase": "T",
+   "name": "lab obs: vendor allowlist refuses malformed and oversized data",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_vendor_allowlist_refuses_malformed_and_oversized_data",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H35",
+   "phase": "T",
+   "name": "lab obs: alive handles unrepresentable pid and permission denial",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_alive_handles_unrepresentable_pid_and_permission_denial",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H36",
+   "phase": "T",
+   "name": "lab obs: put does not resume another region",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_put_does_not_resume_another_region",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H37",
+   "phase": "T",
+   "name": "lab obs: new job id collision preserves previous record",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_new_job_id_collision_preserves_previous_record",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H38",
+   "phase": "T",
+   "name": "lab obs: changed partial file is not resumed",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_changed_partial_file_is_not_resumed",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H39",
+   "phase": "T",
+   "name": "lab obs: log blocks do not interleave short writes",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_log_blocks_do_not_interleave_short_writes",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H40",
+   "phase": "T",
+   "name": "lab obs: download requires successful eof check",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_download_requires_successful_eof_check",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H41",
+   "phase": "T",
+   "name": "lab obs: dup and thread start failures release resources",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_dup_and_thread_start_failures_release_resources",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H42",
+   "phase": "T",
+   "name": "lab obs: run ending during head prevents admission",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_run_ending_during_head_prevents_admission",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H43",
+   "phase": "T",
+   "name": "lab obs: write permission is rechecked after head",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_write_permission_is_rechecked_after_head",
+   "status": "passing"
   }
  ],
- "total_tests": 3144,
+ "total_tests": 3187,
  "checked": "2026-11-09"
 }
