@@ -36,6 +36,10 @@ import base64
 import os
 import re
 import shutil
+import stat
+import tempfile
+from contextlib import contextmanager
+from functools import wraps
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -284,14 +288,17 @@ def _undo(p: config.Paths, cust: str, moved: list[tuple[Path, Path, str]], outpu
     for src, dst, fid in moved:
         try:
             if _is_file(dst):
-                shutil.move(str(dst), str(src))
+                _move_original(dst, src)
             elif _is_file(_sealed(dst)):
                 answer = vault.admin_call("open_file", p.admin_sock, path=str(_sealed(dst)))
-                fd = os.open(src, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, "wb") as fh:
-                    fh.write(base64.b64decode(answer.get("data") or ""))
+                data = base64.b64decode(answer["data"], validate=True)
+                with _directory(src.parent) as folder:
+                    fd = os.open(src.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                 0o600, dir_fd=folder)
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(data)
                 _sealed(dst).unlink()
-        except (OSError, ValueError, vault.VaultError):
+        except (OSError, ValueError, KeyError, TypeError, IntakeError, vault.VaultError):
             pass
         shutil.rmtree(_images.folder(p, cust, fid), ignore_errors=True)
     for f in list(outputs) + list(extra):
@@ -317,7 +324,7 @@ def _free_private_path(path: Path) -> Path:
     """`path` or path-2, path-3 ... when the name or its sealed copy is taken: sealing must never replace an
     older sealed report."""
     candidate, n = path, 1
-    while candidate.exists() or _sealed(candidate).exists():
+    while os.path.lexists(candidate) or os.path.lexists(_sealed(candidate)):
         n += 1
         candidate = path.with_name("%s-%d%s" % (path.stem, n, path.suffix))
     return candidate
@@ -346,13 +353,156 @@ class _Undo(Exception):
         self.path = path
 
 
-def _move_original(src: Path, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(dst.parent, 0o700)
-    if dst.exists():
-        raise FileExistsError(dst.name)
-    shutil.move(str(src), str(dst))
-    os.chmod(dst, 0o600)
+@contextmanager
+def _directory(path: Path, *, create: bool = False):
+    """Keep each directory open while descending, without following links."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for name in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(name, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _source(path: Path):
+    with _directory(path.parent) as folder:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=folder)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                raise IntakeError("an input must be a regular file with one link")
+            yield fd
+        finally:
+            os.close(fd)
+
+
+def _identity(st):
+    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns
+
+
+def _source_state(path: Path):
+    with _source(path) as fd:
+        return _identity(os.fstat(fd))
+
+
+def _validate_files(files):
+    seen = set()
+    for i, path in enumerate(files, 1):
+        try:
+            if path.is_symlink():
+                raise IntakeError("file %d of %d is a symbolic link, give the file itself" % (i, len(files)))
+            identity = _source_state(path)
+        except (OSError, ValueError):
+            raise IntakeError("file %d of %d is not a readable regular file" % (i, len(files))) from None
+        if identity[:2] in seen:
+            raise IntakeError("the same file is given more than once")
+        seen.add(identity[:2])
+
+
+def _ensure_layout(p):
+    # Check all roots before chmod or creation, including private ancestors.
+    paths = (p.shared, p.outbox, p.ledger, p.vault, p.inbox, p.originals,
+             p.private_reports, p.check_log, p.vault / "tmp", p.projects_root)
+    for path in paths:
+        parent = path
+        while not os.path.lexists(parent):
+            parent = parent.parent
+        with _directory(parent):
+            pass
+    for path in (p.shared, p.outbox, p.ledger):
+        config.make_dir(path, 0o750, shared=True)
+    for path in (p.vault, p.inbox, p.originals, p.private_reports, p.check_log, p.vault / "tmp"):
+        with _directory(path, create=True) as fd:
+            os.fchmod(fd, 0o700)
+    with _directory(p.projects_root, create=True):
+        pass
+
+
+def _quiet_io(function):
+    @wraps(function)
+    def call(*args, **kwargs):
+        try:
+            return function(*args, **kwargs)
+        except OSError as err:
+            raise type(err)("intake file operation failed") from None
+    return call
+
+
+def _move_original(src: Path, dst: Path, expected=None) -> None:
+    # Copy exclusively through pinned directories. A rename could overwrite a new arrival,
+    # follow a destination directory link, or chmod another hard link to the source.
+    with _source(src) as source, _directory(src.parent) as origin, _directory(dst.parent, create=True) as folder:
+        before = _identity(os.fstat(source))
+        if expected is not None and before != expected:
+            raise OSError("the input changed during intake")
+        os.fchmod(folder, 0o700)
+        if os.path.lexists(_sealed(dst)):
+            raise FileExistsError("an archived original already exists")
+        fd = os.open(dst.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+        try:
+            with os.fdopen(fd, "wb") as output, os.fdopen(os.dup(source), "rb") as input_file:
+                shutil.copyfileobj(input_file, output)
+                os.fchmod(output.fileno(), 0o600)
+            after = os.stat(src.name, dir_fd=origin, follow_symlinks=False)
+            if _identity(after) != before or _identity(os.fstat(source)) != before:
+                raise OSError("the input changed during intake")
+            os.unlink(src.name, dir_fd=origin)
+        except BaseException:
+            os.unlink(dst.name, dir_fd=folder)
+            raise
+
+
+def _validate_redo(files, redo, p, cust):
+    if redo is None:
+        return
+    try:
+        if not isinstance(redo, dict) or set(redo) != set(files):
+            raise ValueError
+        ids = set()
+        for src in files:
+            row = redo[src]
+            if not isinstance(row, (tuple, list)) or len(row) != 2:
+                raise ValueError
+            fid, original = row
+            if not isinstance(fid, str) or not FILE_ID_RE.fullmatch(fid) or fid in ids:
+                raise ValueError
+            ids.add(fid)
+            original = Path(original)
+            if original.parent != p.originals / cust or not (
+                    original.name == fid or original.name.startswith(fid + ".")):
+                raise ValueError
+            _source_state(original)
+    except (OSError, ValueError, TypeError):
+        raise IntakeError("invalid redo mapping or archived original") from None
+
+
+def _backups(paths):
+    saved = {}
+    for path in paths:
+        try:
+            with _source(path) as fd, os.fdopen(os.dup(fd), "rb") as stream:
+                saved[path] = stream.read()
+        except FileNotFoundError:
+            saved[path] = None
+    return saved
+
+
+def _restore(saved):
+    for path, data in saved.items():
+        if data is None:
+            path.unlink(missing_ok=True)
+        else:
+            _report.write_replace(path, data.decode("utf-8"), 0o640, 0o750)
 
 
 def _readable(word: str, text: str) -> bool:
@@ -408,6 +558,7 @@ def selftest() -> list[str]:
     return failures
 
 
+@_quiet_io
 def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None,
         confirm=None, redo: dict | None = None, trusted: bool = False, progress=None) -> IntakeResult:
     """Take `files` in for `customer` (a CUST code, "new" or the code of a project without a customer, tcp-xxxx)
@@ -420,22 +571,17 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
     its output replaces the one in the outbox, and nothing moves into the vault (`awb import --redo`).
     `progress` is called with one line of text when the slow part starts ("checking 13 files") and after each file
     ("file 3 of 13: F-XXXX, 0.8 s"); a line carries the file id and never the name of the original."""
-    files = [Path(f) for f in files]
+    try:
+        files = [Path(f) for f in files]
+    except (TypeError, ValueError):
+        raise IntakeError("invalid input file list") from None
     if not files:
         raise IntakeError("no files given")
     failed = selftest()
     if failed:
         raise IntakeError("the intake failed its self-test and takes nothing in: %s" % "; ".join(failed))
-    for i, f in enumerate(files, start=1):
-        # a link would move only the link and change the mode of what it points to
-        if f.is_symlink():
-            raise IntakeError("file %d of %d is a symbolic link, give the file itself" % (i, len(files)))
-        if not f.is_file():
-            raise IntakeError("file %d of %d is not a regular file" % (i, len(files)))
-    if len({f.resolve() for f in files}) != len(files):
-        raise IntakeError("the same file is given more than once")
-
-    config.ensure_layout(p)
+    _validate_files(files)
+    _ensure_layout(p)
     from awb import vault
 
     # one intake at a time and never while `awb vault encrypt` runs: an original written in plaintext after the
@@ -444,6 +590,7 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
     try:
         if review:
             with vault.vault_lock(p):
+                _validate_files(files)
                 customer, report, reviewed = _review_stop(files, customer, p)
             if reviewed:
                 from awb import candidates
@@ -451,17 +598,19 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
                 try:
                     candidates.review(p, customer, report, edit=edit, confirm=confirm, next_step=False)
                 except candidates.ReviewError as err:
-                    raise IntakeError("review: %s" % err) from None
+                    raise IntakeError("candidate review failed") from None
         with vault.vault_lock(p):
+            _validate_files(files)
             return _run(files, customer, p, reviewed=reviewed, redo=redo, trusted=trusted, progress=progress)
     except vault.VaultError as err:
-        raise IntakeError(str(err)) from None
+        raise IntakeError("the vault is unavailable for intake, try again when it is ready") from None
 
 
 def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | None = None, trusted: bool = False):
     """Steps 2 to 4: the customer, file ids, extraction, detection and the forms the run learns. No stop."""
     entries = register.load(p.register)
     cust, is_new = _resolve_customer(customer, entries, p)
+    _validate_redo(files, redo, p, cust)
     engine = _Engine(entries)
     engine.keep = tuple(load_keep(p))
     engine.wipe.trusted = trusted
@@ -469,6 +618,7 @@ def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | 
     rec = _report.Run(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), customer=cust,
                       new_customer=is_new, register_forms=engine.forms)
     taken = _taken_ids(p, cust)
+    sources = {}
     extractions: dict[str, list[tuple[str, object]]] = {}
     for src in files:
         if redo is not None:
@@ -477,8 +627,17 @@ def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | 
                 raise IntakeError("a file of the redo has no file id")
         else:
             fid = engine.fresh_file_id(taken)
-        with _extract.temp_root(p.vault / "tmp"):
-            ex = _extract.extract(src)
+        with _extract.temp_root(p.vault / "tmp"), _source(src) as fd:
+            before = _identity(os.fstat(fd))
+            with tempfile.TemporaryDirectory(prefix="intake-", dir=p.vault / "tmp") as folder:
+                snapshot = Path(folder) / src.name
+                with os.fdopen(os.dup(fd), "rb") as stream, snapshot.open("xb") as output:
+                    os.fchmod(output.fileno(), 0o600)
+                    shutil.copyfileobj(stream, output)
+                ex = _extract.extract(snapshot)
+            if _source_state(src) != before or _identity(os.fstat(fd)) != before:
+                raise IntakeError("an input changed during intake, nothing was archived")
+            sources[src] = before
         fr = _report.FileRecord(file_id=fid, original_name=src.name, kind=ex.kind, state=ex.state)
         name_text = re.sub(r"_+", " ", src.name)
         engine.detect("%s file name" % fid, name_text)
@@ -492,6 +651,7 @@ def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | 
             if pex.text and pex.text not in pieces[0]:
                 pieces.append(pex.text)
             pieces.append(_meta_text(pex.meta))
+            pieces.extend(pex.notes)
             for c in engine.detect("%s detect" % part_id, "\n".join(t for t in pieces if t)):
                 rec.candidates.append((part_id, c))
             engine.detect("%s raw parts" % part_id, getattr(pex, "scan_text", "") or "", names_only=True)
@@ -503,7 +663,7 @@ def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | 
             seen.add(c.casefold())
             unique.append((pid, c))
     rec.candidates = unique
-    return cust, engine, rec, extractions, now
+    return cust, engine, rec, extractions, now, sources
 
 
 def _review_stop(files: list[Path], customer: str, p: config.Paths) -> tuple[str, Path, int]:
@@ -511,7 +671,7 @@ def _review_stop(files: list[Path], customer: str, p: config.Paths) -> tuple[str
     written to the outbox and no original moves. Returns the customer code, the report and the number of
     candidates."""
     encrypted = vault_encrypted(p)
-    cust, engine, rec, _, now = _detect_all(files, customer, p)
+    cust, engine, rec, _, now, _ = _detect_all(files, customer, p)
     rec.stopped = True
     rec.hits = list(engine.hits.values())
     path = p.private_reports / cust / ("%s.md" % now.strftime("%Y-%m-%d-%H%M%S"))
@@ -528,84 +688,88 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
     encrypted = vault_encrypted(p)
     if progress:
         progress("checking %d file%s" % (len(files), "" if len(files) == 1 else "s"))
-    cust, engine, rec, extractions, now = _detect_all(files, customer, p, redo, trusted)
+    cust, engine, rec, extractions, now, sources = _detect_all(files, customer, p, redo, trusted)
     rec.reviewed = reviewed
     stamp = now.strftime("%Y-%m-%d-%H%M%S")
     private_path = p.private_reports / cust / ("%s.md" % stamp)
     public_path = p.outbox / cust / _report.PUBLIC_NAME
     owner = _stuck(public_path)
     if owner:
-        raise IntakeError(STUCK % (public_path, owner, public_path, public_path))
+        raise IntakeError("the public report belongs to another user in a folder with the sticky bit; "
+                          "nothing of this run was written or moved. Ask its owner to rename it and try again")
 
+    for base in (p.originals / cust, p.private_reports / cust):
+        with _directory(base, create=True):
+            pass
+    saved = _backups([public_path] + ([p.outbox / cust / (fr.file_id + ".md") for fr in rec.files]
+                                     if redo is not None else []))
     # steps 6 and 7: sanitise, write, check each output once more
     outdir = config.make_dir(p.outbox / cust, 0o750, shared=True)
     outputs: list[Path] = []
     check_failed: set[str] = set()
+    moved: list[tuple[Path, Path, str]] = []
     try:
         _write_outputs(rec, extractions, engine, outdir, outputs, check_failed, replace=redo is not None,
                        progress=progress)
-    except BaseException:
-        # never leave a half run behind: the outputs of this run go, the originals stay in the inbox
-        for out in outputs:
-            out.unlink(missing_ok=True)
-        raise
-
-    # step 8: move the originals of every file that passed the final check; seal them in an encrypted vault
-    unsealed = 0
-    pictures_total = 0
-    moved: list[tuple[Path, Path, str]] = []
-    for src, fr in zip(files, rec.files):
-        if redo is not None:
-            # the original has lain in the vault since its first import, its pictures are held
-            fr.original = redo[src][1]
+        for src in files:
+            if _source_state(src) != sources[src]:
+                raise IntakeError("an input changed during intake, nothing was archived")
+        # step 8: move the originals of every file that passed the final check; seal them in an encrypted vault
+        unsealed = 0
+        pictures_total = 0
+        for src, fr in zip(files, rec.files):
+            if redo is not None:
+                # the original has lain in the vault since its first import, its pictures are held
+                fr.original = redo[src][1]
+                if fr.file_id in check_failed:
+                    fr.reasons.append("the redo of this file failed the final check, no copy in the outbox")
+                continue
             if fr.file_id in check_failed:
-                fr.reasons.append("the redo of this file failed the final check, no copy in the outbox")
-            continue
-        if fr.file_id in check_failed:
-            fr.reasons.append("original left in the inbox because the final check failed")
-            continue
-        dst = p.originals / cust / ("%s%s" % (fr.file_id, _suffix(src.name, engine)))
-        try:
-            pictures = _images.hold(p, cust, fr.file_id, src, fr.kind, encrypted=encrypted)
-        except (_images.ImageError, OSError) as err:
-            pictures = 0
-            fr.reasons.append("pictures not held (%s)" % type(err).__name__)
-        if pictures:
-            pictures_total += pictures
-            fr.parts[0].public_notes.append("%d picture(s) held on the vault side, released only by awb images "
-                                            "release after a look" % pictures)
-        try:
-            _move_original(src, dst)
-            fr.original = dst
-        except OSError as err:
-            fr.reasons.append("original not moved (%s)" % type(err).__name__)
-            continue
-        moved.append((src, dst, fr.file_id))
-        if encrypted:
-            why = seal(p, dst)
-            if why is None:
-                fr.original = _sealed(dst)
-            elif why in UNDO_SEALS:
-                _undo(p, cust, moved, outputs, [])
-                raise IntakeError(UNDONE)
-            else:
-                unsealed += 1
-                fr.reasons.append("original not sealed (%s), it lies in plaintext in the vault" % why)
+                fr.reasons.append("original left in the inbox because the final check failed")
+                continue
+            dst = p.originals / cust / ("%s%s" % (fr.file_id, _suffix(src.name, engine)))
+            try:
+                pictures = _images.hold(p, cust, fr.file_id, src, fr.kind, encrypted=encrypted)
+            except (_images.ImageError, OSError) as err:
+                pictures = 0
+                fr.reasons.append("pictures not held (%s)" % type(err).__name__)
+            if pictures:
+                pictures_total += pictures
+                fr.parts[0].public_notes.append("%d picture(s) held on the vault side, released only by awb images "
+                                                "release after a look" % pictures)
+            try:
+                _move_original(src, dst, sources[src])
+                fr.original = dst
+            except OSError as err:
+                fr.reasons.append("original not moved (%s)" % type(err).__name__)
+                continue
+            moved.append((src, dst, fr.file_id))
+            if encrypted:
+                why = seal(p, dst)
+                if why is None:
+                    fr.original = _sealed(dst)
+                elif why in UNDO_SEALS:
+                    raise IntakeError(UNDONE)
+                else:
+                    unsealed += 1
+                    fr.reasons.append("original not sealed (%s), it lies in plaintext in the vault" % why)
 
-    # step 9: reports
-    rec.hits = list(engine.hits.values())
-    rec.learned = engine.learned_forms()
-    public_text = _public_text(rec, engine)
-    try:
-        public_written = _report.write_public(public_path, public_text)
-    except OSError as err:
+        # step 9: reports
+        rec.hits = list(engine.hits.values())
+        rec.learned = engine.learned_forms()
+        public_text = _public_text(rec, engine)
+        try:
+            public_written = _report.write_public(public_path, public_text)
+        except OSError as err:
+            raise IntakeError(REPORT_FAILED % ("public", type(err).__name__)) from None
+        try:
+            private_written, report_unsealed = _write_private_report(p, private_path, rec, encrypted)
+        except _Undo as undo:
+            raise IntakeError(UNDONE) from None
+    except BaseException:
         _undo(p, cust, moved, outputs, [])
-        raise IntakeError(REPORT_FAILED % (public_path, type(err).__name__)) from None
-    try:
-        private_written, report_unsealed = _write_private_report(p, private_path, rec, encrypted)
-    except _Undo as undo:
-        _undo(p, cust, moved, outputs, [public_written, undo.path])
-        raise IntakeError(UNDONE) from None
+        _restore(saved)
+        raise
     from awb import intake_counts
     intake_counts.record_intake(p, cust, len(rec.candidates), extractor=_report.extractor_word(rec))
     wiped: Counter = Counter()
@@ -629,6 +793,7 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
                         pictures=pictures_total, reviewed=reviewed, candidates=len(rec.candidates))
 
 
+@_quiet_io
 def run_text(text: str, customer: str, p: config.Paths, shape, write, *, label: str, kind: str, screen=None,
              held=None) -> IntakeResult:
     """Take one text in for `customer` (a CUST code, "new" or the code of a project without a customer), the door
@@ -645,14 +810,14 @@ def run_text(text: str, customer: str, p: config.Paths, shape, write, *, label: 
     if failed:
         raise IntakeError("the intake failed its self-test and takes nothing in: %s" % "; ".join(failed))
     screened = screen(text) if screen is not None else text
-    config.ensure_layout(p)
+    _ensure_layout(p)
     from awb import vault
 
     try:
         with vault.vault_lock(p):
             return _run_text(customer, p, screened, shape, write, label, kind, held)
     except vault.VaultError as err:
-        raise IntakeError(str(err)) from None
+        raise IntakeError("the vault is unavailable for intake, try again when it is ready") from None
 
 
 def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str, kind: str, held) -> IntakeResult:
@@ -667,19 +832,30 @@ def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str
     if reader is not None:
         hits += engine.leaks(reader, candidates=False)
     hits += _body_hits(engine, body if reader is None else reader)
+    if not _public_safe(engine, body) or (reader is not None and not _public_safe(engine, reader)):
+        hits.append(_report.Hit("", "secret", ""))
     if hits:
         found = _report.counts_text(Counter(h.cls for h in hits))
         if held is not None:
             raise held(found)
         raise IntakeError("the final check withheld the text (%s left in it): nothing was written" % found)
 
-    out = write(p.outbox / cust, body)
+    public_path = p.outbox / cust / _report.PUBLIC_NAME
+    saved = _backups([public_path])
+    out = Path(write(p.outbox / cust, body))
+    if out.parent != p.outbox / cust or out.name == _report.PUBLIC_NAME:
+        raise IntakeError("the text writer returned a path outside its output folder")
+    with _source(out) as fd, os.fdopen(os.dup(fd), "r", encoding="utf-8") as stream:
+        written_text = stream.read()
+    if written_text != body or not _public_safe(engine, written_text):
+        out.unlink(missing_ok=True)
+        raise IntakeError("the final check withheld the written text")
     stem = out.name
     rec = _report.Run(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), customer=cust, new_customer=is_new,
                       register_forms=engine.forms)
     fr = _report.FileRecord(file_id=stem, original_name=label, kind=kind, state="ok")
     part = _report.Part(part_id=stem, label=fr.original_name, kind=fr.kind, state="ok", notes=list(notes),
-                        public_notes=list(notes), meta={"size": size})
+                        public_notes=[_clean_note(engine, n, "text note") for n in notes], meta={"size": size})
     part.counts.update(counts)
     fr.parts.append(part)
     fr.output = out
@@ -692,13 +868,28 @@ def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str
         private_written, unsealed = _write_private_report(p, private_path, rec, encrypted)
     except _Undo:
         out.unlink(missing_ok=True)
+        _restore(saved)
         raise IntakeError(UNDONE) from None
     except BaseException:
         out.unlink(missing_ok=True)
+        _restore(saved)
         raise
     wiped = Counter({wipe.TOKEN_TEXT[cls]: n for cls, n in counts.items() if cls in wipe.WIPE_CLASSES and n})
     return IntakeResult(customer=cust, outputs=[out], public_report=public_written,
                         private_report=private_written, states={stem: "ok"}, unsealed=unsealed, wiped=wiped)
+
+
+def _public_safe(engine, text):
+    counts = Counter()
+    scrubbed = cleanlogs.drop_secret_lines(cleanlogs.wipe_secrets(text, counts), counts)
+    return scrubbed == text and not engine.leaks(text, candidates=False)
+
+
+def _clean_note(engine, note, where):
+    counts = Counter()
+    clean, _ = engine.sanitize(cleanlogs.wipe_secrets(note, counts), where)
+    clean = cleanlogs.drop_secret_lines(clean, counts)
+    return gate.wipe_gate_classes(clean)[0]
 
 
 def _public_text(rec: _report.Run, engine: _Engine) -> str:
@@ -707,16 +898,16 @@ def _public_text(rec: _report.Run, engine: _Engine) -> str:
     withhold it (decision 22). Notes that carry a hit are withheld; when the report still carries one, only the
     counts go out."""
     text = _report.render_public(rec)
-    if not engine.leaks(text, candidates=False):
+    if _public_safe(engine, text):
         return text
     for fr in rec.files:
         for part in fr.parts:
             part.public_notes = ["notes withheld, see the private report"] if part.notes else []
     text = _report.render_public(rec)
-    if not engine.leaks(text, candidates=False):
+    if _public_safe(engine, text):
         return text
     text = _report.render_minimal(rec)
-    if engine.leaks(text, candidates=False):
+    if not _public_safe(engine, text):
         raise IntakeError("the public report of %s does not pass the final check" % rec.customer)
     return text
 
@@ -751,8 +942,7 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
         bodies[part.part_id] = body
         part.counts.update(counts)
         for note in part.notes:
-            clean, _ = engine.sanitize(note, "%s note" % part.part_id)
-            part.public_notes.append(clean)
+            part.public_notes.append(_clean_note(engine, note, "%s note" % part.part_id))
     if not any(b.strip() for b in bodies.values()):
         fr.reasons.append("no text to write, no output")
         return
@@ -760,10 +950,16 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
     text = _output_text(fr, bodies)
     hits = engine.leaks(text, candidates=False) + _body_hits(engine, text)
     if not hits:
-        if replace:
-            written = _report.write_replace(out, text, 0o640, 0o750)
-        else:
-            written = _report.write_new(out, text, 0o640, 0o750)
+        existed = os.path.lexists(out)
+        try:
+            if replace:
+                written = _report.write_replace(out, text, 0o640, 0o750)
+            else:
+                written = _report.write_new(out, text, 0o640, 0o750)
+        except BaseException:
+            if not existed:
+                out.unlink(missing_ok=True)
+            raise
         if written != out:  # the file id was taken meanwhile: never write under another name
             written.unlink(missing_ok=True)
             raise IntakeError("output %s already exists" % fr.file_id)
