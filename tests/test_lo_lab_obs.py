@@ -962,34 +962,42 @@ def test_lo_review_arbitrary_xml_error_codes_are_not_public():
     assert labobs._code(b"<Error><Code>NoSuchUpload</Code></Error>") == "NoSuchUpload"
 
 
-def test_lo_review_status_and_log_screen_names_and_secrets(local_obs, monkeypatch):
-    from awb import check
-
+def test_lo_review_status_and_log_screen_secrets(local_obs):
+    """A job value is the service's own text: the secret check screens it before a row or a log line, no name check
+    runs (check once at entry)."""
     w = local_obs
-    private = "Invented" + "Customer" + "4711"
     secret = "Invented" + "Secret" + "4711"
-    monkeypatch.setattr(check, "check_text", lambda text, register: [{"cls": "name"}] if private in text else [])
-    for value in (private, "pass" + "word=" + secret):
-        job = _review_job(key=value, error=value)
-        assert private not in json.dumps(labobs.row(job)) and secret not in json.dumps(labobs.row(job))
-        path = w.folder / "checked.log"
-        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-        try:
-            labobs._log_line(labobs.Live(job["id"], -1, fd), job)
-        finally:
-            os.close(fd)
-        assert private not in path.read_text() and secret not in path.read_text()
+    job = _review_job(key="pass" + "word=" + secret, error="pass" + "word=" + secret)
+    assert secret not in json.dumps(labobs.row(job))
+    path = w.folder / "checked.log"
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        labobs._log_line(labobs.Live(job["id"], -1, fd), job)
+    finally:
+        os.close(fd)
+    assert secret not in path.read_text()
 
 
-def test_lo_review_failed_name_check_withholds_output(local_obs, monkeypatch):
+def test_lo_review_a_job_value_runs_no_name_check(local_obs, monkeypatch):
     from awb import check
 
-    def unavailable(*args):
+    def called(*args):
+        raise AssertionError("the name check ran on a job value")
+
+    monkeypatch.setattr(check, "check_text", called)
+    assert "plain-object" in json.dumps(labobs.row(_review_job(key="plain-object")))
+
+
+def test_lo_review_failed_secret_check_withholds_output(local_obs, monkeypatch):
+    from awb import labsecrets
+
+    def broken(*args):
         raise RuntimeError("private-" + "checker-" + "detail")
 
-    monkeypatch.setattr(check, "check_text", unavailable)
+    monkeypatch.setattr(labsecrets, "shorten", broken)
     value = "private-" + "object"
-    assert value not in json.dumps(labobs.row(_review_job(key=value)))
+    out = json.dumps(labobs.row(_review_job(key=value)))
+    assert value not in out and "checker" not in out
 
 
 def test_lo_review_portal_refusal_does_not_echo_private_path():

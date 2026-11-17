@@ -22151,15 +22151,22 @@
   {
    "id": "LO-H21",
    "phase": "T",
-   "name": "lab obs: status and log screen names and secrets",
-   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_status_and_log_screen_names_and_secrets",
+   "name": "Lab OBS review: status and log screen secrets",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_status_and_log_screen_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "LO-H21-N1",
+   "phase": "T",
+   "name": "Lab OBS review: a job value runs no name check",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_a_job_value_runs_no_name_check",
    "status": "passing"
   },
   {
    "id": "LO-H22",
    "phase": "T",
-   "name": "lab obs: failed name check withholds output",
-   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_failed_name_check_withholds_output",
+   "name": "Lab OBS review: failed secret check withholds output",
+   "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_failed_secret_check_withholds_output",
    "status": "passing"
   },
   {
@@ -22310,6 +22317,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 3187,
+ "total_tests": 3188,
  "checked": "2026-11-09"
 }

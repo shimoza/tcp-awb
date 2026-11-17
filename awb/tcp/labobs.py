@@ -356,10 +356,19 @@ def row(job: dict) -> dict:
 
 
 def _public_text(text: str) -> str:
-    # Use the same fail-closed name and secret screen as the session client.
-    from awb import labclient
+    """The secret screen of a job value before it leaves the service: the job's own text (ids, URLs, vendor file
+    names) is generated here, so it gets the secret check only and no name check (check once at entry); a control
+    or bidi character or a checker error withholds the value."""
+    from awb import labsecrets
 
-    return labclient._safe_text(text)
+    try:
+        text.encode("utf-8")
+        if any(ord(c) < 32 and c not in "\n\t" or 0x7f <= ord(c) < 0xa0 or
+               c in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" for c in text):
+            return "[withheld]"
+        return labsecrets.shorten(text)[0]
+    except Exception:
+        return "[withheld]"
 
 
 def _refused(msg: str):
