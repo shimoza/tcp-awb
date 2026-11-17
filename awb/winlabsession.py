@@ -298,7 +298,8 @@ def _broker_machine(answer: dict, name: str) -> dict:
     machine = answer.get("machine")
     try:
         if (not isinstance(machine, dict) or machine.get("name") != name
-                or winlab._stamp(winlab._parse(machine["end"])) != machine["end"]):
+                or winlab._stamp(winlab._parse(machine["end"])) != machine["end"]
+                or machine.get("public_image", True) is not True):
             raise ValueError()
     except (ValueError, KeyError, TypeError):
         raise WinlabError("the lab broker returned an invalid window") from None
@@ -1537,6 +1538,9 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
             # check alone, which opens the archive, at any size (B-040; tcp-bytg 2026-11-17).
             with open(snapshot, "rb") as fh:
                 packed = fh.read(8).startswith(_COMPRESSED) or disk_image(snapshot, size) is not None
+            # the owner's statement on the window (awb winlab open --public-image): public images built in the lab
+            public = packed and (machine.get("public_image") is True
+                                 or (machine.get("window") or {}).get("public_image") is True)
             if size <= CHECK_WHOLE_MAX or packed:
                 names = [h for h in hooks.file_hits(snapshot) if h.get("cls") in NAME_CLASSES]
                 if names:
@@ -1547,7 +1551,7 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
                     text = tail + _piece_text(data)
                     if not packed and _name_count(text):
                         raise WinlabError("the file carries registered name(s): the copy was deleted")
-                    if (_image_secret_count(text) if packed else _secret_count(text)):
+                    if not public and (_image_secret_count(text) if packed else _secret_count(text)):
                         raise WinlabError("the file carries secret(s): the copy was deleted")
                     tail = text[-OVERLAP:]
         except (WinlabError, hooks.Unavailable) as exc:
@@ -1566,7 +1570,8 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
             pass
     _unlink(rpath)
     path = log(root, name, title, ["from %s" % winpath, "%s, sha256 %s, %s" % (
-        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")])
+        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")]
+               + (["secret check skipped: a public image window of the owner"] if public else []))
     return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "file": rel,
             "log": path.relative_to(root)}
 

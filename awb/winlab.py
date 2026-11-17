@@ -242,6 +242,8 @@ def _matches(pattern, value) -> bool:
 def _valid_window(w) -> bool:
     if not isinstance(w, dict) or not _matches(CODE_RE, w.get("project")):
         return False
+    if w.get("public_image", True) is not True:
+        return False
     try:
         return _parse(w["start"]) < _parse(w["end"])
     except (KeyError, ValueError, TypeError):
@@ -336,7 +338,11 @@ def add(name: str, port: int, fingerprint: str, no_customer_data: bool, *, path:
 
 @_transaction
 def open_(name: str, minutes: int, project: str, *, path: Path | None = None,
-          now: datetime.datetime | None = None) -> str:
+          now: datetime.datetime | None = None, public_image: bool = False) -> str:
+    """Open a window. `public_image` is the owner's statement that the disk images of this window are public
+    images built in the lab (an evaluation image of the vendor): a get of a disk image or of a compressed file then
+    skips the secret check, whose patterns hit the noise of image bytes. The name check of a compressed file
+    stays."""
     _owner_only()
     if not CODE_RE.fullmatch(project or ""):
         raise WinlabError("a project code reads like tcp-q7m4")
@@ -351,9 +357,12 @@ def open_(name: str, minutes: int, project: str, *, path: Path | None = None,
                           % (name, w["project"], _shown(w["end"]), name))
     end = now + datetime.timedelta(minutes=minutes)
     m["window"] = {"project": project, "start": _stamp(now), "end": _stamp(end)}
+    if public_image is True:
+        m["window"]["public_image"] = True
     save(machines, path)
-    return "lab machine %s: window open for %s until %s (%d min)" % (name, project, _shown(m["window"]["end"]),
-                                                                     minutes)
+    return "lab machine %s: window open for %s until %s (%d min)%s" % (
+        name, project, _shown(m["window"]["end"]), minutes,
+        ", public images: no secret check on a get of a disk image" if public_image is True else "")
 
 
 @_transaction
@@ -590,6 +599,10 @@ def main(argv: list[str] | None = None) -> int:
     o.add_argument("name")
     o.add_argument("--minutes", type=int, required=True, help="1 to %d" % MINUTES_MAX)
     o.add_argument("--project", required=True, help="the project code, tcp-xxxx")
+    o.add_argument("--public-image", action="store_true",
+                   help="your statement that the disk images of this window are public images built in the lab: a "
+                        "get of a disk image or a compressed file skips the secret check (the name check of a compressed file "
+                        "stays)")
     c = sub.add_parser("close", help="end the window of a machine now (owner side, his own terminal)")
     c.add_argument("name")
     r = sub.add_parser("remove", help="forget a lab machine and its window and print remove.ps1 for the laptop "
@@ -660,7 +673,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "add":
             print(add(args.name, args.port, args.fingerprint, args.no_customer_data, account=args.account))
         elif args.command == "open":
-            print(open_(args.name, args.minutes, args.project))
+            print(open_(args.name, args.minutes, args.project, public_image=args.public_image))
         elif args.command == "close":
             print(close(args.name))
         elif args.command == "remove":

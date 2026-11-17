@@ -1120,6 +1120,7 @@ the lab broker, which holds the key and is the one way to the laptop.
 ```bash
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
 awb winlab open lab-1 --minutes 60 --project tcp-xxxx
+awb winlab open lab-1 --minutes 240 --project tcp-xxxx --public-image   # disk images of the window are public lab images: no secret check on their get
 awb winlab close lab-1                       # before its end
 awb winlab remove lab-1
 awb winlab list                              # machines, their window, its end (in a project session: the windows open for it, from the broker)

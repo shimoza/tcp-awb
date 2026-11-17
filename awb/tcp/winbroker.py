@@ -552,8 +552,10 @@ class Broker:
                 raise WinlabError("a call names a lab machine (awb winlab list)")
             machine = winlab.allowed(name, code, path=self.registry, now=self.clock())
             if op == "check":
-                return self._answer(uid, op, name, code, {"ok": True, "machine": {
-                    "name": name, "end": machine["window"]["end"]}}), b""
+                found = {"name": name, "end": machine["window"]["end"]}
+                if machine["window"].get("public_image") is True:
+                    found["public_image"] = True
+                return self._answer(uid, op, name, code, {"ok": True, "machine": found}), b""
             transport = SshTransport(self, name, machine)
             if op == "run":
                 text = req.get("text")

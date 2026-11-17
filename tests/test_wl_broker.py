@@ -161,6 +161,15 @@ def open_window(lab, minutes=60, project=PROJECT, machine=MACHINE):
 # --------------------------------------------------------------------------- the refusals, one line each
 
 
+def test_wl_broker_check_tells_a_public_image_window(lab):
+    """tcp-bytg 2026-11-17: the check answer carries the owner's public image statement of the window, only then."""
+    open_window(lab)
+    assert "public_image" not in call(lab, "check")[0]["machine"]
+    winlab.close(MACHINE, now=lab.clock[0])
+    winlab.open_(MACHINE, 60, PROJECT, now=lab.clock[0], public_image=True)
+    assert call(lab, "check")[0]["machine"]["public_image"] is True
+
+
 def test_wl_broker_refuses_an_unregistered_machine(lab):
     open_window(lab)
     assert "%s is not a registered lab machine" % OTHER_MACHINE in refused(call(lab, machine=OTHER_MACHINE))

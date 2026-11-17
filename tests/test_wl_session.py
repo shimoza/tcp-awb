@@ -724,6 +724,59 @@ def test_wl_a_large_compressed_get_with_a_registered_name_inside_is_deleted(lab,
     fixtures.assert_no_fixture_name(err + logs(lab.root), "refusal and log")
 
 
+def _image_with_a_key() -> bytearray:
+    head = b"vhdxfile" + b"\x00" * 504
+    return bytearray(head + ("\nak = %s\nsk = %s\n" % (KEY_ID, KEY_SECRET)).encode() + b"\x00" * 512)
+
+
+def test_wl_a_get_of_a_disk_image_runs_the_secret_check_in_a_plain_window(lab, capsys):
+    """tcp-bytg 2026-11-17: the secret check of a disk image stays on unless the owner opened a public image
+    window."""
+    lab.files[(WINDIR + "r23.vhdx").lower()] = _image_with_a_key()
+    assert cli.main(["winlab", "get", WINDIR + "r23.vhdx", "r23.vhdx"]) == 1
+    assert "secret(s): the copy was deleted" in capsys.readouterr().err
+    assert not (lab.root / "r23.vhdx").exists()
+
+
+def test_wl_a_public_image_window_of_the_owner_skips_the_secret_check_of_an_image_get(lab, capsys):
+    """tcp-bytg 2026-11-17, the owner's decision: awb winlab open --public-image states that the disk images of the
+    window are public images built in the lab; a get of a disk image skips the secret check, says so in the log,
+    and the name check of a compressed file stays."""
+    import gzip
+
+    winlab.close(MACHINE)
+    assert "public images" in winlab.open_(MACHINE, 60, CODE, public_image=True)
+    lab.files[(WINDIR + "r23.vhdx").lower()] = _image_with_a_key()
+    assert cli.main(["winlab", "get", WINDIR + "r23.vhdx", "r23.vhdx"]) == 0, capsys.readouterr().err
+    assert (lab.root / "r23.vhdx").exists()
+    assert "secret check skipped: a public image window of the owner" in logs(lab.root)
+    named = ("plain\n" * 10 + "for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
+    lab.files[(WINDIR + "named.txt.gz").lower()] = bytearray(gzip.compress(named))
+    assert cli.main(["winlab", "get", WINDIR + "named.txt.gz", "named.txt.gz"]) == 1
+    assert "registered name(s): the copy was deleted" in capsys.readouterr().err
+
+
+def test_wl_a_public_image_window_keeps_the_secret_check_of_a_plain_file(lab, capsys):
+    winlab.close(MACHINE)
+    winlab.open_(MACHINE, 60, CODE, public_image=True)
+    lab.files[(WINDIR + "keys.txt").lower()] = bytearray(("ak = %s\nsk = %s\n" % (KEY_ID, KEY_SECRET)).encode())
+    assert cli.main(["winlab", "get", WINDIR + "keys.txt", "keys.txt"]) == 1
+    assert "secret(s): the copy was deleted" in capsys.readouterr().err
+
+
+def test_wl_the_broker_check_carries_the_public_image_statement_and_nothing_else_passes_for_it(lab):
+    machine = {"name": MACHINE, "end": "2026-11-17T18:00:00Z"}
+    assert "public_image" not in winlabsession._broker_machine({"machine": machine}, MACHINE)
+    assert winlabsession._broker_machine({"machine": dict(machine, public_image=True)}, MACHINE)["public_image"]
+    for bad in (False, "yes", 1):
+        with pytest.raises(winlabsession.WinlabError):
+            winlabsession._broker_machine({"machine": dict(machine, public_image=bad)}, MACHINE)
+    assert winlab._valid_window({"project": CODE, "start": "2026-11-17T10:00:00Z", "end": "2026-11-17T18:00:00Z",
+                                 "public_image": True})
+    assert not winlab._valid_window({"project": CODE, "start": "2026-11-17T10:00:00Z",
+                                     "end": "2026-11-17T18:00:00Z", "public_image": "yes"})
+
+
 def test_wl_review_put_checks_the_bytes_it_sends(lab, monkeypatch, capsys):
     src = lab.root / "winlab-out" / "a.txt"
     src.write_bytes(b"plain")

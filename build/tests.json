@@ -21386,6 +21386,41 @@
    "status": "passing"
   },
   {
+   "id": "WL-BY-003",
+   "phase": "WL",
+   "name": "Windows lab: a disk image get runs the secret check in a plain window",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_get_of_a_disk_image_runs_the_secret_check_in_a_plain_window",
+   "status": "passing"
+  },
+  {
+   "id": "WL-BY-004",
+   "phase": "WL",
+   "name": "Windows lab: a public image window of the owner skips the secret check of an image get",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_public_image_window_of_the_owner_skips_the_secret_check_of_an_image_get",
+   "status": "passing"
+  },
+  {
+   "id": "WL-BY-005",
+   "phase": "WL",
+   "name": "Windows lab: a public image window keeps the secret check of a plain file",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_a_public_image_window_keeps_the_secret_check_of_a_plain_file",
+   "status": "passing"
+  },
+  {
+   "id": "WL-BY-006",
+   "phase": "WL",
+   "name": "Windows lab: the broker check carries the public image statement, nothing else passes for it",
+   "run": ".venv/bin/pytest tests/test_wl_session.py::test_wl_the_broker_check_carries_the_public_image_statement_and_nothing_else_passes_for_it",
+   "status": "passing"
+  },
+  {
+   "id": "WL-BY-007",
+   "phase": "WL",
+   "name": "Windows lab broker: the check tells a public image window",
+   "run": ".venv/bin/pytest tests/test_wl_broker.py::test_wl_broker_check_tells_a_public_image_window",
+   "status": "passing"
+  },
+  {
    "id": "WL-RH-053",
    "phase": "WL",
    "name": "Windows lab review: put checks the bytes it sends",
@@ -22317,6 +22352,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 3188,
+ "total_tests": 3193,
  "checked": "2026-11-09"
 }
