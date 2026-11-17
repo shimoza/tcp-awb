@@ -358,9 +358,12 @@ def test_the_calibration_set_is_caught_by_the_script_steps_and_carries_no_name()
     assert report.caught == len([r for r in report.rows if r.step in calibrate.SCRIPT_STEPS])
 
 
-def test_the_calibration_runner_can_fail(tmp_path, capsys, monkeypatch):
+def test_calibration_still_finds_failures_after_pronoun_case_removal(tmp_path, capsys, monkeypatch):
+    """Replaces test_the_calibration_runner_can_fail (owner rule 2026-11-17): keep owner choices and remaining checks."""
     data = calibrate.load()
     by_id = {c["id"]: c for c in data["cases"]}
+    assert "W9" not in by_id
+    assert not {"we-in-mail", "we-in-doc", "i-rate"} & {c["cls"] for c in data["cases"]}
     by_id["W1"]["text"] = "The quota in eu-de is fine and the flavor is the problem.\n"      # the defect removed
     by_id["K2"]["after"] = by_id["K2"]["before"]
     by_id["C1"]["text"] = "The team can leverage the quota in eu-de for the test.\n"          # a defect planted
@@ -373,7 +376,7 @@ def test_the_calibration_runner_can_fail(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(calibrate, "CASES_FILE", bad)
     assert cli.main(["review", "calibrate"]) == 1
     out = capsys.readouterr().out
-    assert "caught 17 of 19 seeded defects" in out and "leverage" not in out
+    assert "caught 16 of 18 seeded defects" in out and "leverage" not in out
     assert cli.main(["review", "calibrate", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["missed"] == 2
 

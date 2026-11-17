@@ -23,7 +23,7 @@ def test_the_work_rules_stay_within_their_line_budget():
 
 
 @pytest.mark.parametrize("must", [
-    "T Cloud Public (TCP)",                 # the platform name his customers see
+    "Write TCP always",                     # the platform name his customers see
     "never repeat it",                      # a name the register does not know is never echoed
     "The prompt hook stops a prompt",        # a registered name never reaches the model
     "live price API",                       # prices are fetched, never recalled
@@ -43,8 +43,10 @@ def test_the_work_rules_stay_within_their_line_budget():
     "goes through `awb paste`, not into the chat",  # T8: terminal output lands in a file, masked
     "the tag awb-project = the project code",  # PT: every create of a project carries its tag
 ])
-def test_the_work_rules_carry_each_rule(must):
+def test_work_rules_keep_tcp_and_remaining_requirements(must):
+    """Replaces test_the_work_rules_carry_each_rule (owner rule 2026-11-17): keep owner choices and remaining checks."""
     assert must in text()
+    assert "T Cloud Public" not in text()
 
 
 def test_the_work_rules_are_not_the_developer_instructions():
@@ -78,13 +80,13 @@ def test_the_work_rules_name_the_import_and_the_promise_of_wipe_mode():
     assert "never an `awb intake`, register or bucket block" in t
 
 
-def test_the_work_rules_check_every_draft_first_and_translate_in_one_step():
-    """The work profile of 2026-10, proposal 4: every draft for others passes the voice checks before he sees it,
-    and the Russian reading copy and the German version come from the accepted text in one step."""
+def test_drafts_are_checked_and_translated_without_pronoun_rules():
+    """Replaces test_the_work_rules_check_every_draft_first_and_translate_in_one_step (owner rule 2026-11-17): keep owner choices and remaining checks."""
     t = " ".join(text().split())
     assert "He sees a draft only after `awb write check` of its file ran clean in the same turn" in t
-    assert "a mail draft goes into a file" in t and "I and never `we`" in t
+    assert "a mail draft goes into a file" in t
     assert "`awb write translate FILE --to de --to ru`" in t and "never by rewriting" in t
+    assert "I and never `we`" not in t and "first person singular" not in t.lower()
 
 
 def test_chain_1_a_german_customer_gets_german_and_he_reads_russian():

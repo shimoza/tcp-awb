@@ -7,7 +7,7 @@
 
 `check_text` reads a text the way he writes it (Markdown or plain text) and returns tells and metrics. A tell is
 (line, class, blocking, hint). The hint names the rule and quotes at most one word. That word always comes from
-the rule itself (a banned word, "and", "we"), never from the checked text.
+the rule itself (a banned word, "and"), never from the checked text.
 
 Blocking classes:
 
@@ -19,14 +19,11 @@ Blocking classes:
     banned-word      a word of rules/banned-words.txt (whole word, any case)
     banned-phrase    a phrase of rules/banned-phrases.txt (whole words, any case, any whitespace between words);
                      a banned word inside a banned phrase is reported once, as the phrase
-    we-in-mail       we, our, us in mode mail ("US" in capitals is the country and a region name such as us-east
-                     is a literal, both are left alone)
     commitment       I will, I'll, we will, we'll, I am raising, I'm raising, will come back, I promise, I commit
     earlier-mail     as mentioned, as discussed, in my last mail, as per my previous, as I wrote
     vendor-name      scope tcp only: a name of rules/vendor-names.txt
     certification    BSI, ISO 27001, SOC 2, TISAX, KRITIS, C5, IT-Grundschutz
     bold-lead-list   a run of three or more bullets where more than one starts with bold
-    we-in-doc        we, our, us (and the German wir, unser, uns, which we-in-mail takes too) in mode doc
     bold-lead        a paragraph that opens with a bold label ending in a colon or a full stop
     invented-label   a quoted capitalised coinage next to option, approach, variant and the like
     weakness         admissions of weakness and hedges (to be honest, I am not sure, sorry for, hopefully) and
@@ -34,7 +31,7 @@ Blocking classes:
     sales-tone       praise instead of a fact (game changer, state-of-the-art, perfect fit, peace of mind)
     draft-history    the history of the draft (previous draft, updated version, based on your feedback)
 
-The last six and bold-lead-list are reported, not blocking, in mode chat (CHAT_SOFT). They come from the work
+The last five and bold-lead-list are reported, not blocking, in mode chat (CHAT_SOFT). They come from the work
 profile of 2026-10: what he struck out most in drafts. So does the reported `extra-section`: one tell at the first
 section the request did not ask for, its hint names every such heading (with the request: a heading that shares no
 content word with it; without: a heading of EXTRA_HEADINGS such as Background or Next steps; the title never).
@@ -52,14 +49,13 @@ Also reported, each with its line (T-52, T-53):
                      "Recommendation: CCE") instead of naming a topic
     connector        a connector of `other_connectors` in rules/voice.txt (his set is and, so, then, but, also,
                      because; the connectors that are banned words already block as banned words)
-    i-rate           mode mail only, from 40 words on: I, my and me below half of his rate (29.5 per 1000 words)
 
 A finite verb is found by rule, without a tagger (see the comment above `_finite`), so the three structural counts
 are a signal for a look and never a gate.
 The metrics carry the sentence count, the words, the median and p90 of words per sentence (p90 by nearest rank),
 the words longer than nine letters, the lists of three, the fragments and their share of the sentences, the comma
 splices and the headings written as verdicts (of all headings). Per 1000 words they carry the commas before and/or,
-the dashes, the words I, my and me, his connectors and the other connectors.
+the dashes, his connectors and the other connectors.
 
 What is not prose. Fenced code blocks (``` or ~~~, closed by a matching fence) and inline code are skipped: a banned
 word inside code is a literal, not his voice. So are URLs, mail addresses and link targets. A fence that is never
@@ -76,8 +72,8 @@ split by markup or spelled with look-alike letters is still found. A hit found i
 Line numbers count from 1. Line 0 is the file name: `check_file` also checks the name of the file (its suffix
 dropped, - _ and . read as spaces) for the same classes.
 
-Modes: doc (default, we-in-doc), mail (we-in-mail and the i-rate), chat (no we tell, and the tells of CHAT_SOFT are
-reported and not blocking: a chat answer is for him, and bold helps scanning there). Scopes: tcp (vendor names
+Modes: doc (default), mail and chat (the tells of CHAT_SOFT are reported and not blocking: a chat answer is for
+him and bold helps scanning there). Scopes: tcp (vendor names
 block) and hcs (vendor names are fine).
 
 Facts before voice (V-15, T-56). For a text in his name the facts are checked first and the voice pass comes
@@ -143,11 +139,11 @@ ALLOWED_FILE = "allowed-terms.txt"
 VENDORS_FILE = "vendor-names.txt"
 VOICE_FILE = "voice.txt"
 
-BLOCKING = ("em-dash", "comma-and-or", "banned-word", "banned-phrase", "we-in-mail", "commitment",
-            "earlier-mail", "vendor-name", "certification", "bold-lead-list", "we-in-doc", "bold-lead",
+BLOCKING = ("em-dash", "comma-and-or", "banned-word", "banned-phrase", "commitment",
+            "earlier-mail", "vendor-name", "certification", "bold-lead-list", "bold-lead",
             "invented-label", "weakness", "sales-tone", "draft-history")
 REPORTED = ("list-of-three", "sentence-length", "fragment", "comma-splice", "verdict-heading", "connector",
-            "i-rate", "extra-section")
+            "extra-section")
 CHAT_SOFT = ("bold-lead-list", "bold-lead", "invented-label", "weakness", "sales-tone", "draft-history")
 """Blocking in mode mail and doc, reported only in mode chat: a chat answer is for him, not a draft for others."""
 CLASSES = BLOCKING + REPORTED
@@ -160,7 +156,6 @@ DEFAULT_TARGETS = {
     "p90_sentence_words": 21.0,
     "comma_before_and_or_per_1000": 0.0,
     "em_dash_per_1000": 0.0,
-    "i_my_me_per_1000": 29.5,
     "other_connectors_per_1000": 0.0,
 }
 LONG_WORD_LETTERS = 9
@@ -168,10 +163,6 @@ LONG_WORD_LETTERS = 9
 FRAGMENT_MAX_WORDS = 12
 """A sentence without a finite verb counts as a fragment up to this many words (longer ones are more likely a verb
 the list does not know)."""
-I_RATE_MIN_WORDS = 40
-"""The I rate of a mail is judged from this many words on."""
-I_RATE_SHARE = 0.5
-"""A mail whose I rate is below this share of his rate gets the reported tell `i-rate`."""
 HIS_CONNECTORS = ("and", "so", "then", "but", "also", "because")
 
 MAX_FILE_BYTES = 20_000_000
@@ -253,6 +244,8 @@ def _read_targets(path: Path) -> dict:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = (s.strip() for s in line.split("=", 1))
+        if key not in DEFAULT_TARGETS:
+            continue
         try:
             targets[key] = float(value)
         except ValueError:
@@ -333,8 +326,6 @@ EARLIER_MAIL = (
     ("last", "in my last e-mail"), ("last", "in my last email"), ("previous", "as per my previous"),
     ("wrote", "as I wrote"),
 )
-WE_WORDS = ("we", "our", "ours", "us", "wir", "unser", "unsere", "unserem", "unseren", "unserer", "unseres", "uns")
-"""We instead of I, in English and in German (the work profile of 2026-10: 24 of his deletions)."""
 COMMITMENTS_MORE = (
     ("guarantee", "I guarantee"), ("guarantee", "we guarantee"), ("assured", "rest assured"),
     ("count", "you can count on"), ("sure", "I make sure"), ("care", "I take care of"),
@@ -465,7 +456,6 @@ class _Compiled:
     vendors: tuple | None
     commitments: tuple | None
     earlier: tuple | None
-    we: tuple | None
     certifications: tuple | None
     allowed: tuple | None = None
     others: tuple | None = None
@@ -491,7 +481,6 @@ def _compiled(rules: Rules, rules_dir: Path | None = None) -> _Compiled:
         vendors=_named([("", _phrase_source(v)) for v in rules.vendor_names], ci),
         commitments=_named([(lab, _phrase_source(p)) for lab, p in COMMITMENTS + COMMITMENTS_MORE], ci),
         earlier=_named([(lab, _phrase_source(p)) for lab, p in EARLIER_MAIL + EARLIER_MAIL_MORE], ci),
-        we=_named([(w, re.escape(w)) for w in WE_WORDS], ci),
         certifications=_named(CERTIFICATIONS),
         allowed=_named([("", _phrase_source(t)) for t in rules.allowed_terms], ci),
         others=_named([(_label_word(c), _phrase_source(c)) for c in rules.other_connectors
@@ -638,14 +627,6 @@ def _find(text: str, compiled, cls: str, skip=None) -> list[_Hit]:
     return out
 
 
-def _skip_we(text: str, m: re.Match) -> bool:
-    word = m.group(0)
-    if word == "US":
-        return True
-    end = m.end()
-    return end + 1 < len(text) and text[end] == "-" and text[end + 1].isalnum()
-
-
 def _merge(hits: list[_Hit]) -> list[_Hit]:
     """Overlapping hits of one class count once (the first)."""
     out: list[_Hit] = []
@@ -719,10 +700,6 @@ def _prose_hits(text: str, mode: str, scope: str, comp: _Compiled) -> list[_Hit]
     hits += phrases
     hits += [h for h in _find(text, comp.words, "banned-word")
              if not any(p.start <= h.start and h.end <= p.end for p in phrases) and not _in_allowed(h)]
-    if mode == "mail":
-        hits += _find(text, comp.we, "we-in-mail", _skip_we)
-    elif mode == "doc":
-        hits += _find(text, comp.we, "we-in-doc", _skip_we)
     hits += _find(text, comp.commitments, "commitment")
     hits += _find(text, comp.earlier, "earlier-mail")
     hits += _find(text, comp.weakness, "weakness")
@@ -744,10 +721,6 @@ def _hint(cls: str, label: str = "") -> str:
         return 'banned word "%s" (rules/%s)' % (label, WORDS_FILE)
     if cls == "banned-phrase":
         return 'banned phrase with "%s" (rules/%s)' % (label, PHRASES_FILE)
-    if cls == "we-in-mail":
-        return 'a mail speaks as I: no "%s" in mode mail' % label
-    if cls == "we-in-doc":
-        return 'a text in his name speaks as I: no "%s"' % label
     if cls == "weakness":
         return 'an admission of weakness with "%s": say what is known and what is open, without apology' % label
     if cls == "sales-tone":
@@ -785,7 +758,6 @@ _ABBREVIATIONS = frozenset("""
 e.g i.e etc vs cf approx incl excl esp resp fig no nr ca z.b bzw d.h u.a usw ggf evtl inkl mr mrs ms dr prof
 st jr sr inc ltd co corp dept min max sec p pp vol
 """.split())
-_I_MY_ME = frozenset(("i", "my", "me", "mine", "myself", "i'm", "i'll", "i've", "i'd"))
 
 
 @dataclass
@@ -1298,7 +1270,7 @@ def check_text(text: str, mode: str = "doc", scope: str = "tcp",
     words = sum(counts)
     median = float(statistics.median(counts)) if counts else 0.0
     p90 = _p90(counts)
-    targets = rules.targets
+    targets = {key: value for key, value in rules.targets.items() if key in DEFAULT_TARGETS}
     t_median = targets.get("median_sentence_words", DEFAULT_TARGETS["median_sentence_words"])
     t_p90 = targets.get("p90_sentence_words", DEFAULT_TARGETS["p90_sentence_words"])
     if counts and (median > t_median or p90 > t_p90):
@@ -1308,13 +1280,6 @@ def check_text(text: str, mode: str = "doc", scope: str = "tcp",
                           % (_num(median), _num(p90), _num(t_median), _num(t_p90))))
     tokens = [w for s in sentences for w in _WORD_RE.findall(s.text)]
     long_words = sum(1 for w in tokens for part in _LETTERS_RE.findall(w) if len(part) > LONG_WORD_LETTERS)
-    i_my_me = sum(1 for w in tokens if w.lower().replace("\u2019", "'") in _I_MY_ME)
-    i_rate = _per_1000(i_my_me, words)
-    t_i = targets.get("i_my_me_per_1000", DEFAULT_TARGETS["i_my_me_per_1000"])
-    if mode == "mail" and words >= I_RATE_MIN_WORDS and i_rate < t_i * I_RATE_SHARE:
-        tells.append(Tell(line_of(sentences[0].start), "i-rate", False,
-                          "I, my and me at %s per 1000 words, his rate is %s: a mail in his name speaks as I"
-                          % (_num(i_rate), _num(t_i))))
 
     order = {c: i for i, c in enumerate(CLASSES)}
     tells.sort(key=lambda t: (t.line, order.get(t.cls, len(order))))
@@ -1329,7 +1294,6 @@ def check_text(text: str, mode: str = "doc", scope: str = "tcp",
         "lists_of_three": lists_of_three,
         "comma_before_and_or_per_1000": _per_1000(sum(1 for h in hits if h.cls == "comma-and-or"), words),
         "em_dash_per_1000": _per_1000(sum(1 for h in hits if h.cls == "em-dash"), words),
-        "i_my_me_per_1000": i_rate,
         "fragments": fragments,
         "fragment_share": round(100.0 * fragments / len(counts), 1) if counts else 0.0,
         "comma_splices": splices,
@@ -2160,7 +2124,6 @@ def metric_lines(metrics: dict) -> list[str]:
         "commas before and/or per 1000 words  %s%s" % (_num(metrics["comma_before_and_or_per_1000"]),
                                                        target("comma_before_and_or_per_1000")),
         "dashes per 1000 words  %s%s" % (_num(metrics["em_dash_per_1000"]), target("em_dash_per_1000")),
-        "I my me per 1000 words  %s%s" % (_num(metrics["i_my_me_per_1000"]), target("i_my_me_per_1000")),
         "fragments  %d (%s%% of sentences)" % (metrics["fragments"], _num(metrics["fragment_share"])),
         "comma splices  %d" % metrics["comma_splices"],
         "headings written as verdicts  %d of %d" % (metrics["verdict_headings"], metrics["headings"]),

@@ -201,3 +201,14 @@ def test_a_change_of_an_earlier_turn_is_judged_by_the_hook_s_own_check(project, 
     t.reply("I sized the backup.")
     t.prompt("show me the offer")
     assert stop(project, t.reply("The offer is deliverables/offer.md."), monkeypatch, capsys) == (0, "", "")
+
+
+@pytest.mark.parametrize("pronoun", ["I", "We"])
+@pytest.mark.parametrize("mode", ["doc", "mail"])
+def test_draft_gate_accepts_tcp_and_owner_pronouns(project, turn, monkeypatch, capsys, pronoun, mode):
+    """Owner rule 2026-11-17: checked drafts keep TCP and the owner's pronoun through the stop hook."""
+    rel = "mail-reply.md" if mode == "mail" else "deliverables/offer.md"
+    text = "%s checked TCP. The quota is fine.\n" % pronoun
+    transcript = turn.write(project / rel, text).check(rel, mode=mode)
+    assert stop(project, transcript.reply("The draft is in %s." % rel), monkeypatch, capsys) == (0, "", "")
+    assert (project / rel).read_text(encoding="utf-8") == text

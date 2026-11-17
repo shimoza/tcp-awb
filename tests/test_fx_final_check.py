@@ -101,7 +101,8 @@ def test_the_final_check_passes_node_check_and_its_meta_is_a_pure_literal(tmp_pa
 
 
 @needs_node
-def test_the_final_check_runs_one_agent_pinned_to_fable_at_effort_max_and_records_the_run(project, tmp_path):
+def test_final_check_keeps_model_and_records_with_owner_text_rules(project, tmp_path):
+    """Replaces test_the_final_check_runs_one_agent_pinned_to_fable_at_effort_max_and_records_the_run (owner rule 2026-11-17): keep owner choices and remaining checks."""
     out = run_final(tmp_path, {"project": str(project), "deliverable": str(project / "deliverables" / NAME),
                                "date": "2026-10-27"})
     assert out.returncode == 0, out.stderr
@@ -112,8 +113,8 @@ def test_the_final_check_runs_one_agent_pinned_to_fable_at_effort_max_and_record
     prompt = agents[0]["prompt"]
     for must in ("/input/", "SCOPE.md", "STATE.md", "OPEN.md", "/evidence/", "contract.md", "claims.tsv",
                  "lenses/*.json", "before-voice.md", "verbatim", "never by patching the draft",
-                 "customer's order", "I did not test X", "never longer than the draft", "First person singular",
-                 "No em-dash", "T Cloud Public (TCP)", "Never the word Huawei", "Never change any other file"):
+                 "customer's order", "I did not test X", "never longer than the draft",
+                 "No em-dash", "Write TCP always", "Never the word Huawei", "Never change any other file"):
         assert must in prompt, must
     final = "deliverables/tcp-q7m4-answer-en.final.md"
     assert str(project / final) in prompt and str(project / "reviews" / NAME / "final-check.md") in prompt
@@ -124,6 +125,8 @@ def test_the_final_check_runs_one_agent_pinned_to_fable_at_effort_max_and_record
     assert record["date"] == "2026-10-27" and record["dropped"] == RESULT["dropped_by_contract"]
     assert data["result"]["final"] == final and data["result"]["written"] is True
     assert data["result"]["open_points"] == RESULT["open_points"]
+    assert "T Cloud Public" not in prompt and "First person singular" not in prompt
+    assert "never we" not in prompt and "I and never" not in prompt
 
 
 @needs_node

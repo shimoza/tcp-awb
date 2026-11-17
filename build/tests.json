@@ -141,20 +141,6 @@
    "status": "passing"
   },
   {
-   "id": "R7",
-   "phase": "R2",
-   "name": "writing: blocking tells, reported metrics, voice learn never edits the rules",
-   "run": ".venv/bin/pytest tests/test_writing.py",
-   "status": "passing"
-  },
-  {
-   "id": "R8",
-   "phase": "R2",
-   "name": "review: init, claims, l0, pass, status; the workflow file passes node --check",
-   "run": ".venv/bin/pytest tests/test_review.py",
-   "status": "passing"
-  },
-  {
    "id": "R9",
    "phase": "R2",
    "name": "candidate rules as names: sentence start, particles, Last First, keep list, glued short forms",
@@ -194,13 +180,6 @@
    "phase": "R2",
    "name": "Release 2 end to end: init, register, encrypt, intake, check over the socket, spawn with hooks, kb, ledger report, writing, review to a valid record, lock: check exits 2 and the prompt hook warns",
    "run": ".venv/bin/pytest tests/test_release2_e2e.py",
-   "status": "passing"
-  },
-  {
-   "id": "P1",
-   "phase": "P1",
-   "name": "work rules: T Cloud Public naming, only the knowledge base crossed over, check before stating; at most 60 lines, pass the writing check and the gate",
-   "run": ".venv/bin/pytest tests/test_work_rules.py tests/test_seal.py",
    "status": "passing"
   },
   {
@@ -334,20 +313,6 @@
    "phase": "PK5",
    "name": "life of a project: tags from the list, spawn from the outbox, the first and the last ledger entry, close waits for open items and live resources, one live owner per project, the idle and size notices, a ledger entry drafted from new commits quietly, English notes kept once and never with a name, ledger work in the career update with codes masked, folders nobody registered",
    "run": ".venv/bin/pytest tests/test_lifecycle.py",
-   "status": "passing"
-  },
-  {
-   "id": "PK6",
-   "phase": "PK6",
-   "name": "writing in his voice: fragments, comma splices, verdict headings, connectors and the I rate reported and never blocking, each shown to fire and to stay quiet; the voice pass keeps numbers, identifiers, negations and code blocks, the report never quotes a value; the drafting skill passes its own checks and the seal installs it root-owned and immutable",
-   "run": ".venv/bin/pytest tests/test_his_voice.py",
-   "status": "passing"
-  },
-  {
-   "id": "PK4",
-   "phase": "PK4",
-   "name": "the review pipeline, second part: knowledge entries per claim and kb evidence that settles only when live or contract and not expired, the tier he lowers, counts per lens and the fuller record, softened closes a finding, the send gate refuses what a customer should not get and warns for internal files, the lenses read the blind results, findings without quote or evidence are dropped and counted, a refute agent can leave a finding plausible, the request check as a lens of its own, the calibration set caught by the script steps and a runner that can fail",
-   "run": ".venv/bin/pytest tests/test_review_board.py",
    "status": "passing"
   },
   {
@@ -1090,13 +1055,6 @@
    "phase": "T13",
    "name": "the work rules keep their 60-line budget with the four T13 lines",
    "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_work_rules_stay_within_their_line_budget",
-   "status": "passing"
-  },
-  {
-   "id": "T13-2",
-   "phase": "T13",
-   "name": "the work rules carry one question with a default, OPEN.md for the rest, no re-ask after a go, a command with user and window",
-   "run": ".venv/bin/pytest tests/test_work_rules.py::test_the_work_rules_carry_each_rule",
    "status": "passing"
   },
   {
@@ -3998,13 +3956,6 @@
    "status": "passing"
   },
   {
-   "id": "VT-2",
-   "phase": "VT",
-   "name": "write check: we, our, us, wir, unser, uns block in mail and doc, never in chat",
-   "run": ".venv/bin/pytest tests/test_voice_tells.py::test_we_our_and_wir_block_in_mail_and_doc_and_not_in_chat",
-   "status": "passing"
-  },
-  {
    "id": "VT-3",
    "phase": "VT",
    "name": "write check: the near misses of the new tells pass (US, a real service name, lower-case quotes, bold mid-sentence, a draft contract, a product version)",
@@ -4023,13 +3974,6 @@
    "phase": "VT",
    "name": "write check: a section the request did not ask for is reported with its heading, with and without --request",
    "run": ".venv/bin/pytest tests/test_voice_tells.py -k 'section or request'",
-   "status": "passing"
-  },
-  {
-   "id": "VT-6",
-   "phase": "VT",
-   "name": "write check: the replaced blocking-class cases speak as I and cover every blocking class",
-   "run": ".venv/bin/pytest tests/test_writing.py::test_each_blocking_tell_is_found_once_on_its_line tests/test_writing.py::test_every_blocking_class_has_a_planted_case",
    "status": "passing"
   },
   {
@@ -4068,24 +4012,10 @@
    "status": "passing"
   },
   {
-   "id": "VT-12",
-   "phase": "VT",
-   "name": "translate: German and Russian in one step with a fake model through the Ask path, facts kept, German checked, Russian exempt",
-   "run": ".venv/bin/pytest tests/test_translate.py::test_german_and_russian_in_one_step_with_every_fact_kept",
-   "status": "passing"
-  },
-  {
    "id": "VT-13",
    "phase": "VT",
    "name": "translate: a lost number, a changed identifier or code block refuses and nothing lands next to the source",
    "run": ".venv/bin/pytest tests/test_translate.py -k 'lost_number or changed_identifier'",
-   "status": "passing"
-  },
-  {
-   "id": "VT-14",
-   "phase": "VT",
-   "name": "translate: an unaccepted source and a registered name are never sent; the German result must pass write check",
-   "run": ".venv/bin/pytest tests/test_translate.py -k 'not_accepted or registered_name or must_pass'",
    "status": "passing"
   },
   {
@@ -11702,13 +11632,6 @@
    "phase": "fx-final-check",
    "name": "FX: the final check passes node check and its meta is a pure literal",
    "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_passes_node_check_and_its_meta_is_a_pure_literal",
-   "status": "passing"
-  },
-  {
-   "id": "fx-2",
-   "phase": "fx-final-check",
-   "name": "FX: the final check runs one agent pinned to fable at effort max and records the run",
-   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_the_final_check_runs_one_agent_pinned_to_fable_at_effort_max_and_records_the_run",
    "status": "passing"
   },
   {
@@ -23183,8 +23106,197 @@
    "name": "doc: failed ledger append rolls back partial row",
    "run": ".venv/bin/pytest tests/test_doc.py::test_review_failed_ledger_append_rolls_back_partial_row",
    "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-R7",
+   "phase": "R2",
+   "name": "writing: blocking tells, reported metrics, voice learn never edits the rules",
+   "run": ".venv/bin/pytest tests/test_writing.py",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-R8",
+   "phase": "R2",
+   "name": "review: init, claims, l0, pass, status; the workflow file passes node --check",
+   "run": ".venv/bin/pytest tests/test_review.py",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-P1",
+   "phase": "P1",
+   "name": "work rules: TCP naming, only the knowledge base crossed over, check before stating; at most 60 lines, pass the writing check and the gate",
+   "run": ".venv/bin/pytest tests/test_work_rules.py tests/test_seal.py",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-PK6",
+   "phase": "PK6",
+   "name": "writing in his voice: fragments, comma splices, verdict headings and connectors reported and never blocking, each shown to fire and to stay quiet; the voice pass keeps numbers, identifiers, negations and code blocks, the report never quotes a value; the drafting skill passes its own checks and the seal installs it root-owned and immutable",
+   "run": ".venv/bin/pytest tests/test_his_voice.py",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-1",
+   "phase": "OWNER-20261117",
+   "name": "test_remaining_blocking_tells_are_found_once: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_writing.py::test_remaining_blocking_tells_are_found_once",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-2",
+   "phase": "OWNER-20261117",
+   "name": "test_commitments_and_earlier_mail_still_block_for_either_pronoun: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_writing.py::test_commitments_and_earlier_mail_still_block_for_either_pronoun",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-3",
+   "phase": "OWNER-20261117",
+   "name": "test_owner_pronouns_and_tcp_pass_in_all_modes: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_writing.py::test_owner_pronouns_and_tcp_pass_in_all_modes",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-4",
+   "phase": "OWNER-20261117",
+   "name": "test_word_and_punctuation_metrics_have_no_pronoun_rate: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_writing.py::test_word_and_punctuation_metrics_have_no_pronoun_rate",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-5",
+   "phase": "OWNER-20261117",
+   "name": "test_cli_accepts_owner_pronouns_and_keeps_vendor_scope: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_writing.py::test_cli_accepts_owner_pronouns_and_keeps_vendor_scope",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-6",
+   "phase": "OWNER-20261117",
+   "name": "test_team_pronouns_pass_in_every_mode: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_voice_tells.py::test_team_pronouns_pass_in_every_mode",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-7",
+   "phase": "OWNER-20261117",
+   "name": "test_remaining_classes_block_without_pronoun_classes: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_voice_tells.py::test_remaining_classes_block_without_pronoun_classes",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-8",
+   "phase": "OWNER-20261117",
+   "name": "test_long_drafts_have_no_pronoun_target_or_metric: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_his_voice.py::test_long_drafts_have_no_pronoun_target_or_metric",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-9",
+   "phase": "OWNER-20261117",
+   "name": "test_remaining_counts_are_reported_without_pronoun_advice: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_his_voice.py::test_remaining_counts_are_reported_without_pronoun_advice",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-10",
+   "phase": "OWNER-20261117",
+   "name": "test_translations_keep_facts_without_a_pronoun_prompt: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_translate.py::test_translations_keep_facts_without_a_pronoun_prompt",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-11",
+   "phase": "OWNER-20261117",
+   "name": "test_german_owner_pronouns_pass_but_other_writing_rules_still_apply: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_translate.py::test_german_owner_pronouns_pass_but_other_writing_rules_still_apply",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-12",
+   "phase": "OWNER-20261117",
+   "name": "test_owner_pronouns_are_sent_but_other_source_findings_refuse: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_translate.py::test_owner_pronouns_are_sent_but_other_source_findings_refuse",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-13",
+   "phase": "OWNER-20261117",
+   "name": "test_work_rules_keep_tcp_and_remaining_requirements: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_work_rules_keep_tcp_and_remaining_requirements",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-14",
+   "phase": "OWNER-20261117",
+   "name": "test_drafts_are_checked_and_translated_without_pronoun_rules: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_work_rules.py::test_drafts_are_checked_and_translated_without_pronoun_rules",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-15",
+   "phase": "OWNER-20261117",
+   "name": "test_final_check_keeps_model_and_records_with_owner_text_rules: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_fx_final_check.py::test_final_check_keeps_model_and_records_with_owner_text_rules",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-16",
+   "phase": "OWNER-20261117",
+   "name": "test_l0_keeps_remaining_blockers_and_contract_mode: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_review.py::test_l0_keeps_remaining_blockers_and_contract_mode",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-17",
+   "phase": "OWNER-20261117",
+   "name": "test_drafting_skills_keep_owner_context_and_tcp_with_existing_checks: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_his_voice.py::test_drafting_skills_keep_owner_context_and_tcp_with_existing_checks",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-18",
+   "phase": "OWNER-20261117",
+   "name": "test_review_accepts_tcp_and_owner_pronouns: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_review.py::test_review_accepts_tcp_and_owner_pronouns",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-19",
+   "phase": "OWNER-20261117",
+   "name": "test_review_workflow_uses_tcp_without_expanding_it: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_review.py::test_review_workflow_uses_tcp_without_expanding_it",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-20",
+   "phase": "OWNER-20261117",
+   "name": "test_draft_gate_accepts_tcp_and_owner_pronouns: owner rules of 2026-11-17",
+   "run": ".venv/bin/pytest tests/test_draft_gate.py::test_draft_gate_accepts_tcp_and_owner_pronouns",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-remaining",
+   "phase": "OWNER-20261117",
+   "name": "Remaining blocking classes and registered names still refuse",
+   "run": ".venv/bin/pytest tests/test_writing.py::test_every_blocking_class_has_a_planted_case tests/test_translate.py::test_a_registered_name_is_never_sent",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-calibration-suite",
+   "phase": "PK4",
+   "name": "the review pipeline, second part: knowledge entries per claim and kb evidence that settles only when live or contract and not expired, the tier he lowers, counts per lens and the fuller record, softened closes a finding, the send gate refuses what a customer should not get and warns for internal files, the lenses read the blind results, findings without quote or evidence are dropped and counted, a refute agent can leave a finding plausible, the request check as a lens of its own, the calibration set caught by the script steps and a runner that can fail",
+   "run": ".venv/bin/pytest tests/test_review_board.py",
+   "status": "passing"
+  },
+  {
+   "id": "OWNER-20261117-calibration",
+   "phase": "OWNER-20261117",
+   "name": "Calibration keeps failure detection after the pronoun defect is removed",
+   "run": ".venv/bin/pytest tests/test_review_board.py::test_calibration_still_finds_failures_after_pronoun_case_removal",
+   "status": "passing"
   }
  ],
- "total_tests": 3312,
+ "total_tests": 3328,
  "checked": "2026-11-09"
 }

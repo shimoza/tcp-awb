@@ -61,7 +61,6 @@ Rules:
   paths, codes such as CUST-Q7M4 or tcp-q7m4, words in capitals, URLs and mail addresses.
 - Keep every fenced code block and every inline code span byte for byte.
 - Add nothing and drop nothing: no greeting, no note, no explanation of the translation.
-- Write as the author, in the first person singular: I, never we.
 - German: the polite form Sie, plain short sentences, no dash between clauses.
 - Russian: a plain reading copy for the author himself.
 Answer with the translated text alone."""

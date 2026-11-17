@@ -86,14 +86,6 @@
    "text": "The setup:\n\n- **Network:** one VPC per stage\n- **Compute:** two nodes per zone\n- **Storage:** one bucket for the logs\n"
   },
   {
-   "id": "W9",
-   "cls": "we-in-mail",
-   "step": "writing",
-   "mode": "mail",
-   "expect": "we-in-mail",
-   "text": "We checked the quota in eu-de and it is fine.\n"
-  },
-  {
    "id": "N1",
    "cls": "customer-name",
    "step": "names",

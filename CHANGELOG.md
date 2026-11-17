@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 47, 2026-11-16 to 2026-11-22 (in progress)
 ### Changed
+- Owner rules of 2026-11-17: drafted texts use TCP always and keep his choice of I or we. Remove pronoun checks and the I-rate metric from writing and translation. Replace the affected tests and update the test registry.
 - `awb winlab open --public-image` (owner): his statement that the disk images of the window are public images built in the lab; a get of a disk image or a compressed file in that window skips the secret check, whose patterns hit the noise of image bytes, and says so in the log. The name check of a compressed file and every check of a plain file stay.
 - `awb pdf FILE.md` draws a Markdown pipe table as a ruled grid: a bold header row on a light shade, repeated at the top of every page the table runs onto, column widths fitted to the page width from the content, text wrapped inside its cell with no wrap arrow and left, centre or right alignment from the separator row (`:--`, `:--:`, `--:`). HTML tables and the tables of the dataset HOW-TO stay aligned Courier text. Tests: `tests/test_pdf_tables.py`.
 

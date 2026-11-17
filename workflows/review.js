@@ -263,7 +263,7 @@ function isTarget(platform) {
 }
 
 function platformTitle(platform) {
-  if (platform === 'tcp') return 'T Cloud Public (TCP)'
+  if (platform === 'tcp') return 'TCP'
   if (platform === 'hcs') return 'the HCS private cloud stack'
   return platform
 }

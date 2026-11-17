@@ -683,7 +683,7 @@ def check_file(path: Path, mode: str = "doc", scope: str = "tcp") -> tuple[list[
 
 Blocking classes: `em-dash` (U+2014, and U+2013 used as a dash between spaces), `comma-and-or` (a comma directly
 before "and" or "or"), `banned-word` and `banned-phrase` (`rules/banned-words.txt`, `rules/banned-phrases.txt`, whole
-words, case-insensitive), `we-in-mail` (we, our, us in mode mail), `commitment` (I will, I'll, we will, I am raising,
+words, case-insensitive), `commitment` (I will, I'll, we will, I am raising,
 I'm raising, will come back, I promise, I commit), `earlier-mail` (as mentioned, as discussed, in my last mail, as
 per my previous, as I wrote), `vendor-name` (scope tcp: words of `rules/vendor-names.txt`), `certification` (BSI, ISO
 27001, SOC 2, TISAX, KRITIS, C5, IT-Grundschutz), `bold-lead-list` (a run of three or more bullets where more than one
@@ -692,15 +692,14 @@ targets from `rules/voice.txt` (median 11, p90 21), words longer than nine lette
 items. Headings, tables and the file name are checked too. `awb write check FILE [--mode mail|doc|chat] [--scope
 tcp|hcs]` prints `cls  line  hint` and the metrics, exit 1 on a blocking tell.
 
-Package 6 (T-52, T-53) added five reported classes, each with its line, none blocking: `fragment` (a sentence of
+Package 6 (T-52, T-53) added four reported classes, each with its line, none blocking: `fragment` (a sentence of
 running prose, not a bullet item, of at most 12 words that ends with . ! or ? and holds no finite verb; a one-word
 answer is not counted), `comma-splice` (two clauses with a verb each joined by a comma alone; a clause opened by if,
 when, because and the like, an opening word, a comma before then, so or but, an aside and a short tail are not),
 `verdict-heading` (a heading that states a conclusion), `connector` (a connector of `other_connectors` in
-`rules/voice.txt`; banned connectors block as banned words) and `i-rate` (mode mail, from 40 words: I, my and me
-below half of his 29.5 per 1000). A finite verb is found by rule (auxiliaries, contractions, a subject pronoun, a
-base verb at the start, a verb form of a built-in list after a word that is not a determiner), so the counts are a
-signal and never a gate. Front matter between two --- lines at the top is not a heading. New metric keys:
+`rules/voice.txt`; banned connectors block as banned words). A finite verb is found by rule (auxiliaries,
+contractions, a subject pronoun, a base verb at the start, a verb form of a built-in list after a word that is not
+a determiner), so the counts are a signal and never a gate. Front matter between two --- lines at the top is not a heading. New metric keys:
 `fragments`, `fragment_share` (percent of sentences), `comma_splices`, `headings`, `verdict_headings`,
 `his_connectors_per_1000`, `other_connectors_per_1000`. `Rules` carries `connectors` and `other_connectors`.
 
@@ -723,8 +722,7 @@ numbers are structure and are left out. Plain capitalised words are not compared
 a file cannot be read.
 
 The work profile of 2026-10 (proposal 4) added the tells of what he struck out most. Blocking in mode mail and doc,
-reported only in mode chat (`CHAT_SOFT`): `we-in-doc` (we, our, us and the German wir, unser, uns in mode doc;
-`we-in-mail` takes the German forms too), `bold-lead` (a paragraph that opens with a bold label ending in a colon
+reported only in mode chat (`CHAT_SOFT`): `bold-lead` (a paragraph that opens with a bold label ending in a colon
 or a full stop), `invented-label` (a quoted capitalised coinage next to option, approach, variant and the like),
 `weakness` (admissions and hedges: to be honest, I am not sure, sorry for, hopefully, ehrlich gesagt), `sales-tone`
 (game changer, state-of-the-art, perfect fit, peace of mind) and `draft-history` (previous draft, updated version,

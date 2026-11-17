@@ -399,18 +399,19 @@ def test_l0_blocks_when_over_budget(project, tmp_path, writing, capsys):
     assert not review.l0(d).blocked
 
 
-def test_l0_blocks_a_blocking_tell_and_uses_the_mode_of_the_contract(project, tmp_path, writing, capsys):
+def test_l0_keeps_remaining_blockers_and_contract_mode(project, tmp_path, writing, capsys):
+    """Replaces test_l0_blocks_a_blocking_tell_and_uses_the_mode_of_the_contract (owner rule 2026-11-17): keep owner choices and remaining checks."""
     d = start(project, tmp_path, mode="mail")
     fill(project)
     writing.state["tells"] = [
         {"line": 3, "cls": "em-dash", "blocking": True, "hint": "no em-dash"},
-        types.SimpleNamespace(line=4, cls="we-in-mail", blocking=True, hint="first person"),
+        types.SimpleNamespace(line=4, cls="banned-word", blocking=True, hint="banned word"),
         {"line": 5, "cls": "long-words", "blocking": False, "hint": "shorter words"},
     ]
     code, out, _ = run(["review", "l0", str(d)], capsys)
     assert code == 1
     assert "- writing: em-dash line 3" in out.splitlines()
-    assert "- writing: we-in-mail line 4" in out.splitlines()
+    assert "- writing: banned-word line 4" in out.splitlines()
     assert "long-words" not in out
     assert writing.calls[-1]["mode"] == "mail"
 
@@ -1425,3 +1426,24 @@ def test_hardening_secret_filename_cannot_enter_record(project, tmp_path, writin
     result = review.run_pass(renamed)
     assert not result.passed and any('secret' in p for p in result.problems)
     assert result.record is None and not result.record_path.exists()
+
+
+@pytest.mark.parametrize("pronoun", ["I", "We"])
+@pytest.mark.parametrize("mode", ["doc", "mail", "chat"])
+def test_review_accepts_tcp_and_owner_pronouns(project, tmp_path, pronoun, mode):
+    """Owner rule 2026-11-17: the real review check accepts TCP and either owner pronoun."""
+    text = "# Quota\n\n%s checked TCP. The quota is fine.\n" % pronoun
+    draft = start(project, tmp_path, tier=1, text=text, mode=mode)
+    fill(project)
+    result = review.l0(draft)
+    assert not result.blocked, result.problems
+    assert draft.read_text(encoding="utf-8") == text
+
+
+@needs_node
+def test_review_workflow_uses_tcp_without_expanding_it(project, tmp_path):
+    """Owner rule 2026-11-17: review prompts use TCP alone."""
+    out = run_workflow(tmp_path, scenario(project))
+    prompts = [call["prompt"] for call in out["calls"] if call["kind"] == "agent"]
+    assert any("TCP" in prompt for prompt in prompts)
+    assert all("T Cloud Public" not in prompt for prompt in prompts)

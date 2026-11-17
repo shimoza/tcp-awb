@@ -1,5 +1,5 @@
 """Package 6, writing in his voice: the reported counts of T-52 and T-53 (fragments, comma splices, headings
-written as verdicts, connectors outside his set, the I rate of a mail), the fact keeper of the voice pass (V-15,
+written as verdicts, connectors outside his set), the fact keeper of the voice pass (V-15,
 `awb write keep`) and the drafting skill of T-51 with its place in the seal.
 
 Every planted text is invented. Each count is shown to fire on a planted case and to stay quiet on the near miss,
@@ -92,17 +92,23 @@ def test_connectors_outside_his_set_are_reported_with_the_rule_word():
     assert [t.cls for t in tells] == ["banned-word"]
 
 
-def test_the_i_rate_of_a_mail():
-    impersonal = " ".join(["The cluster runs in two zones and the quota is fine for the test."] * 5)
-    assert reported(impersonal + "\n", "i-rate", mode="mail") == [1]
-    assert reported(impersonal + "\n", "i-rate", mode="doc") == []
-    personal = " ".join(["I checked the cluster and my numbers show the quota is fine."] * 5)
-    assert reported(personal + "\n", "i-rate", mode="mail") == []
-    assert reported("The quota is fine.\n", "i-rate", mode="mail") == []           # too short to judge
+def test_long_drafts_have_no_pronoun_target_or_metric():
+    """Replaces test_the_i_rate_of_a_mail (owner rule 2026-11-17): keep owner choices and remaining checks."""
+    for sentence in ("The cluster runs on TCP. The quota is fine.",
+                     "I checked TCP. My numbers show the quota is fine.",
+                     "We checked TCP. Our numbers show the quota is fine."):
+        for mode in writing.MODES:
+            tells, metrics = writing.check_text(" ".join([sentence] * 5), mode=mode)
+            assert metrics["words"] >= 40 and tells == []
+            assert "i_my_me_per_1000" not in metrics
+            assert "i_my_me_per_1000" not in metrics["targets"]
+            assert not any("I my me" in line for line in writing.metric_lines(metrics))
+    assert not hasattr(writing, "I_RATE_MIN_WORDS") and not hasattr(writing, "I_RATE_SHARE")
 
 
-def test_the_new_counts_are_reported_never_blocking_and_quote_at_most_one_word():
-    new = ("fragment", "comma-splice", "verdict-heading", "connector", "i-rate")
+def test_remaining_counts_are_reported_without_pronoun_advice():
+    """Replaces test_the_new_counts_are_reported_never_blocking_and_quote_at_most_one_word (owner rule 2026-11-17): keep owner choices and remaining checks."""
+    new = ("fragment", "comma-splice", "verdict-heading", "connector")
     assert set(new) <= set(writing.REPORTED) and not set(new) & set(writing.BLOCKING)
     text = ("# CCE is the right choice\n\nNo downtime. The quota is fine, it is the flavor that fails. "
             "Therefore the node stops. " + " ".join(["The cluster runs in two zones for the test."] * 5) + "\n")
@@ -115,6 +121,7 @@ def test_the_new_counts_are_reported_never_blocking_and_quote_at_most_one_word()
     for must in ("fragments  1", "comma splices  1", "headings written as verdicts  1 of 1",
                  "his connectors per 1000 words", "other connectors per 1000 words"):
         assert any(line.startswith(must) for line in lines), must
+    assert "i-rate" not in writing.REPORTED
 
 
 # --------------------------------------------------------------------------- the fact keeper of the voice pass
@@ -204,7 +211,8 @@ def test_the_report_names_kinds_counts_and_lines_never_a_value(tmp_path, capsys)
 # --------------------------------------------------------------------------- the drafting skill
 
 
-def test_the_drafting_skill_is_written_the_way_it_asks(tmp_path):
+def test_drafting_skills_keep_owner_context_and_tcp_with_existing_checks(tmp_path):
+    """Replaces test_the_drafting_skill_is_written_the_way_it_asks (owner rule 2026-11-17): keep owner choices and remaining checks."""
     text = SKILL.read_text(encoding="utf-8")
     head = re.match(r"---\nname: drafting\ndescription: (.+)\n---\n", text)
     assert head and len(head.group(1)) < 1024
@@ -216,13 +224,21 @@ def test_the_drafting_skill_is_written_the_way_it_asks(tmp_path):
     assert gate.scan_files([SKILL], reg) == []
     fixtures.assert_no_fixture_name(text, "the drafting skill")
     # the steps of T-51 and the order of T-56 and V-15
-    for must in ("first line", "First person singular", "No commitment", "No invented names", "earlier mail",
+    for must in ("first line", "No commitment", "No invented names", "earlier mail",
                  "German readers", "length budget", "nouns and verbs", "facts first, voice second",
                  "awb review claims", "awb write keep BEFORE AFTER", "awb write check", "awb voice learn",
                  "awb price", "before-voice.md", "Cut to the budget as a separate last step"):
         assert must in text, must
     assert text.index("awb write keep") < text.index("awb write check FILE") < text.index("Cut to the budget")
     assert "drafting skill" in WORK_CLAUDE.read_text(encoding="utf-8")
+    for path in (SKILL, REPO / "plugin" / "skills" / "drafting" / "SKILL.md"):
+        content = " ".join(path.read_text(encoding="utf-8").split())
+        assert "Write TCP always" in content and "T Cloud Public" not in content
+        assert "First person singular" not in content and "I rate" not in content
+        for rule in ('"we" for team work in general', '"I" where he alone built a technically hard part',
+                     'answers for it, so the customer comes to him directly', 'In a list of names he stands last',
+                     'Keep his own choice of I or we in a draft; no check or prompt changes it'):
+            assert rule in content
 
 
 def test_the_seal_installs_the_skill_owned_by_root_and_immutable(fakebin):

@@ -91,13 +91,13 @@ WE = [("We checked the quota.", "we"), ("Our quota is fine.", "our"), ("The team
 
 
 @pytest.mark.parametrize("sentence,word", WE)
-def test_we_our_and_wir_block_in_mail_and_doc_and_not_in_chat(sentence, word):
+def test_team_pronouns_pass_in_every_mode(sentence, word):
+    """Replaces test_we_our_and_wir_block_in_mail_and_doc_and_not_in_chat (owner rule 2026-11-17): keep owner choices and remaining checks."""
     text, line = planted(sentence)
-    assert blocking(writing.check_text(text, mode="mail")[0]) == [("we-in-mail", line)]
-    assert blocking(writing.check_text(text, mode="doc")[0]) == [("we-in-doc", line)]
-    tell = next(t for t in writing.check_text(text, mode="doc")[0] if t.blocking)
-    assert '"%s"' % word in tell.hint and "speaks as I" in tell.hint
-    assert blocking(writing.check_text(text, mode="chat")[0]) == []
+    for mode in writing.MODES:
+        tells, metrics = writing.check_text(text, mode=mode)
+        assert blocking(tells) == [] and metrics["blocking"] == 0
+        assert not {"we-in-doc", "we-in-mail", "i-rate"} & {tell.cls for tell in tells}
 
 
 NEAR_MISSES = [
@@ -137,10 +137,12 @@ def test_a_bold_lead_in_a_short_bullet_list_stays_a_list_matter():
     assert classes("Intro text.\n\n**Plan:** one step.\n", "doc") == ["bold-lead"]
 
 
-def test_the_new_classes_are_blocking_and_the_section_is_reported():
-    for cls in ("we-in-doc", "bold-lead", "invented-label", "weakness", "sales-tone", "draft-history"):
+def test_remaining_classes_block_without_pronoun_classes():
+    """Replaces test_the_new_classes_are_blocking_and_the_section_is_reported (owner rule 2026-11-17): keep owner choices and remaining checks."""
+    for cls in ("bold-lead", "invented-label", "weakness", "sales-tone", "draft-history"):
         assert cls in writing.BLOCKING
     assert "extra-section" in writing.REPORTED and "extra-section" not in writing.BLOCKING
+    assert not {"we-in-doc", "we-in-mail", "i-rate"} & set(writing.CLASSES)
 
 
 # --------------------------------------------------------------------------- a section nobody asked for

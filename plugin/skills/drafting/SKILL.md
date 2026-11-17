@@ -32,9 +32,11 @@ edit short. It does not replace his review and it cannot promise that no reader 
 
 ## How he writes
 
+The owner chooses by context: "we" for team work in general; "I" where he alone built a technically hard part or
+answers for it, so the customer comes to him directly. In a list of names he stands last. Keep his own choice of
+I or we in a draft; no check or prompt changes it.
+
 - Answer in the first line. The result or the ask comes first, the reasons after it.
-- First person singular: I checked, I see, I need. A mail or a document never speaks as `we`, `our`, `us`
-  or `wir`.
 - Facts and numbers instead of reassurance: region, flavor, error code, price with its date and source.
 - No commitment in his name. Say what is true now, not what he will do.
 - Never a line that a step still lacks a test, a check or a proof. Never the state of an internal run either. The
@@ -45,7 +47,7 @@ edit short. It does not replace his review and it cannot promise that no reader 
 - A courteous plain register for German readers: short sentences (his median is 11 words), plain verbs such as
   use, check, send, fix and build, no idioms and no slang.
 - His connectors are and, so, then, but, also and because. `awb write check` names the others.
-- T Cloud Public (TCP) at the first mention and TCP after it. Identifiers and host names stay as they are.
+- Write TCP always. Identifiers and host names stay as they are.
 - No em-dash, no comma before "and" or "or", no list where every line starts with bold, no heading that states a
   verdict. Headings name topics.
 - Where he already gave the words, keep his words.
@@ -64,7 +66,7 @@ edit short. It does not replace his review and it cannot promise that no reader 
    difference blocks: put the fact back.
 5. `awb write check FILE --mode mail` (or `doc` or `chat`). Save the request as a file and add
    `--request REQUEST`: a section it did not ask for is named. Fix every blocking tell. Then read the reported
-   numbers: sentence length, fragments, comma splices, verdict headings, connectors and the I rate. Fix what reads
+   numbers: sentence length, fragments, comma splices, verdict headings and connectors. Fix what reads
    unlike him.
 6. Cut to the budget as a separate last step. Then run steps 4 and 5 again.
 7. Show him the draft with one line on which checks ran and what is still unverified. The review record stays out
@@ -86,7 +88,7 @@ The translate command writes
 `FILE.de.md` and `FILE.ru.md` next to the file, proves with `awb write keep` that every number, identifier and code
 block is still there and runs `awb write check` on the German text. When no model is reachable it writes the prompt
 file and stops: translate along that prompt into the named file, then run the same command with `--verify`.
-The checker is built for English. In a German text the blocking rules on `wir`, commitments, earlier mails,
+The checker is built for English. In a German text the blocking rules on commitments, earlier mails,
 weakness, sales tone and the history of the draft still apply, the sentence numbers do not.
 
 ## After he sends it

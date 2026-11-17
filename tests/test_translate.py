@@ -68,7 +68,8 @@ def use(monkeypatch, model) -> None:
     monkeypatch.setattr(translate, "default_sender", lambda: (model, "test-key") if model is not None else None)
 
 
-def test_german_and_russian_in_one_step_with_every_fact_kept(draft, monkeypatch, capsys):
+def test_translations_keep_facts_without_a_pronoun_prompt(draft, monkeypatch, capsys):
+    """Replaces test_german_and_russian_in_one_step_with_every_fact_kept (owner rule 2026-11-17): keep owner choices and remaining checks."""
     model = FakeModel({"de": GERMAN, "ru": RUSSIAN})
     use(monkeypatch, model)
     assert cli.main(["write", "translate", str(draft), "--to", "de", "--to", "ru"]) == 0
@@ -82,8 +83,13 @@ def test_german_and_russian_in_one_step_with_every_fact_kept(draft, monkeypatch,
     # the model got the accepted text and the rules, through the Ask path's model and budget
     assert [b["messages"][0]["content"] for b in model.bodies] == [SOURCE, SOURCE]
     assert all(b["model"] == ask.MODEL for b in model.bodies)
-    assert "Keep every number as digits" in model.bodies[0]["system"] and "never we" in model.bodies[0]["system"]
+    assert "Keep every number as digits" in model.bodies[0]["system"]
     assert ask.budget_left()[1] == ask.DAILY_TOKENS - 600
+    for body in model.bodies:
+        prompt = body["system"].lower()
+        assert "first person" not in prompt and "singular" not in prompt
+        assert "never we" not in prompt and "speaks as i" not in prompt
+        assert not any(word in prompt.split() for word in ("i", "we", "our", "wir"))
 
 
 def test_a_lost_number_refuses_and_nothing_lands_next_to_the_source(draft, monkeypatch, capsys):
@@ -107,17 +113,36 @@ def test_a_changed_identifier_or_code_block_refuses(draft, monkeypatch, capsys, 
     assert not (draft.parent / "offer.de.md").exists()
 
 
-def test_the_german_result_must_pass_the_writing_check(draft, monkeypatch, capsys):
-    use(monkeypatch, FakeModel({"de": GERMAN.replace("Ich habe", "Wir haben")}))
+def test_german_owner_pronouns_pass_but_other_writing_rules_still_apply(draft, monkeypatch, capsys):
+    """Replaces test_the_german_result_must_pass_the_writing_check (owner rule 2026-11-17): keep owner choices and remaining checks."""
+    for german in (GERMAN, GERMAN.replace("Ich habe", "Wir haben")):
+        use(monkeypatch, FakeModel({"de": german}))
+        assert cli.main(["write", "translate", str(draft), "--to", "de"]) == 0
+        assert "German  check  0 blocking" in capsys.readouterr().out
+        result = draft.parent / "offer.de.md"
+        assert result.read_text(encoding="utf-8") == german
+        result.unlink()
+    use(monkeypatch, FakeModel({"de": GERMAN + "\nHowever the quota is fine.\n"}))
     assert cli.main(["write", "translate", str(draft), "--to", "de"]) == 1
     out = capsys.readouterr().out
-    assert 'German  we-in-doc  3  a text in his name speaks as I: no "wir"' in out and "German  refused" in out
+    assert "banned-word" in out and "German  refused" in out
+    assert "German  proved next to the source" not in out
 
 
-def test_a_source_that_is_not_accepted_is_never_sent(draft, monkeypatch, capsys):
+def test_owner_pronouns_are_sent_but_other_source_findings_refuse(draft, monkeypatch, capsys):
+    """Replaces test_a_source_that_is_not_accepted_is_never_sent (owner rule 2026-11-17): keep owner choices and remaining checks."""
+    for source in (SOURCE, SOURCE.replace("I checked", "We checked")):
+        model = FakeModel({"de": GERMAN})
+        use(monkeypatch, model)
+        draft.write_text(source, encoding="utf-8")
+        assert cli.main(["write", "translate", str(draft), "--to", "de"]) == 0
+        assert model.bodies[0]["messages"][0]["content"] == source
+        assert draft.read_text(encoding="utf-8") == source
+        (draft.parent / "offer.de.md").unlink()
+        capsys.readouterr()
     model = FakeModel({"de": GERMAN})
     use(monkeypatch, model)
-    draft.write_text(SOURCE.replace("I checked", "We checked"), encoding="utf-8")
+    draft.write_text(SOURCE + "\nHowever the quota is fine.\n", encoding="utf-8")
     assert cli.main(["write", "translate", str(draft), "--to", "de"]) == 1
     assert "the source is not accepted: 1 blocking tells" in capsys.readouterr().err
     assert model.bodies == [] and not (draft.parent / "offer.de.md").exists()
