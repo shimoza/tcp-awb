@@ -9,6 +9,12 @@ imports nothing of the hooks. `selftest` plants refused cases for both guards (`
 from __future__ import annotations
 
 import datetime
+import errno
+import fcntl
+import stat
+import time
+from collections import deque
+from contextlib import contextmanager
 import os
 import re
 import sys
@@ -28,12 +34,122 @@ HOST_FILE = Path(config.HOST_CONF)
 """The host file of a sealed host; its `work_user` says whose sessions the hooks check."""
 
 
-def _sealed() -> bool:
-    """True when the root host file names a work user (the seal ran on this host)."""
+_METADATA_LIMIT = 1024 * 1024 // 4
+_LOG_LIMIT = 32 * 1024 * 1024
+_SHELL_LIMIT = 128 * 1024
+_PATH_BUDGET = 4096
+
+
+def _valid_text(value: str) -> bool:
+    return "\x00" not in value and not any(0xD800 <= ord(c) <= 0xDFFF for c in value)
+
+
+def _realpath(path: str | os.PathLike) -> Path:
+    """Resolve links before .., permitting missing targets but never hiding other lookup errors."""
+    raw = os.fspath(path)
+    if not _valid_text(raw):
+        raise ValueError("invalid path")
+    pending = deque(Path(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw)).parts[1:])
+    here, links = Path("/"), 0
+    while pending:
+        part = pending.popleft()
+        if part == "..":
+            here = here.parent
+            continue
+        candidate = here / part
+        try:
+            info = os.lstat(candidate)
+        except FileNotFoundError:
+            here = candidate
+            continue
+        if stat.S_ISLNK(info.st_mode):
+            links += 1
+            if links > 40:
+                raise OSError(errno.ELOOP, "too many links")
+            target = Path(os.readlink(candidate))
+            if target.is_absolute():
+                here = Path("/")
+                parts = target.parts[1:]
+            else:
+                parts = target.parts
+            pending.extendleft(reversed(parts))
+        else:
+            here = candidate
+    return here
+
+
+@contextmanager
+def _regular(path: Path, *, append: bool = False):
+    """Pin every parent, reject links and special files, and open without FIFO waits."""
+    path = Path(os.path.abspath(path))
+    parent = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fd = None
     try:
-        text = Path(HOST_FILE).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        for name in path.parts[1:-1]:
+            if append:
+                try:
+                    os.mkdir(name, 0o750, dir_fd=parent)
+                except FileExistsError:
+                    pass
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        flags = (os.O_WRONLY | os.O_APPEND | os.O_CREAT) if append else os.O_RDONLY
+        fd = os.open(path.name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o640, dir_fd=parent)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError("not a private regular file")
+        yield fd
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(parent)
+
+
+@contextmanager
+def _locked(fd: int, *, shared: bool = False):
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            fcntl.flock(fd, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise OSError("audit log busy") from None
+            time.sleep(0.005)
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+def _read_regular(path: Path, limit: int = _METADATA_LIMIT, *, locked: bool = False) -> str:
+    def read(fd):
+        if os.fstat(fd).st_size > limit:
+            raise OSError("file too large")
+        chunks, size = [], 0
+        while size <= limit:
+            chunk = os.read(fd, min(65536, limit + 1 - size))
+            if not chunk:
+                return b"".join(chunks).decode("utf-8")
+            chunks.append(chunk)
+            size += len(chunk)
+        raise OSError("file too large")
+    with _regular(path) as fd:
+        if locked:
+            with _locked(fd, shared=True):
+                return read(fd)
+        return read(fd)
+
+
+def _sealed() -> bool:
+    """A missing host file is unsealed; an unreadable or unsafe one must not disable the guard."""
+    try:
+        text = _read_regular(Path(HOST_FILE))
+    except FileNotFoundError:
         return False
+    except (OSError, UnicodeError, ValueError):
+        return True
     return re.search(r"(?m)^[ \t]*work_user[ \t]*=[ \t]*\S+[ \t]*$", text) is not None
 
 
@@ -41,18 +157,14 @@ def project_root(start: str | os.PathLike | None) -> Path | None:
     """The nearest folder at or above `start` with a SCOPE.md. None when there is none."""
     if not start:
         return None
-    here = Path(start)
-    if not here.is_absolute():
-        here = Path.cwd() / here
-    try:
-        folder = here.is_dir()
-    except OSError:
-        # a place this user cannot read (a folder of another user, a name too long): no project of its own,
-        # and the session, which runs as the same user, cannot reach it either (PD2)
-        return None
-    if not folder:
+    here = _realpath(start)
+    if not here.is_dir():
         here = here.parent
-    return config.scope_root(here, depth=_SCOPE_MAX_DEPTH)
+    root = config.scope_root(here, depth=_SCOPE_MAX_DEPTH)
+    if root is not None:
+        with _regular(root / "SCOPE.md"):
+            return root
+    return None
 
 
 # --------------------------------------------------------------------------- pre-tool: a session stays in its project
@@ -86,6 +198,8 @@ UNREADABLE = "a path the guard cannot read"
 UNKNOWN_PROJECT = "an unknown project"
 FOREIGN_WORKFLOW = "a workflow other than the Workbench's own"
 """The classes of a refused place; a refusal names the class, never the path."""
+_PLACE_CLASSES = (ANOTHER_PROJECT, CLIENT_FOLDER, KEY_FOLDER, SESSION_RECORDS, UNREADABLE,
+                  UNKNOWN_PROJECT, FOREIGN_WORKFLOW)
 KEY_FOLDERS = (".ssh", ".config")
 _PROJECT_DIR_RE = re.compile(r"^(?:tcp|hcs)-")
 _GLOB_CHARS = "*?[{"
@@ -150,7 +264,7 @@ def _expand(raw: str, home: Path) -> str:
 def _based(text: str) -> Path:
     """The folder a path reaches before its first glob character. A `..` after a glob character climbs from a
     folder the guard cannot know, so it is refused."""
-    if "\x00" in text:
+    if not _valid_text(text):
         raise _Refused(UNKNOWN_PROJECT)
     cut = min((text.find(c) for c in _GLOB_CHARS if c in text), default=-1)
     if cut >= 0 and ".." in text[cut:].split("/"):
@@ -499,6 +613,9 @@ class _ShellReader:
             if close < 0:
                 self.fail()
             name = s[self.i + 2:close]
+            # Complex parameter operators may execute hidden substitutions or construct paths.
+            if not _NAME_RE.fullmatch(name):
+                self.fail()
             self.i = close + 1
         else:
             m = _NAME_RE.match(s, self.i + 1)
@@ -688,6 +805,8 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     unreadable: a quote or an escape inside a word that carries a path, a variable or a substitution inside a path
     other than $HOME and $PWD at its start, ~- and the directory stack, a cd or pushd the guard cannot follow,
     CDPATH, a quote that never closes."""
+    if len(command) > _SHELL_LIMIT or not _valid_text(command):
+        raise _Refused(UNREADABLE)
     reader = _ShellReader(command, home)
     reader.read()
     lists, data = [reader.items] + reader.nested, list(reader.data)
@@ -706,13 +825,18 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     if any("CDPATH" in w.value for w, _, _ in words):
         raise _Refused(UNREADABLE)
     dirstack = any(w.value == "pushd" for w, _, _ in words)
-    cds = [n for n, (w, _, cmd) in enumerate(words) if cmd and not w.dynamic and not w.mixed and w.value in _CD_WORDS]
+    cds = [n for n, (w, _, cmd) in enumerate(words) if cmd and not w.dynamic and w.value in _CD_WORDS]
     exact = len(lists) == 1 and all(i in _ShellReader.EXACT for i in reader.items if isinstance(i, str))
     targets = {n: _cd_target(words, n) for n in cds}
     programs = _programs(words) | _api_paths(words)
     visited, here = [cwd], [cwd]
+    work = 0
 
     def move(n: int, base: list[Path]) -> list[Path]:
+        nonlocal work
+        work += len(base)
+        if work > _PATH_BUDGET:
+            raise _Refused(UNREADABLE)
         target = None if targets[n] is None else words[targets[n]][0]
         if target is None:
             if words[n][0].value == "pushd":
@@ -740,8 +864,11 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
             if "/" in w.value or ".." in w.value:
                 checks.append(UNREADABLE)
             continue
+        work += len(here)
+        if work > _PATH_BUDGET:
+            raise _Refused(UNREADABLE)
         text = n in programs or any(c in w.value for c in " \t\n")
-        if text and n not in programs and w.value.startswith(("/", "~", "./", "../")):
+        if text and n not in programs and ("/" in w.value or " " in w.value or w.value.startswith("~")):
             try:                                # a path with a blank in it is still a path, as a whole
                 checks += _one_path(w.value, here, home, dirstack)
             except _Refused:
@@ -796,15 +923,17 @@ def place_class(path: Path, own: Path, p: config.Paths, home: Path, text: bool =
     refused one is refused, not a folder that holds one."""
     literal = Path(os.path.normpath(str(path)))
     try:
-        real = Path(os.path.realpath(str(path)))
+        real = _realpath(path)
     except (OSError, ValueError):
-        return UNKNOWN_PROJECT
-    own_real = Path(os.path.realpath(own))
-    records = Path(os.path.realpath(p.shared / "sessions"))
-    allowed = [own_real, Path(os.path.realpath(p.shared)), Path(os.path.realpath(p.kb))]
-    roots = {Path(os.path.realpath(p.projects_root)), Path(os.path.realpath(home))}
-    client = Path(os.path.realpath(home / ".claude"))
-    keys = [Path(os.path.realpath(home / k)) for k in KEY_FOLDERS]
+        if not text:
+            return UNKNOWN_PROJECT
+        real = literal
+    own_real = _realpath(own)
+    records = _realpath(p.shared / "sessions")
+    allowed = [own_real, _realpath(p.shared), _realpath(p.kb)]
+    roots = {_realpath(p.projects_root), _realpath(home)}
+    client = _realpath(home / ".claude")
+    keys = [_realpath(home / k) for k in KEY_FOLDERS]
     for t in dict.fromkeys((literal, real)):
         if _inside(t, records) or (not text and _inside(records, t) and not _inside(own_real, t)):
             return SESSION_RECORDS
@@ -819,8 +948,13 @@ def place_class(path: Path, own: Path, p: config.Paths, home: Path, text: bool =
                 first = t.relative_to(r).parts[0]
                 if _PROJECT_DIR_RE.match(first):
                     return ANOTHER_PROJECT
-        found = project_root(t)
-        if found is not None and Path(os.path.realpath(found)) != own_real:
+        try:
+            found = project_root(t)
+        except (OSError, ValueError):
+            if not text:
+                return UNKNOWN_PROJECT
+            found = None
+        if found is not None and _realpath(found) != own_real:
             return ANOTHER_PROJECT
         if text:
             continue
@@ -858,7 +992,7 @@ def _first_folder(data: dict, p: config.Paths | None) -> Path | None:
         enc = _ENCODE_RE.sub("-", str(d))
         if name == enc or name.startswith(enc + "-"):
             try:
-                if (d / "SCOPE.md").is_file():
+                if not d.is_symlink() and project_root(d) == d:
                     fits.append(d)
             except OSError:
                 continue
@@ -882,20 +1016,31 @@ def guard_log(p: config.Paths) -> Path:
 
 def _log_refusal(p: config.Paths, data: dict, tool: str, cls: str, own: Path | None) -> None:
     """One line in <shared>/sessions/guard.log: time, session id, tool, class, project code. Never a path."""
-    sid = data.get("session_id")
-    sid = sid if isinstance(sid, str) and _SID_RE.fullmatch(sid) else "unknown"
-    from awb import questions
-    code = questions.project_of(own)
-    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
-        path = guard_log(p)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
-        try:
-            os.write(fd, ("%s\t%s\t%s\t%s\t%s\n" % (when, sid, tool, cls, code)).encode("utf-8"))
-        finally:
-            os.close(fd)
-    except OSError:
+        sid = data.get("session_id") if isinstance(data, dict) else None
+        if not isinstance(sid, str) or not _SID_RE.fullmatch(sid):
+            sid = "unknown"
+        elif not re.fullmatch(r"(?:s-[0-9]{1,12}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})", sid):
+            sid = "unknown"
+        tool = tool if tool in GUARD_TOOLS else "other"
+        cls = cls if cls in _PLACE_CLASSES else UNKNOWN_PROJECT
+        from awb import questions
+        code = questions.project_of(own)
+        when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        row = ("%s\t%s\t%s\t%s\t%s\n" % (when, sid, tool, cls, code)).encode("utf-8")
+        with _regular(guard_log(p), append=True) as fd, _locked(fd):
+            start = os.fstat(fd).st_size
+            try:
+                pending = memoryview(row)
+                while pending:
+                    written = os.write(fd, pending)
+                    if written <= 0:
+                        raise OSError("incomplete append")
+                    pending = pending[written:]
+            except OSError:
+                os.ftruncate(fd, start)
+                raise
+    except (OSError, UnicodeError, ValueError, TypeError):
         pass
 
 
@@ -908,9 +1053,14 @@ def _workflow_class(tool_input: dict, home: Path, folder: Path | None = None) ->
     raw = tool_input.get("scriptPath")
     if not isinstance(raw, str) or not raw or "\x00" in raw:
         return FOREIGN_WORKFLOW
-    real = os.path.realpath(_expand(raw, home))
-    allowed = {os.path.realpath(folder / name) for name in WORKFLOW_FILES}
-    return None if real in allowed and os.path.isfile(real) else FOREIGN_WORKFLOW
+    try:
+        candidate = Path(_expand(raw, home))
+        if not candidate.is_absolute() or candidate not in {folder / name for name in WORKFLOW_FILES}:
+            return FOREIGN_WORKFLOW
+        with _regular(candidate):
+            return None
+    except (OSError, UnicodeError, ValueError):
+        return FOREIGN_WORKFLOW
 
 
 def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
@@ -919,6 +1069,8 @@ def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
     a call whose project or input cannot be read is refused as UNKNOWN_PROJECT, a shell path the guard cannot read
     as UNREADABLE. Only a host without a seal (the
     plugin on an architect's own machine, `sealed` false) lets a session outside any project pass."""
+    if not isinstance(data, dict) or not isinstance(data.get("tool_name"), str) or not data["tool_name"]:
+        return UNKNOWN_PROJECT
     tool = data.get("tool_name")
     if tool not in GUARD_TOOLS:
         return None
@@ -954,6 +1106,7 @@ def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
 
 
 def refusal(cls: str) -> str:
+    cls = cls if cls in _PLACE_CLASSES else UNKNOWN_PROJECT
     if cls == UNKNOWN_PROJECT:
         return ("refused: the project folder of this session cannot be determined, so no tool call runs. Start the "
                 "session in its project folder.")
@@ -961,8 +1114,8 @@ def refusal(cls: str) -> str:
         return ("refused: the guard cannot tell where this call goes (a variable, a substitution, a quote or an escape "
                 "inside a path, or a change of folder it cannot follow). Write the path plainly, inside the project.")
     if cls == FOREIGN_WORKFLOW:
-        return ("refused: a project session runs only the Workbench's own workflows (%s) by their scriptPath in %s, "
-                "never an inline script or a workflow by name." % (", ".join(WORKFLOW_FILES), WORKFLOW_DIR))
+        return ("refused: a project session runs only the Workbench's own workflows by their installed "
+                "scriptPath, never an inline script or a workflow by name.")
     return "refused: this call reaches %s. A session stays inside its own project folder." % cls
 
 
@@ -975,11 +1128,10 @@ def hook_pre_tool(data: dict) -> int:
         return OK
     try:
         p = config.paths()
+        tool = data.get("tool_name") if isinstance(data, dict) else "other"
+        _log_refusal(p, data, tool, cls, _own_project(data, p))
     except Exception:
-        p = None
-    if p is not None:
-        _log_refusal(p, data, str(data.get("tool_name")) if data.get("tool_name") in GUARD_TOOLS else "other", cls,
-                     _own_project(data, p))
+        pass  # Best-effort accounting must never prevent the fixed refusal.
     print(refusal(cls), file=sys.stderr)
     return BLOCK
 
@@ -1008,7 +1160,7 @@ def _build_clone(data: dict, wt: Path) -> Path | None:
     started = os.environ.get("CLAUDE_PROJECT_DIR") or (data.get("cwd") if isinstance(data.get("cwd"), str) else None)
     if not started:
         return None
-    real = Path(os.path.realpath(started))
+    real = _realpath(started)
     if real != Path(os.path.normpath(os.path.abspath(started))):
         return None     # a link on the way: a clone is entered by its own path only
     if real == wt or wt not in real.parents:
@@ -1027,8 +1179,8 @@ def _venv_base(venv: Path) -> set[Path]:
     """The real paths of the venv's base interpreter, from its root-owned pyvenv.cfg (`executable`, else `home` with
     a python3 name). Empty when the file cannot be read: no link out of the venv passes then."""
     try:
-        text = (venv / "pyvenv.cfg").read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        text = _read_regular(venv / "pyvenv.cfg")
+    except (OSError, UnicodeError, ValueError):
         return set()
     conf = {}
     for line in text.splitlines():
@@ -1064,7 +1216,7 @@ def build_place_class(path: Path, own: Path, root: Path, write: bool = False, tm
     if any(_inside(literal, Path(d)) for d in BUILD_DEVICES):
         return None     # /dev/stdin and /dev/fd/N resolve to the session's own pipes and terminal
     try:
-        real = Path(os.path.realpath(str(path)))
+        real = _realpath(path)
     except (OSError, ValueError):
         return NO_CLONE
     wt, venv = root / "wt", root / "venv"
@@ -1087,6 +1239,8 @@ def build_place_class(path: Path, own: Path, root: Path, write: bool = False, tm
 def build_guard(data: dict, root: Path | None = None, home: Path | None = None, tmp: Path | None = None) -> str | None:
     """The class of the place a tool call of the build user reaches outside its clone, or None when it may run.
     Fails closed: no clone folder, an input it cannot read or an internal error refuse the call."""
+    if not isinstance(data, dict) or not isinstance(data.get("tool_name"), str) or not data["tool_name"]:
+        return NO_CLONE
     tool = data.get("tool_name")
     if tool not in GUARD_TOOLS:
         return None
@@ -1118,9 +1272,10 @@ def build_guard(data: dict, root: Path | None = None, home: Path | None = None, 
 
 
 def build_refusal(cls: str) -> str:
+    if cls not in (NO_CLONE, ANOTHER_CLONE, BUILD_VENV, OUTSIDE_BUILD, UNREADABLE):
+        cls = NO_CLONE
     if cls == NO_CLONE:
-        return ("refused: this build session runs in no clone under %s/wt, so no tool call runs."
-                % config.build_root())
+        return "refused: this build session runs in no clone under the build root, so no tool call runs."
     if cls == UNREADABLE:
         return refusal(UNREADABLE)
     return "refused: this call reaches %s. A build task stays inside its own clone." % cls
@@ -1140,11 +1295,27 @@ def refusals(p: config.Paths, code: str, day: date | None = None) -> int:
     """The refused tool calls of a project on a day, from guard.log."""
     want = (day or date.today()).isoformat()
     try:
-        lines = guard_log(p).read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+        text = _read_regular(guard_log(p), _LOG_LIMIT, locked=True)
+    except (OSError, UnicodeError, ValueError):
         return 0
-    return sum(1 for line in lines
-               if line.startswith(want) and line.split("\t")[-1:] == [code] and line.count("\t") == 4)
+    count = 0
+    for line in text.splitlines(keepends=True):
+        if not line.endswith("\n"):
+            continue
+        cells = line[:-1].split("\t")
+        if len(cells) != 5:
+            continue
+        stamp, sid, tool, cls, project = cells
+        if (not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", stamp)
+                or not _SID_RE.fullmatch(sid) or tool not in (*GUARD_TOOLS, "other")
+                or cls not in _PLACE_CLASSES or project != code):
+            continue
+        try:
+            datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            continue
+        count += stamp[:10] == want
+    return count
 
 
 def selftest() -> list[str]:

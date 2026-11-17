@@ -22350,8 +22350,190 @@
    "name": "lab obs: write permission is rechecked after head",
    "run": ".venv/bin/pytest tests/test_lo_lab_obs.py::test_lo_review_write_permission_is_rechecked_after_head",
    "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H01",
+   "phase": "T",
+   "name": "tool guard: malformed envelopes fail closed",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_malformed_envelopes_fail_closed",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H02",
+   "phase": "T",
+   "name": "tool guard: invalid text cannot pass",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_invalid_text_cannot_pass",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H03",
+   "phase": "T",
+   "name": "tool guard: parameter expansion cannot hide a command",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_parameter_expansion_cannot_hide_a_command",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H04",
+   "phase": "T",
+   "name": "tool guard: quoted cd tracks the directory",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_quoted_cd_tracks_the_directory",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H05",
+   "phase": "T",
+   "name": "tool guard: relative paths with spaces are checked whole",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_relative_paths_with_spaces_are_checked_whole",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H06",
+   "phase": "T",
+   "name": "tool guard: shell size is bounded before parsing",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_shell_size_is_bounded_before_parsing",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H07",
+   "phase": "T",
+   "name": "tool guard: branching directory changes have a budget",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_branching_directory_changes_have_a_budget",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H08",
+   "phase": "T",
+   "name": "tool guard: linked scope cannot establish a project",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_linked_scope_cannot_establish_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H09",
+   "phase": "T",
+   "name": "tool guard: transcript hint cannot select a linked project",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_transcript_hint_cannot_select_a_linked_project",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H10",
+   "phase": "T",
+   "name": "tool guard: resolution errors fail closed but missing targets pass",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_resolution_errors_fail_closed_but_missing_targets_pass",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H11",
+   "phase": "T",
+   "name": "tool guard: symlink loops fail closed",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_symlink_loops_fail_closed",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H12",
+   "phase": "T",
+   "name": "tool guard: seal errors do not unseal",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_seal_errors_do_not_unseal",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H13",
+   "phase": "T",
+   "name": "tool guard: seal read is bounded",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_seal_read_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H14",
+   "phase": "T",
+   "name": "tool guard: special metadata is not read",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_special_metadata_is_not_read",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H15",
+   "phase": "T",
+   "name": "tool guard: workflows require plain installed files",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_workflows_require_plain_installed_files",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H16",
+   "phase": "T",
+   "name": "tool guard: venv config cannot authorize a link",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_venv_config_cannot_authorize_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H17",
+   "phase": "T",
+   "name": "tool guard: refusal diagnostics withhold values",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_refusal_diagnostics_withhold_values",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H18",
+   "phase": "T",
+   "name": "tool guard: logging errors cannot interrupt a refusal",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_logging_errors_cannot_interrupt_a_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H19",
+   "phase": "T",
+   "name": "tool guard: log fields are allowlisted",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_log_fields_are_allowlisted",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H20",
+   "phase": "T",
+   "name": "tool guard: private session identifiers are not logged",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_private_session_identifiers_are_not_logged",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H21",
+   "phase": "T",
+   "name": "tool guard: log refuses links and hardlinks",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_log_refuses_links_and_hardlinks",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H22",
+   "phase": "T",
+   "name": "tool guard: log parent swap cannot redirect append",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_log_parent_swap_cannot_redirect_append",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H23",
+   "phase": "T",
+   "name": "tool guard: concurrent short appends preserve complete rows",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_concurrent_short_appends_preserve_complete_rows",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H24",
+   "phase": "T",
+   "name": "tool guard: failed append rolls back partial row",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_failed_append_rolls_back_partial_row",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H25",
+   "phase": "T",
+   "name": "tool guard: counts ignore forged and incomplete rows",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_counts_ignore_forged_and_incomplete_rows",
+   "status": "passing"
+  },
+  {
+   "id": "TOOLGUARD-H26",
+   "phase": "T",
+   "name": "tool guard: counts refuse linked and oversized logs",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_guard_counts_refuse_linked_and_oversized_logs",
+   "status": "passing"
   }
  ],
- "total_tests": 3193,
+ "total_tests": 3219,
  "checked": "2026-11-09"
 }

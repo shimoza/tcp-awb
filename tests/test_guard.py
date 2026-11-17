@@ -209,3 +209,277 @@ def test_client_settings_guard_the_workflow_tool_and_the_work_user_denies_the_re
     assert [e.get("matcher") for e in plugin["hooks"]["PreToolUse"]] == [hooks.WRITE_MATCHER, hooks.GUARD_MATCHER]
     build = json.loads((root / "seal" / "build-claude" / "settings.json").read_text(encoding="utf-8"))
     assert "Workflow" in build["permissions"]["deny"]
+
+
+# Hardening cases use only temporary layouts and never start the awb CLI.
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+from awb import toolguard as tg
+
+
+def guarded(world, tool="Read", **tool_input):
+    return tg.guard(call(world, tool, **tool_input), world["p"], world["user"], sealed=True)
+
+
+def test_guard_malformed_envelopes_fail_closed(world):
+    for payload in (None, [], "value", 1, {}, {"tool_name": []}, {"tool_name": 1}):
+        assert tg.guard(payload, world["p"], world["user"], sealed=True) == tg.UNKNOWN_PROJECT
+        assert tg.build_guard(payload) == tg.NO_CLONE
+    assert tg.guard({"tool_name": "TodoWrite"}) is None
+
+
+def test_guard_invalid_text_cannot_pass(world):
+    for value in ("echo \x00", "echo \ud800"):
+        assert guarded(world, "Bash", command=value) is not None
+    for value in ("a\x00b", "a\ud800b"):
+        assert guarded(world, file_path=value) is not None
+
+
+def test_guard_parameter_expansion_cannot_hide_a_command(world):
+    for command in ("echo ${x:-$(cat %s/STATE.md)}", "echo ${x:-`cat %s/STATE.md`}"):
+        assert guarded(world, "Bash", command=command % world["other"]) is not None
+    assert guarded(world, "Bash", command="echo ${HOME}/notes") is None
+
+
+def test_guard_quoted_cd_tracks_the_directory(world):
+    for command in ("c''d; cat .ssh/id_ed25519", "c\\d; cat .ssh/id_ed25519"):
+        assert guarded(world, "Bash", command=command) is not None
+
+
+def test_guard_relative_paths_with_spaces_are_checked_whole(world):
+    (world["own"] / "private notes").symlink_to(world["other"])
+    assert guarded(world, "Bash", command="cat 'private notes/STATE.md'") == tg.ANOTHER_PROJECT
+
+
+def test_guard_shell_size_is_bounded_before_parsing(world, monkeypatch):
+    def parsed(*args):
+        pytest.fail("oversized command reached the parser")
+    monkeypatch.setattr(tg._ShellReader, "read", parsed)
+    assert guarded(world, "Bash", command="x" * 1_000_000) is not None
+
+
+def test_guard_branching_directory_changes_have_a_budget(world):
+    with pytest.raises(tg._Refused):
+        tg._shell_checks("; ".join("cd d%d || true" % i for i in range(12)), world["own"], world["user"])
+
+
+def test_guard_linked_scope_cannot_establish_a_project(world):
+    scope = world["own"] / "SCOPE.md"
+    scope.unlink()
+    scope.symlink_to(world["other"] / "SCOPE.md")
+    assert guarded(world, file_path="STATE.md") == tg.UNKNOWN_PROJECT
+
+
+def test_guard_transcript_hint_cannot_select_a_linked_project(world, tmp_path):
+    fake = world["p"].projects_root / "tcp-abcd"
+    fake.symlink_to(world["other"])
+    payload = call(world, "Read", file_path=str(fake / "STATE.md"))
+    payload["cwd"] = str(tmp_path)
+    payload["transcript_path"] = str(world["user"] / ".claude" / "projects" /
+                                     tg._ENCODE_RE.sub("-", str(fake)) / "s-1.jsonl")
+    assert tg.guard(payload, world["p"], world["user"], sealed=True) == tg.UNKNOWN_PROJECT
+
+
+def test_guard_resolution_errors_fail_closed_but_missing_targets_pass(world, monkeypatch):
+    assert guarded(world, "Write", file_path="new/future.txt", content="x") is None
+    real_lstat = os.lstat
+    target = world["own"] / "closed"
+    def unreadable(path, *args, **kwargs):
+        if str(path) == str(target):
+            raise PermissionError("pass" + "word")
+        return real_lstat(path, *args, **kwargs)
+    monkeypatch.setattr(os, "lstat", unreadable)
+    assert guarded(world, file_path=str(target / "x")) is not None
+
+
+def test_guard_symlink_loops_fail_closed(world):
+    (world["own"] / "loop").symlink_to("loop")
+    assert guarded(world, file_path="loop/x") is not None
+
+
+def test_guard_seal_errors_do_not_unseal(tmp_path, monkeypatch):
+    conf = tmp_path / "host"
+    monkeypatch.setattr(tg, "HOST_FILE", conf)
+    assert tg._sealed() is False
+    conf.write_bytes(b"\xff")
+    assert tg._sealed() is True
+    conf.unlink()
+    conf.mkdir()
+    assert tg._sealed() is True
+
+
+def test_guard_seal_read_is_bounded(tmp_path, monkeypatch):
+    conf = tmp_path / "host"
+    conf.write_bytes(b"#" * 1_000_000)
+    monkeypatch.setattr(tg, "HOST_FILE", conf)
+    assert tg._sealed() is True
+
+
+def test_guard_special_metadata_is_not_read(tmp_path, monkeypatch):
+    conf = tmp_path / "host"
+    os.mkfifo(conf)
+    monkeypatch.setattr(tg, "HOST_FILE", conf)
+    original = Path.read_text
+    def no_fifo_read(path, *args, **kwargs):
+        if path == conf:
+            pytest.fail("attempted a blocking FIFO read")
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "read_text", no_fifo_read)
+    assert tg._sealed() is True
+
+
+def test_guard_workflows_require_plain_installed_files(tmp_path):
+    folder = tmp_path / "workflows"
+    folder.mkdir()
+    target = tmp_path / "outside.js"
+    target.write_text("export {}", encoding="utf-8")
+    script = folder / tg.WORKFLOW_FILES[0]
+    script.symlink_to(target)
+    assert tg._workflow_class({"scriptPath": str(script)}, tmp_path, folder) == tg.FOREIGN_WORKFLOW
+    script.unlink()
+    script.write_text("export {}", encoding="utf-8")
+    assert tg._workflow_class({"scriptPath": str(script)}, tmp_path, folder) is None
+
+
+def test_guard_venv_config_cannot_authorize_a_link(tmp_path):
+    venv = tmp_path / "venv"
+    venv.mkdir()
+    target = tmp_path / "external"
+    target.write_text("executable = /outside/python\n", encoding="utf-8")
+    (venv / "pyvenv.cfg").symlink_to(target)
+    assert tg._venv_base(venv) == set()
+    (venv / "pyvenv.cfg").unlink()
+    assert tg._venv_base(venv) == set()
+
+
+def test_guard_refusal_diagnostics_withhold_values(tmp_path, monkeypatch):
+    secret = "pass" + "word"
+    private = tmp_path / ("Private" + "Person") / secret
+    monkeypatch.setattr(tg.config, "build_root", lambda: private)
+    monkeypatch.setattr(tg, "WORKFLOW_DIR", private)
+    for line in (tg.refusal(secret + "\nnext"), tg.build_refusal(secret + "\nnext"),
+                 tg.refusal(tg.FOREIGN_WORKFLOW), tg.build_refusal(tg.NO_CLONE)):
+        assert secret not in line and str(private) not in line
+        assert len(line.splitlines()) == 1
+
+
+def test_guard_logging_errors_cannot_interrupt_a_refusal(world, monkeypatch, capsys):
+    secret = "pass" + "word"
+    monkeypatch.setattr(tg, "guard", lambda data: tg.ANOTHER_PROJECT)
+    def broken(*args, **kwargs):
+        raise ValueError(secret)
+    monkeypatch.setattr(tg, "_own_project", broken)
+    assert tg.hook_pre_tool(call(world, "Read", file_path="x")) == tg.BLOCK
+    output = capsys.readouterr()
+    assert output.out == "" and output.err.strip() == tg.refusal(tg.ANOTHER_PROJECT)
+    assert secret not in output.err
+
+
+def test_guard_log_fields_are_allowlisted(world):
+    secret = "pass" + "word"
+    tg._log_refusal(world["p"], {"session_id": "s-1"}, secret + "\n", secret, world["own"])
+    text = tg.guard_log(world["p"]).read_text()
+    assert secret not in text and len(text.splitlines()) == 1
+    assert len(text.rstrip("\n").split("\t")) == 5
+
+
+def test_guard_private_session_identifiers_are_not_logged(world):
+    for value in ("pass" + "word", "Private" + "Person"):
+        tg._log_refusal(world["p"], {"session_id": value}, "Read", tg.KEY_FOLDER, world["own"])
+        assert value not in tg.guard_log(world["p"]).read_text()
+
+
+def test_guard_log_refuses_links_and_hardlinks(world, tmp_path):
+    log = tg.guard_log(world["p"])
+    log.parent.mkdir(parents=True, exist_ok=True)
+    victim = tmp_path / "victim"
+    victim.write_text("unchanged\n")
+    for link in (lambda: log.symlink_to(victim), lambda: os.link(victim, log)):
+        link()
+        tg._log_refusal(world["p"], {}, "Read", tg.KEY_FOLDER, world["own"])
+        assert victim.read_text() == "unchanged\n"
+        log.unlink()
+    log.parent.rmdir()
+    log.parent.symlink_to(tmp_path)
+    tg._log_refusal(world["p"], {}, "Read", tg.KEY_FOLDER, world["own"])
+    assert not (tmp_path / "guard.log").exists()
+
+
+def test_guard_log_parent_swap_cannot_redirect_append(world, tmp_path, monkeypatch):
+    log = tg.guard_log(world["p"])
+    log.parent.mkdir(parents=True, exist_ok=True)
+    saved = log.parent.with_name("saved-sessions")
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    original = os.open
+    swapped = False
+    def swap(path, flags, *args, **kwargs):
+        nonlocal swapped
+        if str(path).endswith("guard.log") and not swapped:
+            swapped = True
+            log.parent.rename(saved)
+            log.parent.symlink_to(target)
+        return original(path, flags, *args, **kwargs)
+    monkeypatch.setattr(os, "open", swap)
+    tg._log_refusal(world["p"], {}, "Read", tg.KEY_FOLDER, world["own"])
+    assert swapped and not (target / "guard.log").exists()
+
+
+def test_guard_concurrent_short_appends_preserve_complete_rows(world, monkeypatch):
+    original = os.write
+    def short(fd, data):
+        return original(fd, data[:7])
+    monkeypatch.setattr(os, "write", short)
+    def append(n):
+        tg._log_refusal(world["p"], {"session_id": "s-%d" % n}, "Read", tg.KEY_FOLDER, world["own"])
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(append, range(32)))
+    rows = tg.guard_log(world["p"]).read_text().splitlines()
+    assert len(rows) == 32
+    assert {row.split("\t")[1] for row in rows} == {"s-%d" % n for n in range(32)}
+    assert all(row.split("\t")[2:] == ["Read", tg.KEY_FOLDER, OWN] for row in rows)
+    assert tg.refusals(world["p"], OWN) == 32
+
+
+def test_guard_failed_append_rolls_back_partial_row(world, monkeypatch):
+    tg._log_refusal(world["p"], {}, "Read", tg.KEY_FOLDER, world["own"])
+    log = tg.guard_log(world["p"])
+    before = log.read_bytes()
+    original = os.write
+    calls = 0
+    def fail(fd, data):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise OSError("pass" + "word")
+        return original(fd, data[:5])
+    monkeypatch.setattr(os, "write", fail)
+    tg._log_refusal(world["p"], {}, "Read", tg.KEY_FOLDER, world["own"])
+    assert log.read_bytes() == before
+
+
+def test_guard_counts_ignore_forged_and_incomplete_rows(world):
+    log = tg.guard_log(world["p"])
+    log.parent.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.date.today().isoformat() + "T12:00:00Z"
+    valid = "%s\ts-1\tRead\t%s\t%s\n" % (stamp, tg.KEY_FOLDER, OWN)
+    log.write_text(valid + valid.replace("T12:00:00Z", "garbage") + valid.replace("Read", "unknown-tool") +
+                   valid.replace(tg.KEY_FOLDER, "unknown-class") + valid.rstrip("\n"))
+    assert tg.refusals(world["p"], OWN) == 1
+
+
+def test_guard_counts_refuse_linked_and_oversized_logs(world, tmp_path):
+    log = tg.guard_log(world["p"])
+    log.parent.mkdir(parents=True, exist_ok=True)
+    external = tmp_path / "external"
+    stamp = datetime.date.today().isoformat() + "T12:00:00Z"
+    row = "%s\ts-1\tRead\t%s\t%s\n" % (stamp, tg.KEY_FOLDER, OWN)
+    external.write_text(row)
+    log.symlink_to(external)
+    assert tg.refusals(world["p"], OWN) == 0
+    log.unlink()
+    with log.open("wb") as stream:
+        stream.write(row.encode())
+        stream.truncate(64 * 1024 * 1024)
+    assert tg.refusals(world["p"], OWN) == 0
