@@ -1625,7 +1625,9 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
         text = "\n\n".join(_entry_text(e) for e in group)
         if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") and c not in "\n\t" for c in text):
             return True
-        hits = _name_hits(text, reg)
+        # tags get every check but the name check: a name in a tag is refused where it would leave (the dataset
+        # build stops on it), never withheld here without a word
+        hits = _name_hits("\n\n".join(_entry_text(e, tags=False) for e in group), reg)
         if any(not isinstance(h, dict) or h.get("cls") != "url" for h in hits):
             return True
         norm = normalize.normalize(text).text
@@ -1734,8 +1736,8 @@ def export(where=None, *, scope: str | None = "tcp", grades: Sequence[str] = EXP
     return [export_record(e, today) for e in sorted(shown, key=lambda x: x.id)], left
 
 
-def _entry_text(e: Entry) -> str:
-    return "\n".join([*e.tags, e.statement, e.source, e.why, *e.tried, *(v for _, v in e.check)])
+def _entry_text(e: Entry, *, tags: bool = True) -> str:
+    return "\n".join([*(e.tags if tags else ()), e.statement, e.source, e.why, *e.tried, *(v for _, v in e.check)])
 
 
 def _withheld_line(n: int) -> str:
