@@ -23673,8 +23673,50 @@
    "name": "bucket: cli screens same archived and failed metadata",
    "run": ".venv/bin/pytest tests/test_bucket.py::test_bh_cli_screens_same_archived_and_failed_metadata",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-CG-001",
+   "phase": "T",
+   "name": "bytg: the lab shortener keeps a console token whole and shortens the rest",
+   "run": ".venv/bin/pytest tests/test_bytg_console_gate.py::test_bytg_the_lab_shortener_keeps_a_console_token_whole_and_shortens_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-CG-002",
+   "phase": "T",
+   "name": "bytg: the gate finds no secret in a console link but in the same token elsewhere",
+   "run": ".venv/bin/pytest tests/test_bytg_console_gate.py::test_bytg_the_gate_finds_no_secret_in_a_console_link_but_in_the_same_token_elsewhere",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-CG-003",
+   "phase": "T",
+   "name": "bytg: a console link passes the winlab put check and the own text whole",
+   "run": ".venv/bin/pytest tests/test_bytg_console_gate.py::test_bytg_a_console_link_passes_the_winlab_put_check_and_the_own_text_whole",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-CG-004",
+   "phase": "T",
+   "name": "bytg: a large text is scanned in pieces with the right line numbers",
+   "run": ".venv/bin/pytest tests/test_bytg_console_gate.py::test_bytg_a_large_text_is_scanned_in_pieces_with_the_right_line_numbers",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-CG-005",
+   "phase": "T",
+   "name": "bytg: a key pair across a piece cut is still found",
+   "run": ".venv/bin/pytest tests/test_bytg_console_gate.py::test_bytg_a_key_pair_across_a_piece_cut_is_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-CG-006",
+   "phase": "T",
+   "name": "bytg: a text up to the limit is one piece",
+   "run": ".venv/bin/pytest tests/test_bytg_console_gate.py::test_bytg_a_text_up_to_the_limit_is_one_piece",
+   "status": "passing"
   }
  ],
- "total_tests": 3382,
+ "total_tests": 3388,
  "checked": "2026-11-17"
 }

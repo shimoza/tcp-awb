@@ -604,7 +604,24 @@ def _detect_xml_secrets(text: str) -> list[int]:
     return out
 
 
+CONSOLE_TOKEN_RE = re.compile(
+    r"(?i)/vnc(?:_auto|_lite)?\.html\?(?:[^\s\"'`<>#&]*&)*token=(?P<value>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+    r"[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-z-])")
+"""The token of an ECS VNC console link (os-getVNCConsole, .../novnc/vnc_auto.html?token=UUID): his decision of
+2026-11-18, a console link he asked for reaches him whole, so neither the gate nor the lab shortener touches it."""
+
+
+def console_token_spans(text: str) -> list[tuple[int, int]]:
+    return [m.span("value") for m in CONSOLE_TOKEN_RE.finditer(text)]
+
+
 def _detect_secret(text: str) -> list[int]:
+    spans = console_token_spans(text) if "vnc" in text.lower() else []
+    hits = _detect_secret_all(text)
+    return [h for h in hits if not any(a <= h < b for a, b in spans)] if spans else hits
+
+
+def _detect_secret_all(text: str) -> list[int]:
     out: set[int] = set()
     for key, value, start, quoted in _assignments(text):
         if _key_is_secret(key) and _keyed_secret_value(value, quoted):
@@ -896,11 +913,40 @@ def _decodings(data: bytes) -> list[str]:
 
 def _scan_decoded(label: str, data: bytes, matcher, path: Path | str | None = None,
                   prepare: Callable[[str], str] = lambda t: t) -> list[Finding]:
-    """`_scan_text` over every decoding of `data` (after `prepare`), each finding once."""
+    """`_scan_text` over every decoding of `data` (after `prepare`), each finding once. A text over PIECE_FROM
+    characters is scanned in pieces (_pieces)."""
     found: set[Finding] = set()
     for text in _decodings(data):
-        found.update(_scan_text(label, prepare(text), matcher, path))
+        text = prepare(text)
+        for first, piece in _pieces(text):
+            found.update(Finding(f.file, f.line + first if f.line > 0 else 0, f.cls)
+                         for f in _scan_text(label, piece, matcher, path))
     return sorted(found, key=_order)
+
+
+PIECE_FROM = 4 * 1024 * 1024
+PIECE = 1024 * 1024
+PIECE_OVERLAP = 256
+"""A text over 4 Mi characters is scanned in pieces of about 1 Mi characters that end at a line end, each with the
+256 lines before it again, so a key pair, a private key block or an encoded block across the cut is still whole in
+one piece. The whole text at once cost some 140 MB of memory and 12 s per MB: a 63 MB lab log of a project
+(tcp-bytg, 2026-11-18) got the gate killed. A piece keeps the memory near 150 MB; the time stays linear."""
+
+
+def _pieces(text: str) -> Iterable[tuple[int, str]]:
+    """(lines before the piece, piece) of `text`; the text itself when it is not over PIECE_FROM."""
+    if len(text) <= PIECE_FROM:
+        yield 0, text
+        return
+    starts = _line_starts(text)
+    line = 0                            # index into starts of the first line of the next new part
+    while line < len(starts):
+        end = bisect.bisect_left(starts, starts[line] + PIECE)
+        end = max(end, line + 1)        # one line longer than a piece is a piece of its own
+        first = max(0, line - PIECE_OVERLAP)
+        stop = starts[end] if end < len(starts) else len(text)
+        yield first, text[starts[first]:stop]
+        line = end
 
 
 def _is_opaque(label: str, data: bytes) -> bool:

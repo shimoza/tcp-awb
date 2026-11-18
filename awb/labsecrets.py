@@ -112,7 +112,24 @@ def _kept(value: str) -> bool:
 def shorten(text: str) -> tuple[str, Counter]:
     """`text` with its passwords and logins masked, its temporary credentials shortened and its permanent keys and
     private keys replaced and the counts per kind (never a value)."""
+    from awb import gate
+
     counts: Counter = Counter()
+    kept: list[str] = []
+
+    def console(m):             # the token of a VNC console link stays whole (his decision of 2026-11-18)
+        kept.append(m.group(0))
+        return "[console token %d]" % (len(kept) - 1)
+
+    if "vnc" in text.lower():
+        text = gate.CONSOLE_TOKEN_RE.sub(console, text)
+    text, counts = _shorten(text, counts)
+    for i, value in enumerate(kept):
+        text = text.replace("[console token %d]" % i, value, 1)
+    return text, counts
+
+
+def _shorten(text: str, counts: Counter) -> tuple[str, Counter]:
     temporary = bool(_TEMP_HINT_RE.search(text))
 
     def private(m):
