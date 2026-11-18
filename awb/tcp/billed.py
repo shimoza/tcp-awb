@@ -252,7 +252,8 @@ def _pull(p, alias, period, hourly):
                         raise ValueError
                     product, rid = field(row, "product"), field(row, "resource_id", True)
                     unit = field(row, "quantity_type")
-                    if unit not in ("h", "GB", "pc") or (unit == "h" and quantity > 1):
+                    # an "h" row above 1 is several units in one hour (a licence of 4 units bills 4.0 per hour)
+                    if unit not in ("h", "GB", "pc"):
                         raise ValueError
                     target = data["resources"].setdefault(rid, {}).setdefault(product, [])
                     target.append({"start": start, "quantity": str(quantity), "quantity_type": unit,
@@ -294,8 +295,10 @@ def pull_hourly(p, alias, date):
 
 def owner_command(p, args):
     try:
-        if config.is_work_user() or vault.in_assistant_session():
-            raise BilledError("billed costs are pulled in the owner's own terminal")
+        # the work user has no route and no token; the steering session may pull (his word 2026-11-18: the
+        # session uses the dashboard for its own cost counts)
+        if config.is_work_user():
+            raise BilledError("billed costs are pulled on the owner side (user ubuntu)")
         if args.date and not args.hourly or args.month and args.hourly:
             raise BilledError("--date needs --hourly; --month needs daily data")
         store = tenants.Store()
@@ -426,8 +429,15 @@ def hourly_report(data, ids, lo, hi):
             for row in records:
                 start = dt.datetime.fromisoformat(row["start"]).astimezone(dt.timezone.utc)
                 quantity, unit = number(row["quantity"]), row["quantity_type"]
-                # h is runtime. GB and pc are quantities charged for an hourly slot.
-                seconds = int((quantity * 3600).quantize(Decimal(1), rounding=ROUND_HALF_UP)) if unit == "h" else 3600
+                # A row covers its hour slot from its start to the next full hour. An "h" row of at most 1 is
+                # the run time from its start (17:21:17 with 0.64528 runs to 18:00:00, a full-hour row with 0.5
+                # stops at half past); above 1 it is several units over the whole slot. GB and pc fill the slot.
+                slot_end = start.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)
+                slot = int((slot_end - start).total_seconds())
+                if unit == "h" and quantity <= 1:
+                    seconds = min(slot, int((quantity * 3600).quantize(Decimal(1), rounding=ROUND_HALF_UP)))
+                else:
+                    seconds = slot
                 end = start + dt.timedelta(seconds=seconds)
                 left, right = max(lo, start), min(hi, end)
                 if right <= left or seconds <= 0:
@@ -450,7 +460,8 @@ def hourly_report(data, ids, lo, hi):
             if cursor < hi:
                 gaps.append([iso(cursor), iso(hi)])
             products_[product] = {"intervals": [[iso(a), iso(b)] for a, b in merged], "no_row": gaps,
-                                  "quantities": {k: str(v) for k, v in quantities.items()}, "amount": money(amount)}
+                                  "quantities": {k: str(v.quantize(Decimal("0.00001"), rounding=ROUND_HALF_UP))
+                                                 for k, v in quantities.items()}, "amount": money(amount)}
         result["resources"][rid] = products_
         if not products_:
             result["no_row_resources"][rid] = [[iso(lo), iso(hi)]]

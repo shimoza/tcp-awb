@@ -306,7 +306,7 @@ def test_cli_routes_billed_and_refuses_work_user_pull(env, monkeypatch, capsys):
     monkeypatch.setattr(config, "is_work_user", lambda: True)
     before = len(env.requests)
     assert tenants.main(["billed", "test-1"]) == 2
-    assert "owner's own terminal" in capsys.readouterr().err
+    assert "on the owner side (user ubuntu)" in capsys.readouterr().err
     assert len(env.requests) == before
     assert billed.main(["billed", "--tenant", "test-1", "--month", "2026-11"]) == 0
 
@@ -350,3 +350,25 @@ def test_atomic_replace_failure_preserves_previous_cache(env, monkeypatch):
         billed.pull(env.p, "test-1", "2026-11")
     assert cache(env).read_bytes() == before
     assert not list(cache(env).parent.glob(".billed-*"))
+
+
+def test_an_hour_row_of_several_units_is_kept_and_stays_inside_its_hour(env):
+    """Live 2026-11-18: a licence bills 4.0 h per hour; the pull refused it and a window stretched it 4 hours."""
+    env.rows = [hourly("10:00:00", "4.0", amount="2.00", product="licence-4", resource_id="db-1")]
+    billed.pull_hourly(env.p, "test-1", "2026-11-17")
+    data = json.loads(cache(env, "billed-hourly-2026-11-17.json").read_text())
+    result = billed.hourly_report(data, {"db-1"}, *billed.window("2026-11-17", "10:30", "12:00"))
+    product = result["resources"]["db-1"]["licence-4"]
+    assert product["intervals"] == [["2026-11-17T10:30:00+01:00", "2026-11-17T11:00:00+01:00"]]
+    assert product["amount"] == "1.00"
+    assert Decimal(product["quantities"]["h"]) == Decimal("2.0")
+    assert product["no_row"] == [["2026-11-17T11:00:00+01:00", "2026-11-17T12:00:00+01:00"]]
+
+
+def test_a_start_row_never_runs_past_the_next_full_hour(env):
+    env.rows = [hourly("17:21:17", "0.99", amount="1.00")]
+    billed.pull_hourly(env.p, "test-1", "2026-11-17")
+    data = json.loads(cache(env, "billed-hourly-2026-11-17.json").read_text())
+    result = billed.hourly_report(data, {"vm-1"}, *billed.window("2026-11-17", "17:00", "19:00"))
+    assert result["resources"]["vm-1"]["compute-small"]["intervals"] == [
+        ["2026-11-17T17:21:17+01:00", "2026-11-17T18:00:00+01:00"]]

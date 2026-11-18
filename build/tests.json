@@ -25682,8 +25682,22 @@
    "name": "billed: atomic replace failure preserves previous cache",
    "run": ".venv/bin/pytest tests/test_billed.py::test_atomic_replace_failure_preserves_previous_cache",
    "status": "passing"
+  },
+  {
+   "id": "BILLED-LIVE-001",
+   "phase": "T",
+   "name": "billed: an hour row of several units is kept and stays inside its hour",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_an_hour_row_of_several_units_is_kept_and_stays_inside_its_hour",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-LIVE-002",
+   "phase": "T",
+   "name": "billed: a start row never runs past the next full hour",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_a_start_row_never_runs_past_the_next_full_hour",
+   "status": "passing"
   }
  ],
- "total_tests": 3669,
+ "total_tests": 3671,
  "checked": "2026-11-18"
 }
