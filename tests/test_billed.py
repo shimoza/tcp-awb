@@ -1,4 +1,4 @@
-"""Invented Financial Dashboard rows. Every external boundary is replaced locally."""
+"""Invented rows of the financial dashboard. Every external boundary is replaced locally."""
 import datetime as dt
 from decimal import Decimal
 import io
