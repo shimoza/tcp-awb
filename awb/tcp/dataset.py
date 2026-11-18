@@ -1018,9 +1018,9 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
         if path.is_file() and path.suffix in (".md", ".jsonl", ".csv", ".py"):
             text = path.read_text(encoding="utf-8")
             if _LEFT_RE.search(text):
-                raise DatasetError("a tenant alias was left in a dataset file; the folder was removed")
+                raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
             if _TOOL_LEFT_RE.search(text):
-                raise DatasetError("a name of the tooling was left in a dataset file; the folder was removed")
+                raise DatasetError("a name of the tooling was left in %s; the folder was removed" % path.name)
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
     manifest = {"dataset": NAME, "date": day, "built_at": built_at, "best_before": best_before, "facts": len(records),
