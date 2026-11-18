@@ -70,11 +70,17 @@ This module belongs to one platform and sits below the neutral core, which never
 from __future__ import annotations
 
 import datetime
+import contextlib
+import fcntl
 import hashlib
 import io
 import json
+import os
 import re
+import secrets
+import stat
 import sys
+import zipfile
 from dataclasses import dataclass, field
 from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal, DecimalException
@@ -93,12 +99,13 @@ MAX_LINES = 120
 MAX_SPEC_BYTES = 1_000_000
 MAX_TEXT = 500
 MAX_LABEL = 80
+MAX_BOOK_BYTES = 16 * 1024 * 1024
 SPEC_SUFFIXES = (".txt", ".json", ".spec", ".pbk")
 
 _LABEL_HEAD_RE = re.compile(r"^\[([^\[\]]+)\]\s*$")
 _KEY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_.-]{0,30})\s*:\s?(.*)$")
 _QUANTITY_RE = re.compile(r"^\d{1,12}(?:\.\d{1,6})?$")
-_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\ud800-\udfff]")
 _API_RE = price._SERVICE_RE
 _MODE_UPFRONT_RE = re.compile(r"^(?:ru(12|24|36)|(?:reserved)?upfront(12|24|36)|reserved(12|24|36)upfront)$")
 _MODE_RESERVED_RE = re.compile(r"^(?:r|reserved)(12|24|36)$")
@@ -118,6 +125,140 @@ class SpecError(PricebookError):
     def __init__(self, problems: list[str]):
         super().__init__("; ".join(problems))
         self.problems = problems
+
+
+def _public(text: str) -> str:
+    """Check names and secrets without changing ordinary public wording or API URLs."""
+    from awb import check, putcopy
+    try:
+        if (_CONTROL_RE.search(text) or putcopy.scrub_text(text)[1] or check._secret_classes(text)
+                or any(h["cls"] in ("name", "path") for h in check.check_text(text, config.paths().register))):
+            return "[withheld]"
+        return text
+    except Exception:
+        return "[withheld]"
+
+
+def _require_public(text: str) -> None:
+    if _public(text) != text:
+        raise PricebookError("content was withheld by the privacy check")
+
+
+def _print(text: str, *, file=None) -> None:
+    print(_public(text), file=file)
+
+
+@contextlib.contextmanager
+def _directory(path: Path):
+    """Open each component without following links, retaining a directory descriptor."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _regular(info) -> bool:
+    return stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+
+
+def _read_file(path: Path, limit: int) -> bytes:
+    try:
+        path = Path(path)
+        with _directory(path.parent) as directory:
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            with os.fdopen(fd, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if not _regular(info) or info.st_size > limit:
+                    raise PricebookError("the input must be a bounded regular file")
+                data = stream.read(limit + 1)
+                if len(data) > limit:
+                    raise PricebookError("the input is too large")
+                return data
+    except (OSError, ValueError):
+        raise PricebookError("the input cannot be read") from None
+
+
+def _target(directory: int, name: str):
+    try:
+        info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    if not _regular(info) or info.st_size > MAX_BOOK_BYTES:
+        raise PricebookError("an output must be a bounded regular file")
+    return info
+
+
+def _same_directory(path: Path, directory: int) -> None:
+    with _directory(path) as current:
+        if not os.path.samestat(os.fstat(current), os.fstat(directory)):
+            raise PricebookError("the output folder changed during the build")
+
+
+def _version(info):
+    return None if info is None else (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _publish(directory: int, parent: Path, outputs: list[tuple[str, bytes]], versions: dict) -> None:
+    """Stage the pair privately, then publish under the caller's directory lock.
+
+    Restore the previous pair on a publication error. This is not a crash transaction;
+    ordinary readers can observe the interval between the two renames.
+    """
+    staged, backups, published = {}, {}, []
+    def stage(data):
+        name = ".pricebook-" + secrets.token_hex(16)
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException:
+            os.unlink(name, dir_fd=directory)
+            raise
+        return name
+    try:
+        for name, data in outputs:
+            if _version(_target(directory, name)) != versions[name]:
+                raise PricebookError("an output changed during the build")
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            except FileNotFoundError:
+                backups[name] = None
+            else:
+                with os.fdopen(fd, "rb") as stream:
+                    if not _regular(os.fstat(stream.fileno())):
+                        raise PricebookError("an output changed during the build")
+                    old = stream.read(MAX_BOOK_BYTES + 1)
+                    if len(old) > MAX_BOOK_BYTES:
+                        raise PricebookError("an output is too large")
+                backups[name] = stage(old)
+            staged[name] = stage(data)
+        _same_directory(parent, directory)
+        for name, _ in outputs:
+            if _version(_target(directory, name)) != versions[name]:
+                raise PricebookError("an output changed during the build")
+            os.replace(staged[name], name, src_dir_fd=directory, dst_dir_fd=directory)
+            published.append(name)
+    except BaseException:
+        for name in reversed(published):
+            if backups[name] is None:
+                os.unlink(name, dir_fd=directory)
+            else:
+                os.replace(backups[name], name, src_dir_fd=directory, dst_dir_fd=directory)
+        raise
+    finally:
+        for name in list(staged.values()) + [n for n in backups.values() if n is not None]:
+            try:
+                os.unlink(name, dir_fd=directory)
+            except FileNotFoundError:
+                pass
 
 
 # --------------------------------------------------------------------------- the words of the workbook
@@ -210,11 +351,12 @@ WIDTHS = {"no": 6, "item": 28, "service": 14, "flavor": 24, "os": 16, "region": 
           "unit_price": 15, "quantity": 10, "hours": 10, "monthly": 15, "yearly": 15, "assumption": 52,
           "record": 24}
 COMPARED = ("service", "flavor", "os", "region", "mode", "unit", "unit_price", "quantity", "hours", "monthly",
-            "yearly", "assumption", "record")
+            "yearly", "assumption", "record", "pooled_hours", "start")
 MONEY_FIELDS = ("monthly", "yearly")
 FIELD_ENGLISH = {"service": "service", "flavor": "flavor", "os": "OS", "region": "region", "mode": "pricing mode",
                  "unit": "unit", "unit_price": "unit price", "quantity": "quantity", "hours": "hours",
-                 "monthly": "monthly", "yearly": "yearly", "assumption": "assumption", "record": "price record"}
+                 "monthly": "monthly", "yearly": "yearly", "assumption": "assumption", "record": "price record",
+                 "pooled_hours": "pooled hours", "start": "start"}
 HEADER_ROW = 4
 FIRST_ROW = 5
 
@@ -275,10 +417,11 @@ def mode_term(text: str) -> str | None:
 
 
 def _clean_text(value, what: str, limit: int, problems: list[str], where: str) -> str:
-    text = " ".join(str(value).replace("\t", " ").split())
+    text = str(value)
     if _CONTROL_RE.search(text):
         problems.append("%s%s has a control character" % (where, what))
         return ""
+    text = " ".join(text.replace("\t", " ").split())
     if len(text) > limit:
         problems.append("%s%s is longer than %d characters" % (where, what, limit))
         return ""
@@ -330,11 +473,40 @@ def _parse_text(text: str, problems: list[str]) -> tuple[dict, list[tuple[str, i
 
 
 def _parse_json(text: str, problems: list[str]) -> tuple[dict, list[tuple[str, int, dict]]]:
+    def number(value):
+        result = Decimal(value)
+        if not result.is_finite() or len(result.as_tuple().digits) > 128 or abs(result.as_tuple().exponent) > 128:
+            raise ValueError("number exceeds limits")
+        return result
+
+    def pairs(items):
+        out = {}
+        for key, value in items:
+            if key in out:
+                raise ValueError("duplicate key")
+            out[key] = value
+        return out
+
     try:
-        data = json.loads(text, parse_float=Decimal, parse_int=Decimal)
-    except ValueError:
+        data = json.loads(text, parse_float=number, parse_int=number, parse_constant=number, object_pairs_hook=pairs)
+    except (ValueError, DecimalException, RecursionError):
         problems.append("the file is not valid JSON")
         return {}, []
+    pending = [(data, 0)]
+    while pending:
+        value, depth = pending.pop()
+        if depth > 64:
+            raise SpecError(["the file is not valid JSON: too deeply nested"])
+        if isinstance(value, str) and _CONTROL_RE.search(value):
+            raise SpecError(["the specification has an invalid character"])
+        if isinstance(value, dict):
+            pending.extend((v, depth + 1) for v in (*value.keys(), *value.values()))
+        elif isinstance(value, list):
+            pending.extend((v, depth + 1) for v in value)
+    decoded = json.dumps(data, ensure_ascii=False, default=str)
+    if _CONTROL_RE.search(decoded):
+        raise SpecError(["the specification has an invalid character"])
+    _require_public(decoded)
     if not isinstance(data, dict) or not isinstance(data.get("lines"), list):
         problems.append("the JSON holds an object with a list `lines`")
         return {}, []
@@ -401,7 +573,10 @@ def _pool_settings(body: dict, where: str, problems: list[str]) -> tuple[str | N
     start = body.get("start", "").strip()
     if start:
         try:
-            datetime.date.fromisoformat(start)
+            day = datetime.date.fromisoformat(start)
+            months = int(re.sub(r"\D", "", term)) if term else 36
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) or day.year + (day.month - 1 + months) // 12 > 9999:
+                raise ValueError
         except ValueError:
             problems.append("%sstart is YYYY-MM-DD" % where)
             start = ""
@@ -417,9 +592,13 @@ def parse_spec(data: bytes, name: str = "specification") -> Spec:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise SpecError(["the specification is not UTF-8 text"]) from None
+    if _CONTROL_RE.search(text.replace("\r", "")):
+        raise SpecError(["the specification has an invalid character"])
+    _require_public(text)
     as_json = text.lstrip().startswith("{") or name.lower().endswith(".json")
     top, items = (_parse_json if as_json else _parse_text)(text, problems)
     title = _clean_text(top.get("title") or Path(name).stem, "the title", 120, problems, "")
+    _require_public(title)
     region = (top.get("region") or price.DEFAULT_REGION).strip().lower()
     if region not in REGIONS:
         problems.append("the region is one of %s" % ", ".join(REGIONS))
@@ -506,11 +685,7 @@ def parse_spec(data: bytes, name: str = "specification") -> Spec:
 
 
 def load_spec(path: Path) -> Spec:
-    try:
-        data = Path(path).read_bytes()
-    except OSError as err:
-        raise PricebookError("the specification cannot be read (%s)" % type(err).__name__) from None
-    return parse_spec(data, str(path))
+    return parse_spec(_read_file(path, MAX_SPEC_BYTES), str(path))
 
 
 class LineRefused(PricebookError):
@@ -573,6 +748,8 @@ def find_record(line: Line, f: price.Fetch) -> price.Record:
         if not found:
             raise LineProblem("no record with the id %s in the price API for %s; the API covers part of the catalog "
                               "(KB-AI2E, KB-RMW2)" % (line.id, line.region))
+        if len(found) != 1:
+            raise LineProblem("several price records have this id")
         rec = found[0]
         if rec.service != sn:
             raise LineProblem("the record %s belongs to the price API service %s, not %s; set api to that service"
@@ -711,14 +888,15 @@ def price_spec(spec: Spec, fetch_region: FetchRegion, skip: dict | None = None) 
             continue
         f = fetch_region(line.region)
         if f.listing.state == jobs.UNKNOWN:
-            raise PricebookError("the price API could not be read for %s: %s" % (line.region, f.listing.reason))
+            raise PricebookError("the price API could not be read for %s: %s" % (line.region,
+                                                                               _public(f.listing.reason)))
         if f.listing.state == jobs.EMPTY:
             problems[line.label] = "the price API holds no records for %s" % line.region
             continue
         try:
             priced += pool_lines(line, f) if line.pool else [price_line(line, f)]
-        except LineProblem as err:
-            problems[line.label] = str(err)
+        except (LineProblem, calc.CalcError, DecimalException, ValueError, OverflowError) as err:
+            problems[line.label] = _public(str(err)) if isinstance(err, LineProblem) else "the line cannot be priced"
     return priced, problems
 
 
@@ -794,6 +972,8 @@ def _spec_fields(line: Line, lang: str) -> dict:
         f["record"] = line.id
     if line.hours is not None:
         f["hours"] = line.hours
+    if line.pool:
+        f.update(pooled_hours=line.pooled_hours, start=line.start)
     return f
 
 
@@ -835,11 +1015,28 @@ def mode_labels() -> dict[str, str]:
 def book_of_workbook(path) -> Book:
     """The lines sheet of a workbook (the first sheet) as a book. Both languages of the headers are read."""
     try:
-        sheets = xlsxlite.read(path)
-    except xlsxlite.XlsxError as err:
-        raise PricebookError("the workbook cannot be read: %s" % err) from None
+        data = path.getvalue() if isinstance(path, io.BytesIO) else _read_file(path, MAX_BOOK_BYTES)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            parts = archive.infolist()
+            if (len(parts) > xlsxlite.MAX_MEMBERS or len({p.filename for p in parts}) != len(parts)
+                    or sum(p.file_size for p in parts) > MAX_BOOK_BYTES):
+                raise PricebookError("the workbook has too many or oversized parts")
+        sheets = xlsxlite.read(io.BytesIO(data))
+    except (xlsxlite.XlsxError, OSError, ValueError, zipfile.BadZipFile, RuntimeError, RecursionError):
+        raise PricebookError("the workbook cannot be read") from None
     if not sheets:
         raise PricebookError("the workbook has no sheet")
+    texts = []
+    for sh in sheets:
+        for row in sh.rows.values():
+            for value in row.values():
+                if isinstance(value, Decimal):
+                    if (not value.is_finite() or value.copy_abs() >= Decimal("1e30")
+                            or abs(value.as_tuple().exponent) > 128):
+                        raise PricebookError("the workbook holds an invalid number")
+                elif isinstance(value, str):
+                    texts.append(value)
+    _require_public("\n".join(texts))
     names = {}
     for lang in LANGS:
         for name in COLUMNS:
@@ -865,6 +1062,9 @@ def book_of_workbook(path) -> Book:
             if name in ("no", "item") or c not in row:
                 continue
             v = row[c]
+            numeric = name in ("quantity", "hours", "unit_price", "monthly", "yearly")
+            if (numeric and not isinstance(v, Decimal)) or (not numeric and not isinstance(v, str)):
+                raise PricebookError("a workbook field has an invalid type")
             if name == "mode" and isinstance(v, str):
                 v = labels.get(_key(v), v)
             fields[name] = v
@@ -947,7 +1147,7 @@ def _same(a, b) -> bool:
 def _optional_fields(old_kind: str, new_kind: str) -> tuple:
     """The fields whose presence on one side only is a change: what a line may leave out."""
     if old_kind == new_kind == "spec":
-        return ("flavor", "os", "record", "hours")
+        return ("flavor", "os", "record", "hours", "pooled_hours", "start")
     if old_kind != "spec" and new_kind != "spec":
         return ("hours",)
     return ()
@@ -1280,17 +1480,76 @@ def _change_text(ch: Change, lang: str) -> str:
 
 
 def find_project(start: Path) -> Path | None:
-    return config.scope_root(Path(start).resolve(), strict=True)
+    start = Path(os.path.abspath(start))
+    with _directory(start):
+        root = config.scope_root(start, strict=True)
+    if root is not None:
+        _read_file(root / "SCOPE.md", MAX_SPEC_BYTES)
+    return root
 
 
 def record_totals(project: Path, priced: list[Priced], monthly: Decimal, yearly: Decimal) -> list[str]:
-    """The two totals recorded with awb calc; raises calc.CalcError when the expression does not fit."""
+    """Append both calc records under one lock to a pinned, bounded regular file."""
     expr = "sum(%s)" % ", ".join(calc.text(p.monthly, 2) for p in priced)
-    if calc.evaluate(expr) != monthly:
+    if calc.evaluate(expr) != monthly or calc.evaluate("%s * 12" % expr) != yearly:
         raise calc.CalcError("the recorded sum differs from the total")
-    rec_m = calc.record(project, expr, [], calc.text(monthly, 2), "pricebook monthly total")
-    rec_y = calc.record(project, "%s * 12" % expr, [], calc.text(yearly, 2), "pricebook yearly total")
-    return [rec_m.id, rec_y.id]
+    try:
+        with _directory(project) as root:
+            try:
+                os.mkdir(calc.FOLDER, 0o700, dir_fd=root)
+            except FileExistsError:
+                pass
+            directory = os.open(calc.FOLDER, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+            try:
+                fd = os.open(calc.FILE, os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK,
+                             0o600, dir_fd=directory)
+                with os.fdopen(fd, "r+b", buffering=0) as stream:
+                    info = os.fstat(fd)
+                    if not _regular(info) or info.st_size > MAX_SPEC_BYTES:
+                        raise calc.CalcError("the calculation record is not a bounded regular file")
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    body = stream.read(MAX_SPEC_BYTES + 1)
+                    if len(body) > MAX_SPEC_BYTES:
+                        raise calc.CalcError("the calculation record is too large")
+                    rows = body.decode("utf-8").splitlines()
+                    if body and (not body.endswith(b"\n") or tuple(rows[0].split("\t")) != calc.HEADER):
+                        raise calc.CalcError("the calculation record is malformed")
+                    ids = set()
+                    for row in rows[1:]:
+                        fields = row.split("\t")
+                        if (len(fields) != len(calc.HEADER) or not calc.ID_RE.fullmatch(fields[0])
+                                or len(fields[0]) > 16 or fields[0] in ids):
+                            raise calc.CalcError("the calculation record is malformed")
+                        ids.add(fields[0])
+                    last = max((int(value[2:]) for value in ids), default=0)
+                    new_ids = ["K-%d" % (last + 1), "K-%d" % (last + 2)]
+                    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    addition = "" if body else "\t".join(calc.HEADER) + "\n"
+                    for number, label, expression, total in (
+                            (new_ids[0], "monthly", expr, monthly),
+                            (new_ids[1], "yearly", "%s * 12" % expr, yearly)):
+                        addition += "\t".join((number, stamp, "pricebook %s total" % label, expression, "",
+                                                calc.text(total, 2))) + "\n"
+                    _same_directory(project / calc.FOLDER, directory)
+                    current = _target(directory, calc.FILE)
+                    if current is None or not os.path.samestat(current, info):
+                        raise calc.CalcError("the calculation record changed")
+                    try:
+                        data = addition.encode("utf-8")
+                        while data:
+                            count = stream.write(data)
+                            if not count:
+                                raise OSError("short write")
+                            data = data[count:]
+                        os.fsync(fd)
+                    except OSError:
+                        os.ftruncate(fd, len(body))
+                        raise
+                    return new_ids
+            finally:
+                os.close(directory)
+    except (OSError, ValueError, PricebookError):
+        raise calc.CalcError("the calculation record cannot be updated") from None
 
 
 @dataclass
@@ -1308,6 +1567,38 @@ class Result:
 def build(spec_path: Path, *, out: Path | None = None, lang: str | None = None, against: Path | None = None,
           fetcher: Callable[..., price.Fetch] = price.fetch, record: bool = True, project: Path | None = None,
           today: str | None = None) -> Result:
+    """Validate and pin the output folder, serializing builds before any side effects."""
+    try:
+        spec_path = Path(os.path.abspath(spec_path))
+        out = Path(os.path.abspath(out)) if out else spec_path.with_suffix(".xlsx")
+        if out.suffix.lower() != ".xlsx":
+            raise PricebookError("--out is a file with the ending .xlsx")
+        _require_public(out.name)
+        if spec_path in (out, out.with_suffix(".md")):
+            raise PricebookError("an output is the specification itself")
+        root = find_project(Path(project) if project is not None else spec_path.parent)
+        if project is not None and root is None:
+            raise PricebookError("the requested project has no SCOPE.md")
+        if root is not None:
+            for path in (spec_path, out, Path(os.path.abspath(against)) if against is not None else spec_path):
+                if not path.is_relative_to(root):
+                    raise PricebookError("a pricebook path is outside the project")
+        with _directory(out.parent) as directory:
+            try:
+                fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise PricebookError("another pricebook build is using this folder") from None
+            versions = {name: _version(_target(directory, name))
+                        for name in (out.name, out.with_suffix(".md").name)}
+            return _build(spec_path, out=out, lang=lang, against=against, fetcher=fetcher, record=record,
+                          project=root, today=today, directory=directory, versions=versions)
+    except (OSError, ValueError, RuntimeError, price.PriceError):
+        raise PricebookError("the pricebook files cannot be accessed") from None
+
+
+def _build(spec_path: Path, *, out: Path, lang: str | None, against: Path | None,
+           fetcher: Callable[..., price.Fetch], record: bool, project: Path | None,
+           today: str | None, directory: int, versions: dict) -> Result:
     """Build the workbook and the summary. Raises SpecError (a bad specification), LineRefused (a line the service
     description or the price API refuses) or PricebookError (anything else, the price API not answering included)."""
     spec = load_spec(spec_path)
@@ -1318,10 +1609,6 @@ def build(spec_path: Path, *, out: Path | None = None, lang: str | None = None, 
     out = Path(out) if out else Path(spec_path).with_suffix(".xlsx")
     if out.suffix.lower() != ".xlsx":
         raise PricebookError("--out is a file with the ending .xlsx")
-    if not out.parent.is_dir():
-        raise PricebookError("the folder of --out does not exist")
-    if out.resolve() == Path(spec_path).resolve():
-        raise PricebookError("--out is the specification itself")
     summary_path = out.with_suffix(".md")
     catalog = offered.load()
     refused = offered_problems(spec, catalog, today)
@@ -1346,6 +1633,12 @@ def build(spec_path: Path, *, out: Path | None = None, lang: str | None = None, 
     yearly = sum((p.yearly for p in priced), Decimal(0))
     notes: list[str] = []
     calc_ids: list[str] = []
+    # Screen all generated cells and summary text before calculations are recorded.
+    preview = build_sheets(spec, priced, used, catalog, today, lang, [], comparison)
+    for sheet in preview.sheets:
+        _require_public("\n".join(str(cell.value) for cell in sheet.cells.values()))
+    _require_public(build_summary(spec, priced, used, catalog, lang, preview, [], comparison))
+    _same_directory(out.parent, directory)
     if record:
         folder = find_project(project or Path(spec_path).parent)
         if folder is None:
@@ -1353,21 +1646,20 @@ def build(spec_path: Path, *, out: Path | None = None, lang: str | None = None, 
         else:
             try:
                 calc_ids = record_totals(folder, priced, monthly, yearly)
-            except calc.CalcError as err:
-                notes.append("the totals are not recorded: %s" % err)
+            except calc.CalcError:
+                notes.append("the totals are not recorded: the calculation record could not be updated")
             except OSError as err:
                 notes.append("the totals are not recorded (%s)" % type(err).__name__)
     built = build_sheets(spec, priced, used, catalog, today, lang, calc_ids, comparison)
     try:
         data = xlsxlite.build(built.sheets, title=spec.title, created=created_of(used))
-    except xlsxlite.XlsxError as err:
-        raise PricebookError("the workbook cannot be written: %s" % err) from None
+    except xlsxlite.XlsxError:
+        raise PricebookError("the workbook cannot be written") from None
     summary = build_summary(spec, priced, used, catalog, lang, built, calc_ids, comparison)
     check = compare(book_of_spec(spec, priced, {}, lang), book_of_workbook(io.BytesIO(data)))
     if check.changed:
         raise PricebookError("the workbook read back differs from what was computed; nothing written")
-    xlsxlite.write_bytes(out, data)
-    xlsxlite.write_bytes(summary_path, summary.encode("utf-8"))
+    _publish(directory, out.parent, [(out.name, data), (summary_path.name, summary.encode("utf-8"))], versions)
     for p in priced:
         notes += ["%s: %s" % (p.line.label, n) for n in p.notes]
     return Result(out, summary_path, monthly, yearly, len(priced), calc_ids, notes, comparison)
@@ -1385,30 +1677,30 @@ def _cmd_build(args, job) -> int:
                     against=Path(args.against) if args.against else None, fetcher=fetcher,
                     record=not args.no_record, project=Path(args.project) if args.project else None)
     except SpecError as err:
-        print("awb pricebook: nothing written, the specification has %d problem(s):" % len(err.problems),
+        _print("awb pricebook: nothing written, the specification has %d problem(s):" % len(err.problems),
               file=sys.stderr)
         for p in err.problems:
-            print("  %s" % p, file=sys.stderr)
+            _print("  %s" % p, file=sys.stderr)
         return 2
     except LineRefused as err:
-        print("awb pricebook: nothing written, %d line(s) refused:" % len(err.problems), file=sys.stderr)
+        _print("awb pricebook: nothing written, %d line(s) refused:" % len(err.problems), file=sys.stderr)
         for label, why in err.problems.items():
-            print("  [%s] %s" % (label, why), file=sys.stderr)
+            _print("  [%s] %s" % (label, why), file=sys.stderr)
         return 1
     except PricebookError as err:
-        print("awb pricebook: nothing written: %s" % err, file=sys.stderr)
+        _print("awb pricebook: nothing written: %s" % err, file=sys.stderr)
         return 2
-    print("awb pricebook build: %d line(s), monthly total %s EUR, yearly total %s EUR"
+    _print("awb pricebook build: %d line(s), monthly total %s EUR, yearly total %s EUR"
           % (res.lines, money(res.monthly, "en"), money(res.yearly, "en")))
-    print("  workbook  %s" % res.xlsx)
-    print("  summary   %s" % res.summary)
+    _print("  workbook  %s" % res.xlsx)
+    _print("  summary   %s" % res.summary)
     if res.calc_ids:
-        print("  recorded  %s (evidence for the review: calc:%s)" % (", ".join(res.calc_ids), res.calc_ids[0]))
+        _print("  recorded  %s (evidence for the review: calc:%s)" % (", ".join(res.calc_ids), res.calc_ids[0]))
     if res.comparison is not None:
-        print("  against   %s" % ("no difference" if not res.comparison.changed else
+        _print("  against   %s" % ("no difference" if not res.comparison.changed else
                                   "%d change(s) in the lines; see the sheet of changes" % len(res.comparison.changes)))
     for note in res.notes:
-        print("  note      %s" % note)
+        _print("  note      %s" % note)
     return 0
 
 
@@ -1435,22 +1727,22 @@ def _cmd_diff(args, job) -> int:
         old = load_book(Path(args.old), fetch_region, lang, catalog, today, prices=not args.no_prices)
         new = load_book(Path(args.new), fetch_region, lang, catalog, today, prices=not args.no_prices)
     except SpecError as err:
-        print("awb pricebook: the specification has %d problem(s):" % len(err.problems), file=sys.stderr)
+        _print("awb pricebook: the specification has %d problem(s):" % len(err.problems), file=sys.stderr)
         for p in err.problems:
-            print("  %s" % p, file=sys.stderr)
+            _print("  %s" % p, file=sys.stderr)
         return 2
     c = compare(old, new)
-    print("awb pricebook diff: %s (%s) against %s (%s)" % (Path(args.old).name, old.kind, Path(args.new).name,
+    _print("awb pricebook diff: %s (%s) against %s (%s)" % (Path(args.old).name, old.kind, Path(args.new).name,
                                                            new.kind))
     if fetches:
-        print("  price API: %s" % "; ".join("%s fetched %s" % (r, f.fetched_at) for r, f in sorted(fetches.items())))
+        _print("  price API: %s" % "; ".join("%s fetched %s" % (r, f.fetched_at) for r, f in sorted(fetches.items())))
     lines = comparison_lines(c)
     for line in lines:
-        print(line)
+        _print(line)
     for note in c.notes:
-        print("note: %s" % note)
+        _print("note: %s" % note)
     if not c.changes and not c.changed:
-        print("no difference")
+        _print("no difference")
     return 1 if c.changed else 0
 
 
@@ -1458,8 +1750,14 @@ def main(argv: list[str] | None = None) -> int:
     """`awb pricebook build|diff`. Exit 0 done or no difference, 1 findings, 2 unknown, usage or error."""
     from awb.cli import SafeParser
 
-    ap = SafeParser(prog="awb pricebook", description="A price workbook from a specification, priced live.")
-    sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
+    class Parser(SafeParser):
+        def error(self, message):
+            self.print_usage(sys.stderr)
+            _print("awb pricebook: invalid arguments", file=sys.stderr)
+            raise SystemExit(2)
+
+    ap = Parser(prog="awb pricebook", description="A price workbook from a specification, priced live.")
+    sub = ap.add_subparsers(dest="command", parser_class=Parser)
     b = sub.add_parser("build", help="price a specification and write the workbook and a summary for a mail")
     b.add_argument("spec")
     b.add_argument("--out", default=None, help="the workbook (default: the specification with the ending .xlsx)")
@@ -1484,10 +1782,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _cmd_build(args, job) if args.command == "build" else _cmd_diff(args, job)
     except PricebookError as err:
-        print("awb pricebook: %s" % err, file=sys.stderr)
+        _print("awb pricebook: %s" % err, file=sys.stderr)
         return 2
-    except price.PriceError as err:
-        print("awb pricebook: %s" % err, file=sys.stderr)
+    except (price.PriceError, OSError, ValueError, DecimalException, RecursionError):
+        _print("awb pricebook: a dependency or input could not be read", file=sys.stderr)
         return 2
 
 

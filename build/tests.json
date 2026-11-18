@@ -25094,8 +25094,330 @@
    "name": "office: sparse rows are bounded before markdown rendering",
    "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_sparse_rows_are_bounded_before_markdown_rendering",
    "status": "passing"
+  },
+  {
+   "id": "PB-H1",
+   "phase": "PB hardening",
+   "name": "pricebook: json duplicate keys are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_json_duplicate_keys_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H2",
+   "phase": "PB hardening",
+   "name": "pricebook: json nesting has a controlled refusal",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_json_nesting_has_a_controlled_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H3",
+   "phase": "PB hardening",
+   "name": "pricebook: json numbers are bounded before fixed point expansion",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_json_numbers_are_bounded_before_fixed_point_expansion",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H4",
+   "phase": "PB hardening",
+   "name": "pricebook: json surrogates are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_json_surrogates_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H5",
+   "phase": "PB hardening",
+   "name": "pricebook: control characters are rejected before whitespace normalization",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_control_characters_are_rejected_before_whitespace_normalization",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H6",
+   "phase": "PB hardening",
+   "name": "pricebook: specification links are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_specification_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H7",
+   "phase": "PB hardening",
+   "name": "pricebook: input parent links are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_input_parent_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H8",
+   "phase": "PB hardening",
+   "name": "pricebook: special inputs are refused without opening a stream",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_special_inputs_are_refused_without_opening_a_stream",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H9",
+   "phase": "PB hardening",
+   "name": "pricebook: specification size is bounded during read",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_specification_size_is_bounded_during_read",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H10",
+   "phase": "PB hardening",
+   "name": "pricebook: missing and unreadable inputs have value free errors",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_missing_and_unreadable_inputs_have_value_free_errors",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H11",
+   "phase": "PB hardening",
+   "name": "pricebook: private spec fields never reach outputs",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_private_spec_fields_never_reach_outputs",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H12",
+   "phase": "PB hardening",
+   "name": "pricebook: invalid spec errors withhold private keys and labels",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_invalid_spec_errors_withhold_private_keys_and_labels",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H13",
+   "phase": "PB hardening",
+   "name": "pricebook: private filename default title is refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_private_filename_default_title_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H14",
+   "phase": "PB hardening",
+   "name": "pricebook: api metadata is screened before recording",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_api_metadata_is_screened_before_recording",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H15",
+   "phase": "PB hardening",
+   "name": "pricebook: privacy check failure refuses output",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_privacy_check_failure_refuses_output",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H16",
+   "phase": "PB hardening",
+   "name": "pricebook: dependency errors never echo values",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_dependency_errors_never_echo_values",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H17",
+   "phase": "PB hardening",
+   "name": "pricebook: diff filenames and notes are screened",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_diff_filenames_and_notes_are_screened",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H18",
+   "phase": "PB hardening",
+   "name": "pricebook: outputs cannot escape a project",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_outputs_cannot_escape_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H19",
+   "phase": "PB hardening",
+   "name": "pricebook: explicit project must contain the specification",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_explicit_project_must_contain_the_specification",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H20",
+   "phase": "PB hardening",
+   "name": "pricebook: output links and special files are preserved",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_output_links_and_special_files_are_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H21",
+   "phase": "PB hardening",
+   "name": "pricebook: summary cannot overwrite the specification",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_summary_cannot_overwrite_the_specification",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H22",
+   "phase": "PB hardening",
+   "name": "pricebook: output parent links are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_output_parent_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H23",
+   "phase": "PB hardening",
+   "name": "pricebook: failed second publication restores both outputs",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_failed_second_publication_restores_both_outputs",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H24",
+   "phase": "PB hardening",
+   "name": "pricebook: concurrent build is refused before fetch",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_concurrent_build_is_refused_before_fetch",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H25",
+   "phase": "PB hardening",
+   "name": "pricebook: directory swap during build cannot redirect writes",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_directory_swap_during_build_cannot_redirect_writes",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H26",
+   "phase": "PB hardening",
+   "name": "pricebook: workbook links are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_workbook_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H27",
+   "phase": "PB hardening",
+   "name": "pricebook: workbook field types are validated",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_workbook_field_types_are_validated",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H28",
+   "phase": "PB hardening",
+   "name": "pricebook: workbook nonfinite and extreme numbers are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_workbook_nonfinite_and_extreme_numbers_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H29",
+   "phase": "PB hardening",
+   "name": "pricebook: workbook private cells are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_workbook_private_cells_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H30",
+   "phase": "PB hardening",
+   "name": "pricebook: pool settings are compared without prices",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_pool_settings_are_compared_without_prices",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H31",
+   "phase": "PB hardening",
+   "name": "pricebook: pool start must fit the entire term",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_pool_start_must_fit_the_entire_term",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H32",
+   "phase": "PB hardening",
+   "name": "pricebook: duplicate price record ids are not guessed",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_duplicate_price_record_ids_are_not_guessed",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H33",
+   "phase": "PB hardening",
+   "name": "pricebook: changed outputs are preserved",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_changed_outputs_are_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H34",
+   "phase": "PB hardening",
+   "name": "pricebook: project marker links are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_project_marker_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H35",
+   "phase": "PB hardening",
+   "name": "pricebook: workbook duplicate zip parts are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_workbook_duplicate_zip_parts_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H36",
+   "phase": "PB hardening",
+   "name": "pricebook: workbook total expansion is bounded",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_workbook_total_expansion_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H37",
+   "phase": "PB hardening",
+   "name": "pricebook: calc special files are refused without blocking",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_special_files_are_refused_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H38",
+   "phase": "PB hardening",
+   "name": "pricebook: calc hardlinks are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_hardlinks_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H39",
+   "phase": "PB hardening",
+   "name": "pricebook: calc malformed records are preserved",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_malformed_records_are_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H40",
+   "phase": "PB hardening",
+   "name": "pricebook: calc size is bounded before reading",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_size_is_bounded_before_reading",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H41",
+   "phase": "PB hardening",
+   "name": "pricebook: calc directory swap preserves the old record",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_directory_swap_preserves_the_old_record",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H42",
+   "phase": "PB hardening",
+   "name": "pricebook: calc partial append is rolled back",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_partial_append_is_rolled_back",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H43",
+   "phase": "PB hardening",
+   "name": "pricebook: calc lock contention has a bounded refusal",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_lock_contention_has_a_bounded_refusal",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H44",
+   "phase": "PB hardening",
+   "name": "pricebook: input and output hardlinks are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_input_and_output_hardlinks_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H45",
+   "phase": "PB hardening",
+   "name": "pricebook: generated files are private",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_generated_files_are_private",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H46",
+   "phase": "PB hardening",
+   "name": "pricebook: api unknown reason is screened at the library boundary",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_api_unknown_reason_is_screened_at_the_library_boundary",
+   "status": "passing"
   }
  ],
- "total_tests": 3585,
+ "total_tests": 3631,
  "checked": "2026-11-18"
 }
