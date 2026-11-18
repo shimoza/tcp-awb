@@ -615,6 +615,9 @@ access, writes a project token or attempts a login.
 | `awb winlab start NAME [--vm VM] -- POWERSHELL`, `awb winlab status JOB`, `awb winlab log JOB`, `awb winlab stop JOB` | start runs a long command as the scheduled task `\awb-winlab\awb-winlab-job-<JOB>` of the laptop's account (no time limit) with all its output in a log file on the laptop and prints the job id (`wl-<date>-<time>-xxxx`); the same checks as run. status says running, ended with its exit code, stopped, lost (no task runs it and it left no exit code) or machine offline (exit 4): the job goes on on the laptop while the tunnel is down. log fetches the part of the job's log since the last call, by the rules of `awb paste --own`, prints it and appends it to `notes/winlab/jobs/<JOB>.log`. stop ends it. The job remembers its machine in `notes/winlab/jobs/<JOB>.json`; every call asks the window again. `remove.ps1` takes the job tasks away too; project session |
 | `awb winlab put FILE WINPATH [--machine NAME]`, `awb winlab get WINPATH FILE [--machine NAME]` | a file to or from the lab machine of the project's window (`--machine` when it holds two), built for 12 GB: in chunks to `WINPATH.awb-part` or `FILE.awb-part`, three breaks in a row taken again after a pause; the same command again resumes from the size of the part. At the end the SHA-256 of both sides is compared: a mismatch deletes the part and fails. put takes a regular file of the project's `winlab-out/` only (no link, no hard link; a file of `input/`, the vault or the shared folders is refused) and passes it through the name check and the secret check first (a file up to 64 MB whole, every file but a plain text also in pieces of its text; a compressed file the check cannot open is refused). get writes into the project, never into `input/` or `.git`; a text file up to 64 MB passes the name check before it lands. Neither overwrites a file. WINPATH is a whole path like `C:\lab\file.txt`. Every transfer is logged in `notes/winlab/`; project session |
 | `awb tenant snapshot [ALIAS]...` | list the servers, disks and elastic IPs of every region, keep the snapshot of the day and append what appeared, changed and went, a server with its OS family (windows, linux or unknown) and a disk with the handle of its server; GET only, owner side, fit for a daily cron line. Then it makes the cost estimate (`awb tenant cost`) and prints its total |
+| `awb tenant billed [ALIAS] [--month YYYY-MM]`, `awb tenant billed --hourly [ALIAS] [--date YYYY-MM-DD]` | owner pulls Financial Dashboard v2 to mode 664 shared caches using pass entries awb/fd/ALIAS; bootstrap with a contract-scoped token. Daily default is this month plus the previous month on days 1 to 3; hourly default is today and yesterday in Europe/Berlin with 62 days retained. Ubuntu cron runs the daily pull after 03:30 UTC |
+| `awb cost billed [--tenant ALIAS] [--month YYYY-MM] [--project CODE] [--json]` | cache-only billed totals, products, days and age; project attribution uses live and deleted RESOURCES.md ids plus the latest snapshot tags, with one not-of-project total |
+| `awb cost billed --resource ID [--date YYYY-MM-DD] [--from HH:MM --to HH:MM]`, `awb cost billed --project CODE --hourly` | cache-only hourly product intervals, quantities, prorated amounts and missing rows; attached disks known at pull time accompany a resource. Times are Europe/Berlin and the dashboard is about 1.5 h behind. Compute quantity means runtime; disk GB and pc rows cover hourly slots. No row means unknown usage |
 | `awb tenant cost [--json]` | the monthly estimate of every tenant from its latest snapshot and one fetch of the live price API per region, PAYG, 730 h a month: a running server the record of its flavor plus OS (Windows, else Open Linux) x 730, a stopped one 0 and its disks still counted (KB-VTTM; a stopped GPU flavor notes KB-NAAF), a disk the rate per GB x its size, an elastic IP its rate x 730 (bandwidth not counted). An item without a price record is listed as no price and left out of the total, which says so. Sums per tenant, kind and project (the awb-project tag, a disk without one takes its server's, else no project), the top items and the waste: disks of stopped servers, disks not attached, elastic IPs not bound. Names the tenants whose read key could not list a kind. Writes `tenants/cost.json` of the shared folder (aliases, handles, codes, the fetch time and the age of the API's cache, the notes), which GET /api/tenants carries as `cost`; owner side |
 | `awb tenant cost note HANDLE TEXT` | an owner note on one item, kept in `tenants/cost-notes.tsv` of the shared folder (handle, note, date) as ALIAS/HANDLE (HANDLE alone when one tenant's latest snapshot has it): the estimate carries it and neither the item nor a disk of a noted server is in a waste group. Codes, no names: a note with an id or a blocklisted word is refused; owner side |
 | `awb tenant list`, `now ALIAS`, `history ALIAS [--project CODE] [--since DATE]`, `at ALIAS DATE`, `project CODE` | what runs now, what ran when and for which project, from the snapshots; handles instead of ids, aliases instead of tenant ids. `list` also shows every customer tenant of keys.conf with its way in, regions, mode (readonly or write), the day and note of a switch to write and its granted projects |
@@ -1884,6 +1887,19 @@ raise, check, write the evidence and always tear down; awb lab run start|end|sta
 ### `awb lab obs abort JOB`
 - `JOB`
 
+### `awb cost billed [--tenant TENANT] [--month MONTH] [--project PROJECT] [--resource RESOURCE] [--date DATE] [--from START] [--to END] [--json] [--hourly]`
+
+daily totals or hourly resource windows from Financial Dashboard caches
+- `--tenant TENANT`
+- `--month MONTH`
+- `--project PROJECT`
+- `--resource RESOURCE`
+- `--date DATE`
+- `--from START`
+- `--to END`
+- `--json`
+- `--hourly`: hourly rows for resources of --project
+
 ### `awb tenant password ALIAS`
 
 store and load a changed admin password; optional one login (owner side)
@@ -1988,6 +2004,14 @@ what a project runs and ran on every tenant
 
 the resources per awb-project tag, the creates without it and the quotas now
 - `[ALIAS]`
+
+### `awb tenant billed [ALIAS] [--month MONTH] [--hourly] [--date DATE]`
+
+pull Financial Dashboard billed costs into the shared cache (owner side)
+- `[ALIAS]`
+- `--month MONTH`: YYYY-MM; default current month and previous month on days 1 to 3
+- `--hourly`: pull hourly rows for today and yesterday
+- `--date DATE`: YYYY-MM-DD with --hourly; Europe/Berlin
 
 ### `awb tenant cost [--json]`
 

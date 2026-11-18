@@ -1126,6 +1126,11 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("code")
     tg = sub.add_parser("tags", help="the resources per awb-project tag, the creates without it and the quotas now")
     tg.add_argument("alias", nargs="?")
+    bi = sub.add_parser("billed", help="pull Financial Dashboard billed costs into the shared cache (owner side)")
+    bi.add_argument("alias", nargs="?")
+    bi.add_argument("--month", help="YYYY-MM; default current month and previous month on days 1 to 3")
+    bi.add_argument("--hourly", action="store_true", help="pull hourly rows for today and yesterday")
+    bi.add_argument("--date", help="YYYY-MM-DD with --hourly; Europe/Berlin")
     co = sub.add_parser("cost", help="the monthly estimate of every tenant from its latest snapshot and the live "
                                      "price API (owner side)")
     co.add_argument("--json", action="store_true", help="print the estimate as JSON, as kept for the console")
@@ -1195,6 +1200,10 @@ def main(argv: list[str] | None = None) -> int:
                       " ".join("%s %d" % kv for kv in sorted(counts.items())) or "none",
                       "; %d listing(s) not readable" % unknown if unknown else ""))
             print("\n".join(_cost_module().after_snapshot(p)))
+        elif args.command == "billed":
+            import importlib
+
+            return importlib.import_module("awb.tcp.billed").owner_command(p, args)
         elif args.command == "cost":
             if config.is_work_user():
                 raise TenantError("the cost estimate is made on the owner side")

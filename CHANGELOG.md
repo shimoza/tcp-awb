@@ -4,6 +4,9 @@ What changed in the Architect Workbench, one entry per week (ISO week, Monday to
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
 ## Week 47, 2026-11-16 to 2026-11-22 (in progress)
+### Added
+- `awb tenant billed` pulls daily and hourly Financial Dashboard v2 bills into atomic shared caches with contract pinning and token-safe errors. `awb cost billed` reads tenant totals, project resource costs and hourly windows with separate disk billing, cache age and missing rows. Includes fake HTTP regression tests in `tests/test_billed.py`.
+
 ### Changed
 - Owner rules of 2026-11-17: drafted texts use TCP always and keep his choice of I or we. Remove pronoun checks and the I-rate metric from writing and translation. Replace the affected tests and update the test registry.
 - `awb winlab open --public-image` (owner): his statement that the disk images of the window are public images built in the lab; a get of a disk image or a compressed file in that window skips the secret check, whose patterns hit the noise of image bytes, and says so in the log. The name check of a compressed file and every check of a plain file stay.

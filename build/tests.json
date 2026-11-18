@@ -25563,8 +25563,127 @@
    "name": "pricebook: calc identifier exhaustion preserves the record",
    "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_identifier_exhaustion_preserves_the_record",
    "status": "passing"
+  },
+  {
+   "id": "BILLED-01",
+   "phase": "billed",
+   "name": "billed: pull file aggregates privacy permissions and request",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_pull_file_aggregates_privacy_permissions_and_request",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-02",
+   "phase": "billed",
+   "name": "billed: contract is pinned across daily and hourly pulls",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_contract_is_pinned_across_daily_and_hourly_pulls",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-03",
+   "phase": "billed",
+   "name": "billed: refused token keeps cache and never prints secret",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_refused_token_keeps_cache_and_never_prints_secret",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-04",
+   "phase": "billed",
+   "name": "billed: timeout and broken stream publish nothing",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_timeout_and_broken_stream_publish_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-05",
+   "phase": "billed",
+   "name": "billed: decimal totals round only after summing and month equals days",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_decimal_totals_round_only_after_summing_and_month_equals_days",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-06",
+   "phase": "billed",
+   "name": "billed: reader without project is cache only",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_reader_without_project_is_cache_only",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-07",
+   "phase": "billed",
+   "name": "billed: project reader joins deleted live and latest tagged resources only",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_project_reader_joins_deleted_live_and_latest_tagged_resources_only",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-08",
+   "phase": "billed",
+   "name": "billed: hourly ten minute window uses start and stop seconds",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_hourly_ten_minute_window_uses_start_and_stop_seconds",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-09",
+   "phase": "billed",
+   "name": "billed: stopped vm flavor ends while attached disk billing continues",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_stopped_vm_flavor_ends_while_attached_disk_billing_continues",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-10",
+   "phase": "billed",
+   "name": "billed: project hourly excludes other resources",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_project_hourly_excludes_other_resources",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-11",
+   "phase": "billed",
+   "name": "billed: cache link fifo and directory are refused for read and pull",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_cache_link_fifo_and_directory_are_refused_for_read_and_pull",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-12",
+   "phase": "billed",
+   "name": "billed: hourly retention keeps at most 62 days",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_hourly_retention_keeps_at_most_62_days",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-13",
+   "phase": "billed",
+   "name": "billed: owner defaults month rollover hourly days and alias discovery",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_owner_defaults_month_rollover_hourly_days_and_alias_discovery",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-14",
+   "phase": "billed",
+   "name": "billed: cli routes billed and refuses work user pull",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_cli_routes_billed_and_refuses_work_user_pull",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-15",
+   "phase": "billed",
+   "name": "billed: invalid periods and ambiguous berlin window are refused",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_invalid_periods_and_ambiguous_berlin_window_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-16",
+   "phase": "billed",
+   "name": "billed: nonfinite money and wrong period leave previous file",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_nonfinite_money_and_wrong_period_leave_previous_file",
+   "status": "passing"
+  },
+  {
+   "id": "BILLED-17",
+   "phase": "billed",
+   "name": "billed: atomic replace failure preserves previous cache",
+   "run": ".venv/bin/pytest tests/test_billed.py::test_atomic_replace_failure_preserves_previous_cache",
+   "status": "passing"
   }
  ],
- "total_tests": 3652,
+ "total_tests": 3669,
  "checked": "2026-11-18"
 }

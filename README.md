@@ -1094,6 +1094,24 @@ logged on the owner's side without its path or body.
 what ran on a given day and `awb tenant project tcp-xxxx` what a project created. Calls keep a pause between them and
 wait when the API gateway says so (HTTP 429).
 
+`awb tenant billed` pulls real billed costs from Financial Dashboard API v2 into the shared tenant cache.
+The owner stores a Grafana service account token at `pass awb/fd/ALIAS` and runs the first pull with a
+contract-scoped token: its first row pins the contract per alias. Other contracts are dropped and counted.
+As ubuntu, schedule `awb tenant billed` daily after 03:30 UTC in ubuntu's cron, for example
+`45 3 * * * /usr/local/bin/awb tenant billed` on a host whose cron timezone is UTC. The first three days of a
+month also refresh the previous month. `awb tenant billed --hourly` pulls today and yesterday in Europe/Berlin
+and retains at most 62 days. `--month YYYY-MM` or `--hourly --date YYYY-MM-DD` selects a historical period.
+`awb cost billed [--tenant ALIAS] [--month YYYY-MM] [--project CODE] [--json]` reads only those caches.
+Project totals include live and deleted resource ids in RESOURCES.md plus resources tagged in the latest
+snapshot; the rest is one excluded total. `awb cost billed --resource ID --date YYYY-MM-DD --from 17:55 --to 18:05`
+shows hourly product intervals, quantities, amounts and missing rows, including attached disks known at pull time.
+Use `--project CODE --hourly` for every project resource. Times are Europe/Berlin; ambiguous clock-change times
+are refused. Compute quantities determine runtime to the nearest second. GB and pc rows cover an hourly slot;
+window amounts and quantities are prorated within each row. Missing rows are unknown usage, not proof of a stop:
+the hourly dashboard is about 1.5 hours behind and daily rows arrive after the nightly run. Pull time is shown as
+cache age; the API can reuse a daily response for one hour. Decimal money is rounded only for reports and the
+month total is the sum of its rounded days. Cache files have mode 664 and contain no row names or tags.
+
 `awb tenant cost` tells where the money on the test tenants goes: it prices the latest snapshot of each tenant with
 one fetch of the live price API per region, PAYG and 730 hours a month (a stopped server counts its disks only, an
 item without a price record is listed as no price and left out of the total, which says so), sums it per tenant,
