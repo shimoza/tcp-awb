@@ -1517,7 +1517,8 @@ def test_ih_redo_mapping_is_validated_before_extraction(home, tmp_path, monkeypa
     calls = []
     real = intake._extract.extract
     monkeypatch.setattr(intake._extract, "extract", lambda path: (calls.append(path), real(path))[1])
-    cases = [{}, {source: None}, {source: (None, original)}, {source: ("../escape", original)},
+    cases = [[], {}, {source: None}, {source: ("F-ABCD",)}, {source: (None, original)},
+             {source: ("F-ABCD\n", original)}, {source: ("../escape", original)},
              {source: ("F-ABCD", outside)},
              {source: ("F-ABCD", original), other: ("F-ABCD", original)}]
     for mapping in cases:
@@ -1951,9 +1952,11 @@ def test_ih_redo_refuses_unreadable_or_mismatched_archives(home, monkeypatch):
     source = _ih_note(home)
     original = home.originals / fx.CUSTOMER_CODE / "F-ABCD.txt"
     original.parent.mkdir()
+    mismatched = original.with_name("F-EFGH.txt")
+    mismatched.write_text("archived original\n")
     calls = []
     monkeypatch.setattr(intake._extract, "extract", lambda path: calls.append(path))
-    for archived in (original, original.with_name("F-EFGH.txt")):
+    for archived in (original, mismatched):
         with pytest.raises(intake.IntakeError):
             intake.run([source], fx.CUSTOMER_CODE, home, redo={source: ("F-ABCD", archived)})
     assert calls == [] and source.exists()
@@ -1979,10 +1982,14 @@ def test_ih_text_callback_must_write_the_checked_body(home):
     assert not list(home.outbox.rglob("*.md"))
 
 
-def test_ih_text_notes_scrub_secrets_and_gate_classes(home):
+def test_ih_text_notes_scrub_secrets_and_gate_classes(home, tmp_path, monkeypatch):
     key, value = _ih_secret()
     blocked = "CLIENT" + "739"
     home_path = "/home/" + "fixture" + "/private.txt"
+    # The build user ignores AWB_BLOCKLIST, so this test supplies its own real list.
+    blocklist = tmp_path / "blocklist.txt"
+    blocklist.write_text(re.escape(blocked) + "\n", encoding="utf-8")
+    monkeypatch.setattr(intake.gate, "blocklist_files", lambda: [blocklist])
 
     def shape(engine, text):
         return text, None, Counter(), [key + "=" + value, home_path, blocked], "1 line"
@@ -2129,3 +2136,82 @@ def test_ih_public_secret_left_by_first_pass_is_refused(monkeypatch):
     engine = intake._Engine([])
     monkeypatch.setattr(intake.cleanlogs, "wipe_secrets", lambda text, counts: text)
     assert not intake._public_safe(engine, "the " + key + " is " + value)
+
+
+def test_ih_move_preserves_existing_plain_original(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("new original\n")
+    destination = tmp_path / "vault" / "F-ABCD.txt"
+    destination.parent.mkdir()
+    destination.write_text("earlier original\n")
+    destination.chmod(0o640)
+    with pytest.raises(FileExistsError):
+        intake._move_original(source, destination)
+    assert source.read_text() == "new original\n"
+    assert destination.read_text() == "earlier original\n"
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o640
+
+
+def test_ih_undo_sealed_original_preserves_recreated_input(home, monkeypatch):
+    from awb import vault
+
+    source = _ih_note(home)
+    destination = home.originals / fx.CUSTOMER_CODE / "F-ABCD.txt"
+    destination.parent.mkdir()
+    sealed = intake._sealed(destination)
+    sealed.write_bytes(b"ciphertext")
+    original = b"archived original\n"
+    monkeypatch.setattr(vault, "admin_call", lambda *a, **k: {"data": base64.b64encode(original).decode()})
+    intake._undo(home, fx.CUSTOMER_CODE, [(source, destination, "F-ABCD")], [], [])
+    assert source.read_text() == "ordinary text for the server\n"
+    assert sealed.read_bytes() == b"ciphertext"
+
+
+def test_ih_partial_redo_write_restores_previous_output(home, monkeypatch):
+    source = _ih_note(home)
+    first = intake.run([source], fx.CUSTOMER_CODE, home)
+    output = first.outputs[0]
+    original = next((home.originals / fx.CUSTOMER_CODE).iterdir())
+    previous = {path: path.read_bytes() for path in
+                [output, original, first.public_report, first.private_report]}
+    source.write_text("updated text for the server\n")
+    real = intake._report.write_replace
+    _, value = _ih_secret()
+    calls = []
+
+    def partial(path, text, mode, dir_mode):
+        if path == output and not calls:
+            calls.append(path)
+            path.write_text("partial\n")
+            raise OSError(value)
+        return real(path, text, mode, dir_mode)
+
+    monkeypatch.setattr(intake._report, "write_replace", partial)
+    with pytest.raises(OSError) as err:
+        intake.run([source], fx.CUSTOMER_CODE, home, redo={source: (output.stem, original)})
+    assert value not in str(err.value) and calls == [output]
+    assert source.read_text() == "updated text for the server\n"
+    assert all(path.read_bytes() == data for path, data in previous.items())
+    assert sorted(home.outbox.rglob("*.md")) == sorted([output, first.public_report])
+
+
+def test_ih_move_detects_same_size_edit_with_restored_mtime(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("before\n")
+    before = source.stat()
+    destination = tmp_path / "vault" / "F-ABCD.txt"
+    real = intake.shutil.copyfileobj
+
+    def changed(reader, writer):
+        real(reader, writer)
+        source.write_text("after!\n")
+        _os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = source.stat()
+        assert (after.st_ino, after.st_size, after.st_mtime_ns) == (
+            before.st_ino, before.st_size, before.st_mtime_ns)
+        assert after.st_ctime_ns != before.st_ctime_ns
+
+    monkeypatch.setattr(intake.shutil, "copyfileobj", changed)
+    with pytest.raises(OSError):
+        intake._move_original(source, destination)
+    assert source.read_text() == "after!\n" and not destination.exists()

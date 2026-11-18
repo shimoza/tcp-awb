@@ -24751,8 +24751,36 @@
    "name": "intake: public secret left by first pass is refused",
    "run": ".venv/bin/pytest tests/test_intake.py::test_ih_public_secret_left_by_first_pass_is_refused",
    "status": "passing"
+  },
+  {
+   "id": "INTAKE-H59",
+   "phase": "T",
+   "name": "intake: move preserves existing plain original",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_preserves_existing_plain_original",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H60",
+   "phase": "T",
+   "name": "intake: undo sealed original preserves recreated input",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_undo_sealed_original_preserves_recreated_input",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H61",
+   "phase": "T",
+   "name": "intake: partial redo write restores previous output",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_partial_redo_write_restores_previous_output",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H62",
+   "phase": "T",
+   "name": "intake: move detects same size edit with restored mtime",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_detects_same_size_edit_with_restored_mtime",
+   "status": "passing"
   }
  ],
- "total_tests": 3536,
+ "total_tests": 3540,
  "checked": "2026-11-18"
 }
