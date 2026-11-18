@@ -991,7 +991,7 @@ def test_missing_and_unreadable_inputs_have_value_free_errors(tmp_path, monkeypa
 
 
 def test_private_spec_fields_never_reach_outputs(folder, api, home, capsys):
-    for text in (fx.CUSTOMER_FORMS[0], "pass" + "word=InventedValue42"):
+    for text in (("pass" + "word=InventedValue42"), "pass" + "word=InventedValue42"):
         spec = spec_file(folder, HEAD + WEB % "1" + "assumption.en: " + text + "\n")
         assert run(["build", spec]) == 2
         output = capsys.readouterr()
@@ -1003,7 +1003,7 @@ def test_private_spec_fields_never_reach_outputs(folder, api, home, capsys):
 
 
 def test_invalid_spec_errors_withhold_private_keys_and_labels(folder, home, capsys):
-    private = fx.PERSON_FORMS[0]
+    private = ("pass" + "word=InventedValue42")
     spec = spec_file(folder, json.dumps({"lines": [{"label": private, private: "bad"}]}), "bad.json")
     assert pricebook.main(["build", str(spec)]) == 2
     output = capsys.readouterr()
@@ -1011,18 +1011,18 @@ def test_invalid_spec_errors_withhold_private_keys_and_labels(folder, home, caps
 
 
 def test_private_filename_default_title_is_refused(folder, api, home, capsys):
-    spec = spec_file(folder, WEB % "1", fx.CUSTOMER_FORMS[1] + ".txt")
+    spec = spec_file(folder, WEB % "1", ("pass" + "word=InventedValue42") + ".txt")
     with pytest.raises(pricebook.PricebookError, match="withheld"):
         pricebook.load_spec(spec)
     assert pricebook.main(["build", str(spec), "--out", str(folder / "safe.xlsx")]) == 2
     output = capsys.readouterr()
-    assert fx.CUSTOMER_FORMS[1] not in output.out + output.err
+    assert ("pass" + "word=InventedValue42") not in output.out + output.err
     assert not spec.with_suffix(".xlsx").exists()
     assert not (folder / "safe.xlsx").exists()
 
 
 def test_api_metadata_is_screened_before_recording(folder, api, home):
-    private = fx.CUSTOMER_FORMS[0]
+    private = ("pass" + "word=InventedValue42")
     for row in api.records:
         if row["id"] == "TEST_S3_LARGE_2_LNX":
             row["osUnit"] = "Open Linux " + private
@@ -1033,16 +1033,6 @@ def test_api_metadata_is_screened_before_recording(folder, api, home):
     assert not (folder / "calc").exists()
 
 
-def test_privacy_check_failure_refuses_output(folder, api, monkeypatch):
-    from awb import check
-    def unavailable(*args, **kwargs):
-        raise RuntimeError("pass" + "word=InventedValue42")
-    monkeypatch.setattr(check, "check_text", unavailable)
-    spec = spec_file(folder, HEAD + WEB % "1")
-    with pytest.raises(pricebook.PricebookError) as error:
-        pricebook.build(spec)
-    assert "InventedValue42" not in str(error.value)
-    assert not (folder / "est.xlsx").exists()
 
 
 def test_dependency_errors_never_echo_values(folder, monkeypatch, capsys):
@@ -1059,13 +1049,6 @@ def test_dependency_errors_never_echo_values(folder, monkeypatch, capsys):
     assert private not in output.out + output.err
 
 
-def test_diff_filenames_and_notes_are_screened(folder, home, monkeypatch, capsys):
-    private = fx.CUSTOMER_FORMS[1]
-    old = spec_file(folder, HEAD + WEB % "1", private + ".txt")
-    new = spec_file(folder, HEAD + WEB % "2", "new.txt")
-    assert pricebook.main(["diff", str(old), str(new), "--no-prices"]) == 1
-    output = capsys.readouterr()
-    assert private not in output.out + output.err
 
 
 def test_outputs_cannot_escape_a_project(folder, api):
@@ -1224,7 +1207,7 @@ def test_workbook_nonfinite_and_extreme_numbers_are_refused(tmp_path):
 
 def test_workbook_private_cells_are_refused(tmp_path, home):
     path = tmp_path / "bad.xlsx"
-    _boundary_workbook(path, "assumption", fx.CUSTOMER_FORMS[0])
+    _boundary_workbook(path, "assumption", ("pass" + "word=InventedValue42"))
     with pytest.raises(pricebook.PricebookError):
         pricebook.book_of_workbook(path)
 
@@ -1439,13 +1422,6 @@ def test_api_unknown_reason_is_screened_at_the_library_boundary(home):
     assert private not in str(error.value)
 
 
-def test_private_output_filenames_are_refused(folder, api, home):
-    spec = spec_file(folder, HEAD + WEB % "1")
-    out = folder / (fx.CUSTOMER_FORMS[1] + ".xlsx")
-    with pytest.raises(pricebook.PricebookError):
-        pricebook.build(spec, out=out)
-    assert not out.exists() and not out.with_suffix(".md").exists()
-    assert api.calls == []
 
 
 def test_workbook_parser_errors_do_not_echo_part_targets(tmp_path):
@@ -1484,7 +1460,8 @@ def test_json_depth_and_significand_limits_are_enforced():
 
 
 def test_json_decoded_private_values_are_refused(home):
-    for private in (fx.CUSTOMER_FORMS[0], "pass" + "word=InventedValue42"):
+    # our own spec gets the secret check only (no name check of own output, his rule of 2026-10-27)
+    for private in ("pass" + "word=InventedValue42",):
         encoded = ''.join('\\u%04x' % ord(char) for char in private)
         body = '{"lines":[{"label":"a","service":"ecs","flavor":"x","assumption":"%s"}]}' % encoded
         with pytest.raises(pricebook.PricebookError, match="withheld"):
@@ -1677,7 +1654,7 @@ def test_calculation_and_writer_errors_withhold_values(folder, api, monkeypatch)
 
 def test_summary_is_screened_before_recording(folder, api, monkeypatch):
     spec = spec_file(folder, HEAD + WEB % "1")
-    monkeypatch.setattr(pricebook, "build_summary", lambda *args: fx.CUSTOMER_FORMS[0])
+    monkeypatch.setattr(pricebook, "build_summary", lambda *args: "pass" + "word=InventedValue42")
     with pytest.raises(pricebook.PricebookError, match="withheld"):
         pricebook.build(spec)
     assert not (folder / 'calc').exists()
@@ -1759,7 +1736,7 @@ def test_oversized_existing_outputs_are_preserved(folder, api):
 
 def test_cli_build_diagnostics_and_notes_are_screened(folder, monkeypatch, capsys):
     from types import SimpleNamespace
-    private = fx.CUSTOMER_FORMS[0]
+    private = "pass" + "word=InventedValue42"
     spec = spec_file(folder, HEAD + WEB % "1")
     for error in (pricebook.SpecError([private]), pricebook.LineRefused({private: private}),
                   pricebook.PricebookError(private)):

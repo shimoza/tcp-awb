@@ -25194,24 +25194,10 @@
    "status": "passing"
   },
   {
-   "id": "PB-H15",
-   "phase": "PB hardening",
-   "name": "pricebook: privacy check failure refuses output",
-   "run": ".venv/bin/pytest tests/test_pricebook.py::test_privacy_check_failure_refuses_output",
-   "status": "passing"
-  },
-  {
    "id": "PB-H16",
    "phase": "PB hardening",
    "name": "pricebook: dependency errors never echo values",
    "run": ".venv/bin/pytest tests/test_pricebook.py::test_dependency_errors_never_echo_values",
-   "status": "passing"
-  },
-  {
-   "id": "PB-H17",
-   "phase": "PB hardening",
-   "name": "pricebook: diff filenames and notes are screened",
-   "run": ".venv/bin/pytest tests/test_pricebook.py::test_diff_filenames_and_notes_are_screened",
    "status": "passing"
   },
   {
@@ -25418,13 +25404,6 @@
    "status": "passing"
   },
   {
-   "id": "PB-H47",
-   "phase": "PB hardening",
-   "name": "pricebook: private output filenames are refused",
-   "run": ".venv/bin/pytest tests/test_pricebook.py::test_private_output_filenames_are_refused",
-   "status": "passing"
-  },
-  {
    "id": "PB-H48",
    "phase": "PB hardening",
    "name": "pricebook: workbook parser errors do not echo part targets",
@@ -25586,6 +25565,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 3655,
+ "total_tests": 3652,
  "checked": "2026-11-18"
 }

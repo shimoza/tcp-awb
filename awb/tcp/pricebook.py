@@ -128,11 +128,12 @@ class SpecError(PricebookError):
 
 
 def _public(text: str) -> str:
-    """Check names and secrets without changing ordinary public wording or API URLs."""
+    """Check control characters and secrets without changing ordinary public wording or API URLs. A price book is
+    our own output built from the public price API and the project's own spec, so it gets the secret check only, no
+    name check (his rule: customer data is checked once at entry, 2026-10-27)."""
     from awb import check, putcopy
     try:
-        if (_CONTROL_RE.search(text) or putcopy.scrub_text(text)[1] or check._secret_classes(text)
-                or any(h["cls"] in ("name", "path") for h in check.check_text(text, config.paths().register))):
+        if _CONTROL_RE.search(text) or putcopy.scrub_text(text)[1] or check._secret_classes(text):
             return "[withheld]"
         return text
     except Exception:
