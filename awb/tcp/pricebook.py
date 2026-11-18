@@ -592,7 +592,8 @@ def parse_spec(data: bytes, name: str = "specification") -> Spec:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise SpecError(["the specification is not UTF-8 text"]) from None
-    if _CONTROL_RE.search(text.replace("\r", "")):
+    text = text.replace("\r\n", "\n")
+    if _CONTROL_RE.search(text):
         raise SpecError(["the specification has an invalid character"])
     _require_public(text)
     as_json = text.lstrip().startswith("{") or name.lower().endswith(".json")
@@ -1518,11 +1519,13 @@ def record_totals(project: Path, priced: list[Priced], monthly: Decimal, yearly:
                     for row in rows[1:]:
                         fields = row.split("\t")
                         if (len(fields) != len(calc.HEADER) or not calc.ID_RE.fullmatch(fields[0])
-                                or len(fields[0]) > 16 or fields[0] in ids):
+                                or fields[0] in ids):
                             raise calc.CalcError("the calculation record is malformed")
                         ids.add(fields[0])
                     last = max((int(value[2:]) for value in ids), default=0)
                     new_ids = ["K-%d" % (last + 1), "K-%d" % (last + 2)]
+                    if any(not calc.ID_RE.fullmatch(value) for value in new_ids):
+                        raise calc.CalcError("the calculation record has no available identifiers")
                     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     addition = "" if body else "\t".join(calc.HEADER) + "\n"
                     for number, label, expression, total in (

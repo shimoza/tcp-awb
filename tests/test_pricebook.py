@@ -883,8 +883,11 @@ def test_json_duplicate_keys_are_refused():
 
 
 def test_json_nesting_has_a_controlled_refusal():
+    import sys
+    # Python 3.12's C JSON decoder has a separate recursion limit.
+    depth = max(10000, sys.getrecursionlimit() + 100)
     with pytest.raises(pricebook.SpecError, match="not valid JSON"):
-        pricebook.parse_spec(('{"lines":' + '[' * 2000 + '0' + ']' * 2000 + '}').encode())
+        pricebook.parse_spec(('{"lines":' + '[' * depth + '0' + ']' * depth + '}').encode())
 
 
 def test_json_numbers_are_bounded_before_fixed_point_expansion(monkeypatch):
@@ -909,7 +912,7 @@ def test_json_surrogates_are_refused():
 def test_control_characters_are_rejected_before_whitespace_normalization():
     body = {"lines": [{"label": "a", "service": "ecs", "flavor": "x", "quantity": 1,
                         "assumption": "hidden\x0bvalue"}]}
-    with pytest.raises(pricebook.SpecError):
+    with pytest.raises(pricebook.SpecError, match="invalid character"):
         pricebook.parse_spec(json.dumps(body).encode())
 
 
@@ -942,7 +945,13 @@ def test_special_inputs_are_refused_without_opening_a_stream(tmp_path, monkeypat
         return original(p)
 
     monkeypatch.setattr(Path, "read_bytes", read)
-    with pytest.raises(pricebook.PricebookError):
+    original_open = os.open
+    def open_file(name, flags, *args, **kwargs):
+        if Path(name).name == path.name:
+            assert flags & os.O_NONBLOCK, "a FIFO would block the reader"
+        return original_open(name, flags, *args, **kwargs)
+    monkeypatch.setattr(os, "open", open_file)
+    with pytest.raises(pricebook.PricebookError, match="bounded regular file"):
         pricebook.load_spec(path)
 
 
@@ -957,7 +966,7 @@ def test_specification_size_is_bounded_during_read(tmp_path, monkeypatch):
         return original(p)
 
     monkeypatch.setattr(Path, "read_bytes", read)
-    with pytest.raises(pricebook.PricebookError):
+    with pytest.raises(pricebook.PricebookError, match="bounded regular file"):
         pricebook.load_spec(path)
 
 
@@ -1003,10 +1012,13 @@ def test_invalid_spec_errors_withhold_private_keys_and_labels(folder, home, caps
 
 def test_private_filename_default_title_is_refused(folder, api, home, capsys):
     spec = spec_file(folder, WEB % "1", fx.CUSTOMER_FORMS[1] + ".txt")
-    assert pricebook.main(["build", str(spec)]) == 2
+    with pytest.raises(pricebook.PricebookError, match="withheld"):
+        pricebook.load_spec(spec)
+    assert pricebook.main(["build", str(spec), "--out", str(folder / "safe.xlsx")]) == 2
     output = capsys.readouterr()
     assert fx.CUSTOMER_FORMS[1] not in output.out + output.err
     assert not spec.with_suffix(".xlsx").exists()
+    assert not (folder / "safe.xlsx").exists()
 
 
 def test_api_metadata_is_screened_before_recording(folder, api, home):
@@ -1040,6 +1052,9 @@ def test_dependency_errors_never_echo_values(folder, monkeypatch, capsys):
         raise price.PriceError(private)
     monkeypatch.setattr(price, "fetch", failed)
     assert pricebook.main(["build", str(spec)]) == 2
+    output = capsys.readouterr()
+    assert private not in output.out + output.err
+    assert pricebook.main(["diff", str(spec), str(spec)]) == 2
     output = capsys.readouterr()
     assert private not in output.out + output.err
 
@@ -1196,7 +1211,7 @@ def test_workbook_nonfinite_and_extreme_numbers_are_refused(tmp_path):
     _boundary_workbook(path, "quantity", Decimal(1))
     original = path.read_bytes()
     import io
-    for value in ("NaN", "Infinity", "1e999999"):
+    for value in ("NaN", "Infinity", "1e999999", "1e30", "1e-129"):
         with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(path, "w") as target:
             for info in source.infolist():
                 data = source.read(info.filename)
@@ -1331,7 +1346,7 @@ def test_calc_size_is_bounded_before_reading(folder):
     path.parent.mkdir()
     body = "\t".join(calc.HEADER) + "\n" + "\n" * pricebook.MAX_SPEC_BYTES
     path.write_text(body)
-    with pytest.raises(calc.CalcError):
+    with pytest.raises(calc.CalcError, match="bounded regular file"):
         _record_boundary_totals(folder)
     assert path.read_text() == body
 
@@ -1455,3 +1470,308 @@ def test_argument_errors_do_not_echo_quoted_values(capsys):
     assert pricebook.main(["diff", "old", "new", "--lang", private]) == 2
     output = capsys.readouterr()
     assert "InventedValue42" not in output.out + output.err
+
+
+def test_json_depth_and_significand_limits_are_enforced():
+    # These are below Python's recursion limit and do not need fixed-point expansion.
+    nested = '{"lines": [], "extra":' + '[' * 65 + '0' + ']' * 65 + '}'
+    with pytest.raises(pricebook.SpecError, match="too deeply nested"):
+        pricebook.parse_spec(nested.encode())
+    number = '1.' + '2' * 128
+    body = '{"lines":[{"label":"a","service":"ecs","flavor":"x","assumption":%s}]}' % number
+    with pytest.raises(pricebook.SpecError, match="not valid JSON"):
+        pricebook.parse_spec(body.encode())
+
+
+def test_json_decoded_private_values_are_refused(home):
+    for private in (fx.CUSTOMER_FORMS[0], "pass" + "word=InventedValue42"):
+        encoded = ''.join('\\u%04x' % ord(char) for char in private)
+        body = '{"lines":[{"label":"a","service":"ecs","flavor":"x","assumption":"%s"}]}' % encoded
+        with pytest.raises(pricebook.PricebookError, match="withheld"):
+            pricebook.parse_spec(body.encode())
+
+
+def test_text_controls_are_refused_and_crlf_is_supported():
+    body = HEAD + WEB % "1"
+    assert pricebook.parse_spec(body.replace('\n', '\r\n').encode()).lines
+    with pytest.raises(pricebook.SpecError, match="invalid character"):
+        pricebook.parse_spec((body + '# hidden\x0bvalue\n').encode())
+    problems = []
+    assert pricebook._clean_text("hidden\x0bvalue", "text", 80, problems, "") == ""
+    assert problems == ["text has a control character"]
+
+
+def test_read_growth_is_bounded_even_after_a_small_stat(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+    path = spec_file(tmp_path, HEAD + WEB % "1")
+    original = os.fstat
+    def stale(fd):
+        info = original(fd)
+        return SimpleNamespace(st_mode=info.st_mode, st_nlink=info.st_nlink, st_size=0)
+    monkeypatch.setattr(os, "fstat", stale)
+    with pytest.raises(pricebook.PricebookError, match="too large"):
+        pricebook._read_file(path, 10)
+
+
+def test_pricing_errors_are_controlled_and_private_reasons_are_screened(monkeypatch):
+    from awb import calc
+    from decimal import InvalidOperation
+    spec = pricebook.parse_spec((HEAD + WEB % "1").encode())
+    fetch = price.Fetch(jobs.Listing.of([object()]), "unused", "2026-11-17 12:00 UTC")
+    private = "pass" + "word=InventedValue42"
+    for error in (calc.CalcError, InvalidOperation, ValueError, OverflowError, pricebook.LineProblem):
+        def fail(*args):
+            raise error(private)
+        monkeypatch.setattr(pricebook, "price_line", fail)
+        priced, problems = pricebook.price_spec(spec, lambda region: fetch)
+        assert priced == [] and set(problems) == {"web servers"}
+        assert private not in problems["web servers"]
+
+
+def test_pool_dates_use_the_canonical_format():
+    body = HEAD + '[pool]\nservice: ecs\nflavor: s3.large.2\nmode: pool\nterm: r12\npooled_hours: 100\n'
+    for start in ('20260101', '2026-W01-1'):
+        with pytest.raises(pricebook.SpecError, match="YYYY-MM-DD"):
+            pricebook.parse_spec((body + 'start: ' + start + '\n').encode())
+
+
+def test_optional_pool_fields_report_additions_and_removals():
+    for field, value in (("pooled_hours", Decimal(100)), ("start", "2026-01-01")):
+        old = pricebook.Book("spec", "old", {"a": ("a", {})}, None, None)
+        new = pricebook.Book("spec", "new", {"a": ("a", {field: value})}, None, None)
+        for before, after in ((old, new), (new, old)):
+            changes = pricebook.compare(before, after)
+            assert [c.name for c in changes.changes] == [field]
+            assert pricebook.FIELD_ENGLISH[field] in '\n'.join(pricebook.comparison_lines(changes))
+
+
+def test_calc_rejects_inconsistent_yearly_totals_before_writing(folder):
+    from awb import calc
+    from types import SimpleNamespace
+    with pytest.raises(calc.CalcError, match="differs"):
+        pricebook.record_totals(folder, [SimpleNamespace(monthly=Decimal(1))], Decimal(1), Decimal(13))
+    assert not calc.path_of(folder).exists()
+
+
+def test_calc_links_preserve_the_destination(folder, monkeypatch):
+    import os
+    from awb import calc
+    path = calc.path_of(folder)
+    elsewhere = folder / "elsewhere"
+    elsewhere.mkdir()
+    victim = elsewhere / calc.FILE
+    victim.write_bytes(b"")
+    original = os.fdopen
+    def open_file(fd, *args, **kwargs):
+        if os.path.samestat(os.fstat(fd), victim.stat()):
+            os.close(fd)
+            pytest.fail("a linked calculation record reached the stream reader")
+        return original(fd, *args, **kwargs)
+    monkeypatch.setattr(os, "fdopen", open_file)
+    path.parent.symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(calc.CalcError):
+        _record_boundary_totals(folder)
+    assert victim.read_bytes() == b""
+    path.parent.unlink()
+    path.parent.mkdir()
+    path.symlink_to(victim)
+    with pytest.raises(calc.CalcError):
+        _record_boundary_totals(folder)
+    assert victim.read_bytes() == b"" and path.is_symlink()
+
+
+def test_calc_invalid_rows_and_encoding_are_preserved(folder):
+    from awb import calc
+    path = calc.path_of(folder)
+    path.parent.mkdir()
+    header = '\t'.join(calc.HEADER) + '\n'
+    row = 'K-1\t2026-11-17T12:00:00Z\tlabel\t1\t\t1\n'
+    for body in (header + row + row, header + row.replace('K-1', 'bad'),
+                 header + row.replace('K-1', 'K-' + '1' * 15), header + 'K-1\tbad\n',
+                 (header + row).rstrip('\n'), header.encode() + b'\xff\n'):
+        data = body.encode() if isinstance(body, str) else body
+        path.write_bytes(data)
+        with pytest.raises(calc.CalcError):
+            _record_boundary_totals(folder)
+        assert path.read_bytes() == data
+
+
+def test_calc_replaced_file_is_preserved(folder, monkeypatch):
+    import os
+    from awb import calc
+    path = calc.path_of(folder)
+    path.parent.mkdir()
+    path.write_bytes(b"")
+    moved = folder / "old.tsv"
+    original = pricebook._same_directory
+    def swap(parent, directory):
+        original(parent, directory)
+        os.replace(path, moved)
+        path.write_bytes(b"concurrent edit")
+    monkeypatch.setattr(pricebook, "_same_directory", swap)
+    with pytest.raises(calc.CalcError):
+        _record_boundary_totals(folder)
+    assert path.read_bytes() == b"concurrent edit" and moved.read_bytes() == b""
+
+
+def test_calc_identifier_exhaustion_preserves_the_record(folder):
+    from awb import calc
+    path = calc.path_of(folder)
+    path.parent.mkdir()
+    for last in ('K-99998', 'K-99999'):
+        body = '\t'.join(calc.HEADER) + '\n' + last + '\t2026-11-17T12:00:00Z\tlabel\t1\t\t1\n'
+        path.write_text(body)
+        with pytest.raises(calc.CalcError, match="identifiers"):
+            _record_boundary_totals(folder)
+        assert path.read_text() == body
+
+
+def test_calc_short_writes_complete_both_records(folder, monkeypatch):
+    import os
+    import stat
+    from awb import calc
+    original = os.fdopen
+    class ShortWriter:
+        def __init__(self, stream):
+            self.stream = stream
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+        def write(self, data):
+            return self.stream.write(data[:7])
+    def open_file(fd, mode, **kwargs):
+        stream = original(fd, mode, **kwargs)
+        return ShortWriter(stream) if mode == 'r+b' else stream
+    monkeypatch.setattr(os, "fdopen", open_file)
+    assert _record_boundary_totals(folder) == ['K-1', 'K-2']
+    assert _record_boundary_totals(folder) == ['K-3', 'K-4']
+    path = calc.path_of(folder)
+    rows = path.read_text().splitlines()
+    assert len(rows) == 5 and all(len(row.split('\t')) == len(calc.HEADER) for row in rows)
+    assert [row.split('\t')[-1] for row in rows[1:]] == ['1.00', '12.00', '1.00', '12.00']
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_calculation_and_writer_errors_withhold_values(folder, api, monkeypatch):
+    from awb import calc
+    spec = spec_file(folder, HEAD + WEB % "1")
+    private = "pass" + "word=InventedValue42"
+    def failed_record(*args):
+        raise calc.CalcError(private)
+    monkeypatch.setattr(pricebook, "record_totals", failed_record)
+    result = pricebook.build(spec)
+    assert result.calc_ids == [] and result.notes
+    assert private not in '\n'.join(result.notes)
+    def failed_writer(*args, **kwargs):
+        raise xlsxlite.XlsxError(private)
+    monkeypatch.setattr(xlsxlite, "build", failed_writer)
+    with pytest.raises(pricebook.PricebookError) as error:
+        pricebook.build(spec, record=False)
+    assert private not in str(error.value)
+
+
+def test_summary_is_screened_before_recording(folder, api, monkeypatch):
+    spec = spec_file(folder, HEAD + WEB % "1")
+    monkeypatch.setattr(pricebook, "build_summary", lambda *args: fx.CUSTOMER_FORMS[0])
+    with pytest.raises(pricebook.PricebookError, match="withheld"):
+        pricebook.build(spec)
+    assert not (folder / 'calc').exists()
+    assert not spec.with_suffix('.xlsx').exists()
+    assert not spec.with_suffix('.md').exists()
+
+
+def test_publication_failure_removes_new_outputs_and_staged_files(folder, api, monkeypatch):
+    import os
+    spec = spec_file(folder, HEAD + WEB % "1")
+    before = sorted(p.name for p in folder.iterdir())
+    original = os.replace
+    def fail_summary(src, dst, **kwargs):
+        if dst == 'est.md':
+            raise OSError('unavailable')
+        return original(src, dst, **kwargs)
+    monkeypatch.setattr(os, 'replace', fail_summary)
+    with pytest.raises(pricebook.PricebookError):
+        pricebook.build(spec, record=False)
+    assert sorted(p.name for p in folder.iterdir()) == before
+
+
+def test_staging_failure_preserves_outputs_and_removes_temporary_files(folder, api, monkeypatch):
+    import os
+    spec = spec_file(folder, HEAD + WEB % "1")
+    spec.with_suffix('.xlsx').write_bytes(b'old workbook')
+    spec.with_suffix('.md').write_bytes(b'old summary')
+    before = {p.name: p.read_bytes() for p in folder.iterdir() if p.is_file()}
+    def fail_sync(fd):
+        raise OSError('unavailable')
+    monkeypatch.setattr(os, 'fsync', fail_sync)
+    with pytest.raises(pricebook.PricebookError):
+        pricebook.build(spec, record=False)
+    assert {p.name: p.read_bytes() for p in folder.iterdir() if p.is_file()} == before
+
+
+def test_changed_output_during_staging_is_preserved(folder, api, monkeypatch):
+    import os
+    spec = spec_file(folder, HEAD + WEB % "1")
+    out = spec.with_suffix('.xlsx')
+    out.write_bytes(b'old')
+    original = os.fsync
+    def edit(fd):
+        out.write_bytes(b'concurrent edit')
+        return original(fd)
+    monkeypatch.setattr(os, 'fsync', edit)
+    with pytest.raises(pricebook.PricebookError):
+        pricebook.build(spec, record=False)
+    assert out.read_bytes() == b'concurrent edit'
+    assert not spec.with_suffix('.md').exists()
+    assert not list(folder.glob('.pricebook-*'))
+
+
+def test_missing_explicit_project_and_external_comparison_are_refused(tmp_path, api):
+    spec = spec_file(tmp_path, HEAD + WEB % "1")
+    with pytest.raises(pricebook.PricebookError, match='no SCOPE'):
+        pricebook.build(spec, project=tmp_path)
+    project = tmp_path / 'project'
+    project.mkdir()
+    (project / 'SCOPE.md').write_text('# scope\n')
+    inside = spec_file(project, HEAD + WEB % "1")
+    with pytest.raises(pricebook.PricebookError, match='outside'):
+        pricebook.build(inside, against=spec)
+    assert api.calls == [] and not (project / 'calc').exists()
+
+
+def test_oversized_existing_outputs_are_preserved(folder, api):
+    spec = spec_file(folder, HEAD + WEB % "1")
+    for suffix in ('.xlsx', '.md'):
+        path = spec.with_suffix(suffix)
+        with path.open('wb') as stream:
+            stream.truncate(pricebook.MAX_BOOK_BYTES + 1)
+        with pytest.raises(pricebook.PricebookError):
+            pricebook.build(spec, record=False)
+        assert path.stat().st_size == pricebook.MAX_BOOK_BYTES + 1
+        path.unlink()
+    assert api.calls == []
+
+
+def test_cli_build_diagnostics_and_notes_are_screened(folder, monkeypatch, capsys):
+    from types import SimpleNamespace
+    private = fx.CUSTOMER_FORMS[0]
+    spec = spec_file(folder, HEAD + WEB % "1")
+    for error in (pricebook.SpecError([private]), pricebook.LineRefused({private: private}),
+                  pricebook.PricebookError(private)):
+        def fail(*args, **kwargs):
+            raise error
+        monkeypatch.setattr(pricebook, 'build', fail)
+        assert pricebook.main(['build', str(spec)]) in (1, 2)
+        output = capsys.readouterr()
+        assert private not in output.out + output.err
+    result = SimpleNamespace(lines=1, monthly=Decimal(1), yearly=Decimal(12), xlsx=Path(private),
+                             summary=Path(private), calc_ids=[], comparison=None, notes=[private])
+    monkeypatch.setattr(pricebook, 'build', lambda *args, **kwargs: result)
+    assert pricebook.main(['build', str(spec)]) == 0
+    output = capsys.readouterr()
+    assert private not in output.out + output.err

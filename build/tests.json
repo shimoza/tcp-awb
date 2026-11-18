@@ -25416,8 +25416,176 @@
    "name": "pricebook: api unknown reason is screened at the library boundary",
    "run": ".venv/bin/pytest tests/test_pricebook.py::test_api_unknown_reason_is_screened_at_the_library_boundary",
    "status": "passing"
+  },
+  {
+   "id": "PB-H47",
+   "phase": "PB hardening",
+   "name": "pricebook: private output filenames are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_private_output_filenames_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H48",
+   "phase": "PB hardening",
+   "name": "pricebook: workbook parser errors do not echo part targets",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_workbook_parser_errors_do_not_echo_part_targets",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H49",
+   "phase": "PB hardening",
+   "name": "pricebook: argument errors do not echo quoted values",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_argument_errors_do_not_echo_quoted_values",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H50",
+   "phase": "PB hardening",
+   "name": "pricebook: json depth and significand limits are enforced",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_json_depth_and_significand_limits_are_enforced",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H51",
+   "phase": "PB hardening",
+   "name": "pricebook: json decoded private values are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_json_decoded_private_values_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H52",
+   "phase": "PB hardening",
+   "name": "pricebook: text controls are refused and crlf is supported",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_text_controls_are_refused_and_crlf_is_supported",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H53",
+   "phase": "PB hardening",
+   "name": "pricebook: read growth is bounded even after a small stat",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_read_growth_is_bounded_even_after_a_small_stat",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H54",
+   "phase": "PB hardening",
+   "name": "pricebook: pricing errors are controlled and private reasons are screened",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_pricing_errors_are_controlled_and_private_reasons_are_screened",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H55",
+   "phase": "PB hardening",
+   "name": "pricebook: pool dates use the canonical format",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_pool_dates_use_the_canonical_format",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H56",
+   "phase": "PB hardening",
+   "name": "pricebook: optional pool fields report additions and removals",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_optional_pool_fields_report_additions_and_removals",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H57",
+   "phase": "PB hardening",
+   "name": "pricebook: calc rejects inconsistent yearly totals before writing",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_rejects_inconsistent_yearly_totals_before_writing",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H58",
+   "phase": "PB hardening",
+   "name": "pricebook: calc links preserve the destination",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_links_preserve_the_destination",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H59",
+   "phase": "PB hardening",
+   "name": "pricebook: calc invalid rows and encoding are preserved",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_invalid_rows_and_encoding_are_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H60",
+   "phase": "PB hardening",
+   "name": "pricebook: calc replaced file is preserved",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_replaced_file_is_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H61",
+   "phase": "PB hardening",
+   "name": "pricebook: calc short writes complete both records",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_short_writes_complete_both_records",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H62",
+   "phase": "PB hardening",
+   "name": "pricebook: calculation and writer errors withhold values",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calculation_and_writer_errors_withhold_values",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H63",
+   "phase": "PB hardening",
+   "name": "pricebook: summary is screened before recording",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_summary_is_screened_before_recording",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H64",
+   "phase": "PB hardening",
+   "name": "pricebook: publication failure removes new outputs and staged files",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_publication_failure_removes_new_outputs_and_staged_files",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H65",
+   "phase": "PB hardening",
+   "name": "pricebook: staging failure preserves outputs and removes temporary files",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_staging_failure_preserves_outputs_and_removes_temporary_files",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H66",
+   "phase": "PB hardening",
+   "name": "pricebook: changed output during staging is preserved",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_changed_output_during_staging_is_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H67",
+   "phase": "PB hardening",
+   "name": "pricebook: missing explicit project and external comparison are refused",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_missing_explicit_project_and_external_comparison_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H68",
+   "phase": "PB hardening",
+   "name": "pricebook: oversized existing outputs are preserved",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_oversized_existing_outputs_are_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H69",
+   "phase": "PB hardening",
+   "name": "pricebook: cli build diagnostics and notes are screened",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_cli_build_diagnostics_and_notes_are_screened",
+   "status": "passing"
+  },
+  {
+   "id": "PB-H70",
+   "phase": "PB hardening",
+   "name": "pricebook: calc identifier exhaustion preserves the record",
+   "run": ".venv/bin/pytest tests/test_pricebook.py::test_calc_identifier_exhaustion_preserves_the_record",
+   "status": "passing"
   }
  ],
- "total_tests": 3631,
+ "total_tests": 3655,
  "checked": "2026-11-18"
 }
