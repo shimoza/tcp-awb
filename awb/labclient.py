@@ -211,18 +211,30 @@ def _read(parent: int, name: str, limit: int = MAX_FILE) -> str:
     return raw.decode("utf-8")
 
 
+SHARED_MODES = {"RESOURCES.md": 0o664}
+"""The mode of a project file this client creates that others read: the lab daemon reads RESOURCES.md."""
+
+
 def _write(parent: int, name: str, text: str) -> None:
-    """Replace only a regular destination, using a private, unique temporary file."""
+    """Replace only a regular destination, using a private, unique temporary file. The new file keeps the mode of
+    the one it replaces (a new RESOURCES.md gets 664): the lab daemon reads RESOURCES.md through the group, and a
+    replace with the private mode of the temporary file left it unreadable, so the next keep was refused (tcp-6edq,
+    2026-11-18)."""
+    mode = SHARED_MODES.get(name, 0o600)
     try:
         fd = _file(parent, name, os.O_RDONLY)
     except FileNotFoundError:
         pass
     else:
-        os.close(fd)
+        try:
+            mode = stat.S_IMODE(os.fstat(fd).st_mode) & 0o777
+        finally:
+            os.close(fd)
     temp = ".lab-" + secrets.token_hex(16)
     fd = _file(parent, temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            os.fchmod(fh.fileno(), mode)
             fh.write(text)
             fh.flush()
             os.fsync(fh.fileno())

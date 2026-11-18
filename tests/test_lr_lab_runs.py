@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1367,3 +1368,20 @@ def test_lr_hard_end_rejects_empty_nonlist_resource_rows(tmp_path, monkeypatch):
                 labclient._end(root, PROJECT, LAB)
             assert marker.read_text() == _HARD_RUN + "\n"
             assert not (logs / (_HARD_RUN + ".log")).exists()
+
+
+def test_lr_keep_row_keeps_the_mode_of_resources_md_for_the_daemon(tmp_path, monkeypatch):
+    """tcp-6edq 2026-11-18: a keep replaced RESOURCES.md with the 600 of its temporary file, the lab daemon could
+    no longer read it and the next keep was refused; the replace keeps the old mode, a new file gets 664."""
+    root, _ = _hard_project(tmp_path, monkeypatch)
+    resources = root / "RESOURCES.md"
+    resources.write_text("# resources\n")
+    resources.chmod(0o664)
+    assert labclient.keep_row(root, _HARD_RUN, LAB, _hard_kept()) == "rule-1"
+    assert stat.S_IMODE(resources.stat().st_mode) == 0o664
+    resources.chmod(0o640)
+    labclient.keep_row(root, _HARD_RUN, LAB, _hard_kept("id-two"))
+    assert stat.S_IMODE(resources.stat().st_mode) == 0o640
+    resources.unlink()
+    labclient.keep_row(root, _HARD_RUN, LAB, _hard_kept("id-three"))
+    assert stat.S_IMODE(resources.stat().st_mode) == 0o664

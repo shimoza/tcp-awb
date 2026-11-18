@@ -24338,8 +24338,15 @@
    "name": "dataset: empty linked snapshot directory is refused",
    "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_empty_linked_snapshot_directory_is_refused",
    "status": "passing"
+  },
+  {
+   "id": "LR-MODE-001",
+   "phase": "T",
+   "name": "lab runs: keep row keeps the mode of RESOURCES.md for the daemon",
+   "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_keep_row_keeps_the_mode_of_resources_md_for_the_daemon",
+   "status": "passing"
   }
  ],
- "total_tests": 3477,
+ "total_tests": 3478,
  "checked": "2026-11-18"
 }
