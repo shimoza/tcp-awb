@@ -1271,7 +1271,7 @@ def test_oh_wide_hidden_column_range_never_reaches_visible_text(tmp_path):
 
 
 def test_oh_missing_relationship_target_marks_document_incomplete(tmp_path):
-    rels = '<Relationships><Relationship Id="h" Type="%sheader" Target="absent.xml"/></Relationships>' % REL_T
+    rels = '<Relationships><Relationship ' + 'Id="h" Type="%sheader" Target="absent.xml"/></Relationships>' % REL_T
     ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"word/_rels/document.xml.rels": rels}), "docx")
     assert ex.state == "ok" and ex.text == "safe body" and ex.meta.get("incomplete")
 
@@ -1293,7 +1293,7 @@ def test_oh_missing_slide_relationship_marks_presentation_incomplete(tmp_path):
 
 def test_oh_long_numeric_part_name_does_not_crash_sorting(tmp_path):
     name = "word/header" + "9" * 5000 + ".xml"
-    rels = '<Relationships><Relationship Id="h" Type="%sheader" Target="%s"/></Relationships>' % (REL_T, name[5:])
+    rels = '<Relationships><Relationship ' + 'Id="h" Type="%sheader" Target="%s"/></Relationships>' % (REL_T, name[5:])
     path = _oh_document(tmp_path / "a.docx", {name: "<hdr><p><r><t>header text</t></r></p></hdr>",
                                             "word/_rels/document.xml.rels": rels})
     ex = office.extract_office(path, "docx")
@@ -1447,7 +1447,7 @@ def test_oh_shared_strings_cannot_amplify_table_output_without_bound(tmp_path, m
 
 
 def test_oh_external_main_relationship_is_never_rendered(tmp_path):
-    rels = ('<Relationships><Relationship Id="main" Type="%sofficeDocument" Target="other.xml" '
+    rels = ('<Relationships><Relationship ' + 'Id="main" Type="%sofficeDocument" Target="other.xml" '
             'TargetMode="External"/></Relationships>' % REL_T)
     other = '<document><body><p><r><t>%s</t></r></p></body></document>' % PERSON
     ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"_rels/.rels": rels, "other.xml": other}), "docx")
@@ -1457,7 +1457,7 @@ def test_oh_external_main_relationship_is_never_rendered(tmp_path):
 
 def test_oh_repeated_relationship_ids_keep_all_external_targets(tmp_path):
     values = (PERSON, _oh_private_value())
-    rels = '<Relationships>' + ''.join('<Relationship Id="same" TargetMode="External" Target="%s"/>' % value
+    rels = '<Relationships>' + ''.join('<Relationship ' + 'Id="same" TargetMode="External" Target="%s"/>' % value
                                       for value in values) + '</Relationships>'
     ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"word/_rels/document.xml.rels": rels}), "docx")
     assert all(value in ex.detect_text for value in values)
