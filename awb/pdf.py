@@ -17,7 +17,11 @@ Input: the Markdown the Workbench writes (headings, paragraphs, lists, fenced co
 *italic*, [text](url)) or HTML such as `awb howto render` writes (h1 to h6, p, ul, ol, li, pre, code, a, table,
 strong, em, br; any other element as its text). The PDF goes next to FILE unless --out names another file; either
 way it must lie inside the project folder of the current folder (its SCOPE.md) or the session scratch folder
-(/tmp/claude-UID). A character the standard fonts cannot show (outside WinAnsi, Cyrillic for example) is never
+(/tmp/claude-UID), as must the input. Linked path components and special files are refused. Output files are
+private (0600), published atomically; concurrent conversions may replace each other with complete PDFs.
+Names and secrets in source, parsed text, links, paths and metadata refuse publication. Input lines and joined
+Markdown paragraphs are limited to 16384 characters, tables to 100000 rectangular cells and output to 1000 pages.
+A character the standard fonts cannot show (outside WinAnsi, Cyrillic for example) is never
 dropped silently: the command refuses with the first line that holds one and the count, unless --replace is given,
 which writes "?" for each and says how many. Exit codes: 0 written, 1 refused for such characters, 2 usage or error.
 
@@ -29,8 +33,9 @@ import html
 import io
 import os
 import re
+import secrets
+import stat
 import sys
-import tempfile
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
@@ -42,6 +47,7 @@ AUTHOR = "Architect Workbench"
 PAGE_W, PAGE_H, MARGIN = 595, 842, 56          # A4 in points
 TEXT_W = PAGE_W - 2 * MARGIN
 MAX_INPUT = 16 * 1024 * 1024
+MAX_LINE = 16384
 SUFFIXES = {".md": "md", ".markdown": "md", ".html": "html", ".htm": "html"}
 FONTS = {"r": ("F1", "Helvetica"), "b": ("F2", "Helvetica-Bold"), "i": ("F3", "Helvetica-Oblique"),
          "c": ("F4", "Courier")}
@@ -152,6 +158,8 @@ class _Pages:
         self.y = PAGE_H - MARGIN
 
     def new_page(self) -> None:
+        if len(self.ops) >= 1000:
+            raise PdfError("too many PDF pages")
         self.ops.append([])
         self.annots.append([])
         self.y = PAGE_H - MARGIN
@@ -233,15 +241,20 @@ def _lines(runs: list, width: float, size: float, heading: bool) -> list[list[tu
             x, gap = 0.0, 0.0
         x += gap
         for text, font, url in group:
-            while len(text) > 1 and x + _width(text, font, size) > width:   # wider than a line: split, never cut
-                n = len(text) - 1
-                while n > 0 and x + _width(text[:n], font, size) > width:
-                    n -= 1
+            remaining = _width(text, font, size)
+            while len(text) > 1 and x + remaining > width:   # wider than a line: split, never cut
+                n, used = 0, x
+                for ch in text:
+                    used += _width(ch, font, size)
+                    if used > width:
+                        break
+                    n += 1
                 if n == 0 and x > 0:
                     lines.append([])
                     x = 0.0
                     continue
                 n = max(n, 1)
+                remaining -= _width(text[:n], font, size)
                 lines[-1].append((x, text[:n], font, url))
                 lines.append([])
                 x, text = 0.0, text[n:]
@@ -318,6 +331,8 @@ def _table_lines(rows: list[list[str]]) -> list[str]:
     if not rows:
         return []
     n = max(len(r) for r in rows)
+    if n * len(rows) > 100000:
+        raise PdfError("table is too large")
     rows = [r + [""] * (n - len(r)) for r in rows]
     widths = [max(len(r[i]) for r in rows) for i in range(n)]
     out = [" | ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() for r in rows]
@@ -366,9 +381,13 @@ def _draw_grid(pages: _Pages, block: Block) -> None:
     if not rows:
         return
     n = max(len(r) for r in rows)
+    if n * len(rows) > 100000:
+        raise PdfError("table is too large")
     rows = [r + [""] * (n - len(r)) for r in rows]
     align = (list(block.align) + ["l"] * n)[:n]
     widths = _grid_widths(rows, size)
+    if any(w < 2 * GRID_PAD_X for w in widths):
+        raise PdfError("table columns are too narrow")
     xs = [MARGIN + sum(widths[:i]) for i in range(n)]
     cells = [[_lines([(c, "b" if r == 0 else "r", None)], w - 2 * GRID_PAD_X, size, False)
               for c, w in zip(row, widths)] for r, row in enumerate(rows)]
@@ -395,6 +414,8 @@ def _draw_grid(pages: _Pages, block: Block) -> None:
         pages.y = top - h
 
     head_k = max(len(c) for c in head)
+    if height(head_k) + height(1) > PAGE_H - 2 * MARGIN:
+        raise PdfError("table header is too tall for a page")
     fresh = int((PAGE_H - 2 * MARGIN - height(head_k) - 2 * GRID_PAD_Y) // lead)
 
     def page_with_header() -> None:
@@ -438,18 +459,27 @@ def layout(blocks: list[Block]) -> _Pages:
         elif b.kind == "grid":
             _draw_grid(pages, b)
         elif b.kind == "li":
+            if not 0 <= b.level <= 20:
+                raise PdfError("list nesting is too deep")
             indent = LIST_INDENT * (b.level + 1)
             _draw_runs(pages, b, MARGIN + indent, TEXT_W - indent)
         elif b.kind in STYLES:
             if any(t.strip() for t, _, _ in b.runs):
                 _draw_runs(pages, b, MARGIN, TEXT_W)
         else:
-            raise PdfError("unknown block %s" % b.kind)
+            raise PdfError("unknown block kind")
     return pages
 
 
 def render(blocks: list[Block], title: str, author: str = AUTHOR) -> bytes:
     """The PDF of the blocks: A4, the standard fonts, a page number on every page, title and author in the info."""
+    # Check the text after parsing too: formatting and entities can join a private value.
+    values = [title, author]
+    for block in blocks:
+        values.extend([_plain_text(block.runs), block.marker])
+        values.extend(url for _, _, url in block.runs if url)
+        values.extend(" ".join(row) if isinstance(row, list) else row for row in block.lines)
+    _screen("\n".join(values))
     pages = layout(blocks)
     total = len(pages.ops)
     for n, ops in enumerate(pages.ops, start=1):
@@ -507,6 +537,8 @@ _INLINE_RE = re.compile(
 
 
 def _runs(text: str, font: str = "r", url: str | None = None) -> list:
+    if len(text) > MAX_LINE or re.search(r"[`*_]{256}", text):
+        raise PdfError("inline text is too complex")
     out: list = []
     pos = 0
     for m in _INLINE_RE.finditer(text):
@@ -664,7 +696,7 @@ class _Html(HTMLParser):
         self.fonts: list[str] = []
         self.url: str | None = None
         self.link_text = ""
-        self.skip = 0
+        self.skip: list[str] = []
         self.title: str | None = None
         self.in_title = False
         self.pre: list[str] | None = None
@@ -690,8 +722,11 @@ class _Html(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list) -> None:
         a = dict(attrs)
         if tag in self.SKIP:
-            self.skip += 1
-        elif tag == "title":
+            self.skip.append(tag)
+            return
+        if self.skip and not (self.skip == ["head"] and tag == "title"):
+            return
+        if tag == "title":
             self.in_title, self.title = True, ""
         elif tag in self.HEADINGS:
             self.end_block()
@@ -710,7 +745,7 @@ class _Html(HTMLParser):
         elif tag in ("ul", "ol"):
             self.end_block()
             start = a.get("start") or "1"
-            self.lists.append([tag, int(start) if start.isdigit() else 1])
+            self.lists.append([tag, int(start) if re.fullmatch(r"[0-9]{1,9}", start) else 1])
         elif tag == "li":
             self.end_block()
             if not self.lists:
@@ -743,9 +778,13 @@ class _Html(HTMLParser):
             self.cell = []
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in self.SKIP:
-            self.skip = max(0, self.skip - 1)
-        elif tag == "title":
+        if self.skip:
+            if tag == self.skip[-1]:
+                self.skip.pop()
+            elif self.skip == ["head"] and tag == "title":
+                self.in_title = False
+            return
+        if tag == "title":
             self.in_title = False
         elif tag in self.HEADINGS or tag == "li":
             self.end_block()
@@ -769,6 +808,8 @@ class _Html(HTMLParser):
                 self.block().runs.append((" (%s)" % self.url, self.font(), self.url))
             self.url = None
         elif tag in ("td", "th") and self.cell is not None and self.rows is not None:
+            if not self.rows:
+                self.rows.append([])
             self.rows[-1].append(" ".join("".join(self.cell).split()))
             self.cell = None
         elif tag == "table" and self.rows is not None:
@@ -776,7 +817,7 @@ class _Html(HTMLParser):
             self.rows = None
 
     def handle_data(self, data: str) -> None:
-        if self.skip:
+        if self.skip and not (self.skip == ["head"] and self.in_title):
             return
         if self.in_title:
             self.title = (self.title or "") + data
@@ -799,8 +840,17 @@ class _Html(HTMLParser):
 def from_html(text: str) -> tuple[list[Block], str]:
     """(blocks, the <title> or the first h1 or "") of an HTML page such as `awb howto render` writes."""
     p = _Html()
-    p.feed(text)
-    p.close()
+    try:
+        p.feed(text)
+        p.close()
+    except (AssertionError, ValueError, RecursionError):
+        raise PdfError("malformed HTML") from None
+    if p.pre is not None:
+        p.handle_endtag("pre")
+    if p.cell is not None:
+        p.handle_endtag("td")
+    if p.rows is not None:
+        p.handle_endtag("table")
     p.end_block()
     title = " ".join((p.title or "").split()) or next((_plain_text(b.runs) for b in p.blocks if b.kind == "h1"), "")
     return p.blocks, title
@@ -808,70 +858,178 @@ def from_html(text: str) -> tuple[list[Block], str]:
 
 # --------------------------------------------------------------------------- the file and the command
 
+def _screen(text: str) -> None:
+    """Refuse private values; unavailable checks never quote their diagnostics."""
+    from awb import check, config
+
+    try:
+        text.encode("utf-8")
+        if check._secret_classes(text):
+            raise PdfError("private content refused")
+        register = config.paths().register
+        if check.register_source(register)[0] == check.MISSING:
+            raise PdfError("privacy check unavailable")
+        try:
+            hits = check.check_text(text, register)
+        except check.CheckUnavailable:
+            # An unconfigured development install has no names. Work sessions and
+            # existing or unreadable vaults must still fail closed.
+            if config.is_work_user():
+                raise
+            try:
+                register.parent.stat()
+            except FileNotFoundError:
+                hits = []
+            else:
+                raise
+        if any(h.get("cls") == "name" for h in hits):
+            raise PdfError("private content refused")
+    except PdfError:
+        raise
+    except Exception:
+        raise PdfError("privacy check unavailable") from None
+
+
+def _directory(path: Path) -> int:
+    """Pin a directory without following any link, including a link in an ancestor."""
+    absolute = Path(os.path.abspath(path))
+    fd = os.open(absolute.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in absolute.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def allowed(target: Path, start: Path | None = None) -> bool:
-    """True when the target lies inside the project folder of `start` (default: the current folder) or the session
-    scratch folder."""
+    """True for a lexical child of this project or scratch; access also rejects linked parents."""
     from awb import config
 
-    roots = []
-    project = config.scope_root(Path(os.path.abspath(start or Path.cwd())))
+    project = config.scope_root(Path(os.path.abspath(start or Path.cwd())), strict=True)
+    roots = [Path(os.path.abspath(SCRATCH % os.getuid()))]
     if project is not None:
-        roots.append(os.path.realpath(project))
-    roots.append(os.path.realpath(SCRATCH % os.getuid()))
-    real = os.path.join(os.path.realpath(os.path.dirname(os.path.abspath(target))), os.path.basename(target))
-    return any(real.startswith(r.rstrip("/") + "/") for r in roots)
+        if (project / "SCOPE.md").is_symlink():
+            return False
+        roots.append(project)
+    target = Path(os.path.abspath(target))
+    return any(target != root and target.is_relative_to(root) for root in roots)
+
+
+def _read(path: Path) -> str:
+    parent = _directory(path.parent)
+    try:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(fd, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise PdfError("not a regular input file")
+            if before.st_size > MAX_INPUT:
+                raise PdfError("larger than %d bytes" % MAX_INPUT)
+            data = stream.read(MAX_INPUT + 1)
+            after = os.fstat(stream.fileno())
+            if len(data) > MAX_INPUT:
+                raise PdfError("larger than %d bytes" % MAX_INPUT)
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise PdfError("input changed while reading")
+    finally:
+        os.close(parent)
+    try:
+        return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    except UnicodeDecodeError:
+        raise PdfError("the file is not UTF-8") from None
+
+
+def _target_regular(parent: int, name: str) -> None:
+    try:
+        info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(info.st_mode):
+        raise PdfError("a link, folder or special file stands where the PDF should be")
+
+
+def _publish(target: Path, data: bytes) -> None:
+    parent = _directory(target.parent)
+    tmp = None
+    try:
+        _target_regular(parent, target.name)
+        # Exclusive creation and descriptor-relative publication make concurrent writers atomic.
+        # Private mode avoids changing the process-wide umask in a threaded caller.
+        for _ in range(10):
+            candidate = ".awb-pdf-" + secrets.token_hex(16)
+            try:
+                fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=parent)
+                tmp = candidate
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise PdfError("cannot create PDF temporary file")
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            written = os.fstat(stream.fileno())
+        # Refuse a moved/replaced parent before publication; cleanup uses the pinned fd.
+        current = _directory(target.parent)
+        try:
+            if (os.fstat(parent).st_dev, os.fstat(parent).st_ino) != (
+                    os.fstat(current).st_dev, os.fstat(current).st_ino):
+                raise PdfError("output folder changed")
+        finally:
+            os.close(current)
+        _target_regular(parent, target.name)
+        staged = os.stat(tmp, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISREG(staged.st_mode) or (staged.st_dev, staged.st_ino) != (
+                written.st_dev, written.st_ino):
+            raise PdfError("PDF temporary file changed")
+        os.replace(tmp, target.name, src_dir_fd=parent, dst_dir_fd=parent)
+        tmp = None
+    finally:
+        try:
+            if tmp is not None:
+                os.unlink(tmp, dir_fd=parent)
+        finally:
+            os.close(parent)
 
 
 def convert(path: Path, out: Path | None = None, title: str | None = None, replace: bool = False,
             start: Path | None = None, author: str = AUTHOR) -> tuple[Path, int, int]:
-    """Write the PDF of a Markdown or HTML file; (the PDF, pages, characters written as "?")."""
-    path = Path(path)
-    kind = SUFFIXES.get(path.suffix.lower())
-    if kind is None:
-        raise PdfError("awb pdf takes a Markdown or HTML file (.md, .markdown, .html, .htm)")
-    if os.path.islink(path) or not path.is_file():
-        raise PdfError("not a regular file: %s" % path)
-    if path.stat().st_size > MAX_INPUT:
-        raise PdfError("larger than %d bytes" % MAX_INPUT)
+    """Write a checked, private PDF atomically; (PDF, pages, replaced character count)."""
     try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        raise PdfError("the file is not UTF-8") from None
-    target = Path(out) if out else path.with_suffix(".pdf")
-    if target.suffix.lower() != ".pdf":
-        raise PdfError("the output is a .pdf file")
-    if not allowed(target, start):
-        raise PdfError("refused: the PDF goes inside the project folder or the session scratch folder (%s)"
-                       % (SCRATCH % os.getuid()))
-    if os.path.islink(target) or target.is_dir():
-        raise PdfError("a link or a folder stands where the PDF should be")
-    if not target.parent.is_dir():
-        raise PdfError("no such folder: %s" % target.parent)
-    bad = unshowable(html.unescape(text) if kind == "html" else text)
-    count = sum(n for _, n in bad)
-    if bad and not replace:
-        raise PdfRefused("line %d: %d character(s) the standard fonts cannot show (outside WinAnsi), %d in %d line(s) "
-                         "in all; nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
-                                                                                         count, len(bad)))
-    blocks, found = from_html(text) if kind == "html" else from_markdown(text)
-    data = render(blocks, title or found or path.stem, author)
-    fd, tmp = tempfile.mkstemp(prefix=".%s." % target.name, dir=target.parent)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.chmod(tmp, 0o644 & ~_umask())
-        os.replace(tmp, target)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-    return target, data.count(b"/Type /Page "), count
-
-
-def _umask() -> int:
-    mask = os.umask(0)
-    os.umask(mask)
-    return mask
+        path = Path(path)
+        kind = SUFFIXES.get(path.suffix.lower())
+        if kind is None:
+            raise PdfError("awb pdf takes a Markdown or HTML file (.md, .markdown, .html, .htm)")
+        target = Path(out) if out else path.with_suffix(".pdf")
+        if target.suffix.lower() != ".pdf":
+            raise PdfError("the output is a .pdf file")
+        if not allowed(target, start) or not allowed(path, start):
+            raise PdfError("refused: the PDF goes inside the project folder or the session scratch folder; "
+                           "the input must also be inside one of them")
+        _screen(str(path) + "\n" + str(target))
+        if any(ord(c) < 32 or ord(c) == 127 for c in str(path) + str(target)):
+            raise PdfError("control character in a file path")
+        text = _read(path)
+        if any(len(line) > MAX_LINE for line in text.split("\n")):
+            raise PdfError("input line is too long")
+        _screen(text)
+        bad = unshowable(html.unescape(text) if kind == "html" else text)
+        count = sum(n for _, n in bad)
+        if bad and not replace:
+            raise PdfRefused("line %d: %d character(s) the standard fonts cannot show (outside WinAnsi), %d in %d line(s) "
+                             "in all; nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
+                                                                                             count, len(bad)))
+        blocks, found = from_html(text) if kind == "html" else from_markdown(text)
+        data = render(blocks, title or found or path.stem, author)
+        _publish(target, data)
+        return target, len(re.findall(rb"(?m)^<< /Type /Page /Parent \d+ 0 R /MediaBox", data)), count
+    except (OSError, ValueError, RecursionError):
+        raise PdfError("cannot read, render or write the file") from None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -898,8 +1056,8 @@ def main(argv: list[str] | None = None) -> int:
     except PdfError as err:
         print("awb pdf: %s" % err, file=sys.stderr)
         return 2
-    except OSError as err:
-        print("awb pdf: %s (operating system error)" % type(err).__name__, file=sys.stderr)
+    except (OSError, ValueError, RecursionError):
+        print("awb pdf: cannot read, render or write the file", file=sys.stderr)
         return 2
     print("pdf: %s, %d page(s)" % (out, pages))
     if replaced:

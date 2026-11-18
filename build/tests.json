@@ -23715,8 +23715,372 @@
    "name": "bytg: a text up to the limit is one piece",
    "run": ".venv/bin/pytest tests/test_bytg_console_gate.py::test_bytg_a_text_up_to_the_limit_is_one_piece",
    "status": "passing"
+  },
+  {
+   "id": "PDF-H01",
+   "phase": "T",
+   "name": "pdf: missing input never echoes its name",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_missing_input_never_echoes_its_name",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H02",
+   "phase": "T",
+   "name": "pdf: missing output folder never echoes its name",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_missing_output_folder_never_echoes_its_name",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H03",
+   "phase": "T",
+   "name": "pdf: unreadable input error withholds values",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_unreadable_input_error_withholds_values",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H04",
+   "phase": "T",
+   "name": "pdf: invalid utf8 preserves existing output",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_invalid_utf8_preserves_existing_output",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H05",
+   "phase": "T",
+   "name": "pdf: symlink input is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_symlink_input_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H06",
+   "phase": "T",
+   "name": "pdf: fifo input is refused without blocking",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_fifo_input_is_refused_without_blocking",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H07",
+   "phase": "T",
+   "name": "pdf: input swap to link is never read",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_input_swap_to_link_is_never_read",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H08",
+   "phase": "T",
+   "name": "pdf: input parent link cannot escape",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_input_parent_link_cannot_escape",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H09",
+   "phase": "T",
+   "name": "pdf: outside input cannot be copied into project",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_outside_input_cannot_be_copied_into_project",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H10",
+   "phase": "T",
+   "name": "pdf: input growth is bounded",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_input_growth_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H11",
+   "phase": "T",
+   "name": "pdf: input changed during read is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_input_changed_during_read_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H12",
+   "phase": "T",
+   "name": "pdf: fifo output is not replaced",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_fifo_output_is_not_replaced",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H13",
+   "phase": "T",
+   "name": "pdf: linked scratch root cannot authorize outside write",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_linked_scratch_root_cannot_authorize_outside_write",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H14",
+   "phase": "T",
+   "name": "pdf: linked scope does not authorize a project",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_linked_scope_does_not_authorize_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H15",
+   "phase": "T",
+   "name": "pdf: output parent swap cannot redirect publication",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_output_parent_swap_cannot_redirect_publication",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H16",
+   "phase": "T",
+   "name": "pdf: output parent moved during write cleans pinned directory",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_output_parent_moved_during_write_cleans_pinned_directory",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H17",
+   "phase": "T",
+   "name": "pdf: output link planted during write is preserved",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_output_link_planted_during_write_is_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H18",
+   "phase": "T",
+   "name": "pdf: replace failure preserves old pdf and removes temporary file",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_replace_failure_preserves_old_pdf_and_removes_temporary_file",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H19",
+   "phase": "T",
+   "name": "pdf: pdf permissions are private without changing umask",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_pdf_permissions_are_private_without_changing_umask",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H20",
+   "phase": "T",
+   "name": "pdf: concurrent writes publish complete pdfs",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_concurrent_writes_publish_complete_pdfs",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H21",
+   "phase": "T",
+   "name": "pdf: body secret is refused before output",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_body_secret_is_refused_before_output",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H22",
+   "phase": "T",
+   "name": "pdf: registered name is refused in body",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_registered_name_is_refused_in_body",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H23",
+   "phase": "T",
+   "name": "pdf: parsed html cannot join a private value",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_parsed_html_cannot_join_a_private_value",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H24",
+   "phase": "T",
+   "name": "pdf: render screens all metadata and link carriers",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_render_screens_all_metadata_and_link_carriers",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H25",
+   "phase": "T",
+   "name": "pdf: private filename is not published or printed",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_private_filename_is_not_published_or_printed",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H26",
+   "phase": "T",
+   "name": "pdf: privacy check failure is closed and value free",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_privacy_check_failure_is_closed_and_value_free",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H27",
+   "phase": "T",
+   "name": "pdf: missing register in existing vault is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_missing_register_in_existing_vault_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H28",
+   "phase": "T",
+   "name": "pdf: unknown block error never echoes kind",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_unknown_block_error_never_echoes_kind",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H29",
+   "phase": "T",
+   "name": "pdf: invalid html list start is bounded",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_invalid_html_list_start_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H30",
+   "phase": "T",
+   "name": "pdf: hidden html cannot emit link attributes",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_hidden_html_cannot_emit_link_attributes",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H31",
+   "phase": "T",
+   "name": "pdf: html parser error never echoes values",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_html_parser_error_never_echoes_values",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H32",
+   "phase": "T",
+   "name": "pdf: nested html table does not crash",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_nested_html_table_does_not_crash",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H33",
+   "phase": "T",
+   "name": "pdf: unclosed html pre and table keep text",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_unclosed_html_pre_and_table_keep_text",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H34",
+   "phase": "T",
+   "name": "pdf: html head title is preserved",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_html_head_title_is_preserved",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H35",
+   "phase": "T",
+   "name": "pdf: hostile long line is refused before parsing",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_hostile_long_line_is_refused_before_parsing",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H36",
+   "phase": "T",
+   "name": "pdf: deep lists are refused before drawing outside page",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_deep_lists_are_refused_before_drawing_outside_page",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H37",
+   "phase": "T",
+   "name": "pdf: too narrow grid columns are refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_too_narrow_grid_columns_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H38",
+   "phase": "T",
+   "name": "pdf: oversized table header is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_oversized_table_header_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H39",
+   "phase": "T",
+   "name": "pdf: long word wrapping has bounded width work",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_long_word_wrapping_has_bounded_width_work",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H40",
+   "phase": "T",
+   "name": "pdf: page count cannot be spoofed by document text",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_page_count_cannot_be_spoofed_by_document_text",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H41",
+   "phase": "T",
+   "name": "pdf: joined paragraph size is bounded",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_joined_paragraph_size_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H42",
+   "phase": "T",
+   "name": "pdf: markup run cannot exhaust inline parser",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_markup_run_cannot_exhaust_inline_parser",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H43",
+   "phase": "T",
+   "name": "pdf: ragged table expansion is bounded",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_ragged_table_expansion_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H44",
+   "phase": "T",
+   "name": "pdf: pdf page count is bounded",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_pdf_page_count_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H45",
+   "phase": "T",
+   "name": "pdf: invalid title surrogate is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_invalid_title_surrogate_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H46",
+   "phase": "T",
+   "name": "pdf: control character in output path is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_control_character_in_output_path_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H47",
+   "phase": "T",
+   "name": "pdf: failed write removes temporary file",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_failed_write_removes_temporary_file",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H48",
+   "phase": "T",
+   "name": "pdf: temporary file swap cannot publish a link",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_temporary_file_swap_cannot_publish_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H49",
+   "phase": "T",
+   "name": "pdf: missing plain input is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_missing_plain_input_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H50",
+   "phase": "T",
+   "name": "pdf: missing plain output directory is refused",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_missing_plain_output_directory_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H51",
+   "phase": "T",
+   "name": "pdf: oversized input is refused before reading",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_oversized_input_is_refused_before_reading",
+   "status": "passing"
+  },
+  {
+   "id": "PDF-H52",
+   "phase": "T",
+   "name": "pdf: convert io errors are value free",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_convert_io_errors_are_value_free",
+   "status": "passing"
   }
  ],
- "total_tests": 3388,
- "checked": "2026-11-17"
+ "total_tests": 3440,
+ "checked": "2026-11-18"
 }
