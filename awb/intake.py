@@ -603,7 +603,7 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
             _validate_files(files)
             return _run(files, customer, p, reviewed=reviewed, redo=redo, trusted=trusted, progress=progress)
     except vault.VaultError as err:
-        raise IntakeError("the vault is unavailable for intake, try again when it is ready") from None
+        raise IntakeError(_vault_message(err)) from None
 
 
 def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | None = None, trusted: bool = False):
@@ -817,7 +817,17 @@ def run_text(text: str, customer: str, p: config.Paths, shape, write, *, label: 
         with vault.vault_lock(p):
             return _run_text(customer, p, screened, shape, write, label, kind, held)
     except vault.VaultError as err:
-        raise IntakeError("the vault is unavailable for intake, try again when it is ready") from None
+        raise IntakeError(_vault_message(err)) from None
+
+
+_VAULT_OWN = ("an intake or an encryption holds the vault, try again when it is done",)
+"""The vault errors whose words are ours and are passed on as they are; any other vault error may carry a value of
+a dependency and becomes a plain line."""
+
+
+def _vault_message(err: Exception) -> str:
+    text = str(err)
+    return text if text in _VAULT_OWN else "the vault is unavailable for intake, try again when it is ready"
 
 
 def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str, kind: str, held) -> IntakeResult:
@@ -843,12 +853,17 @@ def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str
     public_path = p.outbox / cust / _report.PUBLIC_NAME
     saved = _backups([public_path])
     out = Path(write(p.outbox / cust, body))
-    if out.parent != p.outbox / cust or out.name == _report.PUBLIC_NAME:
-        raise IntakeError("the text writer returned a path outside its output folder")
+    if out.parent == p.outbox / cust and out.name == _report.PUBLIC_NAME:
+        raise IntakeError("the text writer returned the public file of the output folder")
+    # a writer may keep its text in a folder of its own (the voice learn of awb/writing.py writes a temporary
+    # file); what it wrote is read back and checked again below wherever it is, and only a file in the output
+    # folder is removed here on a failure: the writer removes its own
+    own = out.parent == p.outbox / cust
     with _source(out) as fd, os.fdopen(os.dup(fd), "r", encoding="utf-8") as stream:
         written_text = stream.read()
     if written_text != body or not _public_safe(engine, written_text):
-        out.unlink(missing_ok=True)
+        if own:
+            out.unlink(missing_ok=True)
         raise IntakeError("the final check withheld the written text")
     stem = out.name
     rec = _report.Run(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), customer=cust, new_customer=is_new,
@@ -867,11 +882,13 @@ def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str
         private_path = p.private_reports / cust / ("%s.md" % now.strftime("%Y-%m-%d-%H%M%S"))
         private_written, unsealed = _write_private_report(p, private_path, rec, encrypted)
     except _Undo:
-        out.unlink(missing_ok=True)
+        if own:
+            out.unlink(missing_ok=True)
         _restore(saved)
         raise IntakeError(UNDONE) from None
     except BaseException:
-        out.unlink(missing_ok=True)
+        if own:
+            out.unlink(missing_ok=True)
         _restore(saved)
         raise
     wiped = Counter({wipe.TOKEN_TEXT[cls]: n for cls, n in counts.items() if cls in wipe.WIPE_CLASSES and n})
