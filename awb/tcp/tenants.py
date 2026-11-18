@@ -1201,9 +1201,7 @@ def main(argv: list[str] | None = None) -> int:
                       "; %d listing(s) not readable" % unknown if unknown else ""))
             print("\n".join(_cost_module().after_snapshot(p)))
         elif args.command == "billed":
-            import importlib
-
-            return importlib.import_module("awb.tcp.billed").owner_command(p, args)
+            return _billed_module().owner_command(p, args)
         elif args.command == "cost":
             if config.is_work_user():
                 raise TenantError("the cost estimate is made on the owner side")
@@ -1252,6 +1250,13 @@ def main(argv: list[str] | None = None) -> int:
         print("awb tenant: %s (a broken tenant file)" % type(err).__name__, file=sys.stderr)
         return 1
     return 0
+
+
+def _billed_module():
+    """awb/tcp/billed.py, loaded by name: it is command only, no unit imports it."""
+    import importlib
+
+    return importlib.import_module("awb.tcp.billed")
 
 
 def _cost_module():

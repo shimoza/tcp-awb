@@ -168,6 +168,8 @@ DYNAMIC: dict[tuple[str, str], object] = {
     # awb tenant cost and awb tenant snapshot load the cost estimate by name: the tenant inventory of the console,
     # which imports awb/tcp/tenants.py, never reaches it (B-048)
     ("awb/tcp/tenants.py", "_cost_module"): (),
+    # awb tenant billed loads the billed cost puller by name (command only)
+    ("awb/tcp/tenants.py", "_billed_module"): (),
     # awb winlab serve is the lab broker (task WL part 4), the unit of seal/awb-winlab.service
     ("awb/winlab.py", "_broker_module"): ("awb.tcp.winbroker",),
 }
@@ -198,6 +200,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/fetch.py": "awb fetch, run by the owner in his own terminal",
     "awb/start.py": "awb start, run by the owner in his own terminal",
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
+    "awb/tcp/billed.py": "awb tenant billed and awb cost billed, run by the owner side and in working sessions",
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",
     "awb/labclient.py": "awb lab run start|keep|end|status and the scripts of a project session (task LR)",
     "awb/winlabsession.py": "awb winlab run|start|status|log|stop|put|get, run in a project session (task WL part 3)",
