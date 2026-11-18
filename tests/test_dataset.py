@@ -794,3 +794,456 @@ def test_without_the_setting_nothing_of_the_signing_runs(home, facts, tmp_path, 
     assert not (built.folder / "SHA256SUMS").exists()
     create = [a for a in signing.github.log() if a[:2] == ["release", "create"]][0]
     assert "SHA256SUMS" not in " ".join(create)
+
+
+# Dataset hardening: all inputs and repositories belong to the test's temporary home.
+
+def _hardening_secret():
+    return 'db_pass' + 'word = "' + 't7Kq2Zp9' + 'Lw4Rx8Vn3Bm6Yc' + '"'
+
+
+def _hardening_artifacts(base):
+    return {p.relative_to(base).as_posix(): p.read_bytes() for p in base.rglob('*') if p.is_file()}
+
+
+def test_hardening_linked_archive_destinations_leave_external_files_intact(home, facts, tmp_path):
+    for suffix in ('.zip', '.mcpb'):
+        base = tmp_path / ('out' + suffix)
+        base.mkdir()
+        victim = tmp_path / ('outside' + suffix)
+        victim.write_bytes(b'keep these bytes')
+        (base / ('tcp-facts-2026-10-08' + suffix)).symlink_to(victim)
+        with pytest.raises(dataset.DatasetError):
+            dataset.build(home, out=base, today=TODAY, force=True)
+        assert victim.read_bytes() == b'keep these bytes'
+        assert not (base / 'tcp-facts-2026-10-08').exists()
+
+
+def test_hardening_linked_output_ancestors_are_refused(home, facts, tmp_path):
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    link = tmp_path / 'link'
+    link.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=link / 'nested', today=TODAY)
+    assert list(outside.iterdir()) == []
+
+
+def test_hardening_linked_build_folder_is_refused_without_removing_target(home, facts, tmp_path):
+    base = tmp_path / 'out'
+    base.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (outside / 'keep').write_text('intact')
+    (base / 'tcp-facts-2026-10-08').symlink_to(outside, target_is_directory=True)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=base, today=TODAY, force=True)
+    assert (outside / 'keep').read_text() == 'intact'
+
+
+def test_hardening_dangling_archive_link_is_refused(home, facts, tmp_path):
+    base = tmp_path / 'out'
+    base.mkdir()
+    outside = tmp_path / 'absent'
+    (base / 'tcp-facts-2026-10-08.zip').symlink_to(outside)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=base, today=TODAY)
+    assert not outside.exists()
+
+
+def test_hardening_failed_forced_build_preserves_all_previous_bytes(home, facts, tmp_path, monkeypatch):
+    base = tmp_path / 'out'
+    dataset.build(home, out=base, today=TODAY)
+    before = _hardening_artifacts(base)
+    def fail(*args, **kwargs):
+        raise dataset.DatasetError('planted bundle failure')
+    monkeypatch.setattr(dataset, 'pack_mcpb', fail)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=base, today=TODAY, force=True)
+    assert _hardening_artifacts(base) == before
+    assert not any(p.name.startswith('.dataset-') for p in base.iterdir())
+
+
+def test_hardening_failed_first_build_leaves_no_release_assets(home, facts, tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError(_hardening_secret())
+    monkeypatch.setattr(dataset, 'pack_mcpb', fail)
+    base = tmp_path / 'out'
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=base, today=TODAY)
+    assert _hardening_secret() not in str(err.value)
+    assert list(base.iterdir()) == []
+
+
+def test_hardening_concurrent_build_cannot_delete_active_staging(home, facts, tmp_path, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    entered, resume = threading.Event(), threading.Event()
+    real = dataset._write
+    def paused(*args, **kwargs):
+        entered.set()
+        assert resume.wait(20)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(dataset, '_write', paused)
+    base = tmp_path / 'out'
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(dataset.build, home, out=base, today=TODAY)
+        try:
+            assert entered.wait(20)
+            with pytest.raises(dataset.DatasetError, match='running'):
+                dataset.build(home, out=base, today=TODAY, force=True)
+        finally:
+            resume.set()
+        built = first.result(timeout=30)
+    assert built.zip.is_file()
+    with zipfile.ZipFile(built.zip) as archive:
+        assert archive.read(built.folder.name + '/facts.jsonl') == (built.folder / 'facts.jsonl').read_bytes()
+
+
+def test_hardening_failed_publication_rolls_back_previous_artifacts(home, facts, tmp_path, monkeypatch):
+    base = tmp_path / 'out'
+    dataset.build(home, out=base, today=TODAY)
+    before = _hardening_artifacts(base)
+    real = dataset.os.replace
+    triggered = []
+    def fail_once(src, dst, *args, **kwargs):
+        if Path(src).name.endswith('.mcpb') and Path(dst).name.endswith('.mcpb') and not triggered:
+            triggered.append(True)
+            raise OSError('planted rename failure')
+        return real(src, dst, *args, **kwargs)
+    monkeypatch.setattr(dataset.os, 'replace', fail_once)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=base, today=TODAY, force=True)
+    assert triggered and _hardening_artifacts(base) == before
+
+
+def test_hardening_knowledge_links_are_refused(home, facts, tmp_path):
+    entry = home.kb / kb.ENTRIES / (facts.id + '.md')
+    outside = tmp_path / 'outside.md'
+    entry.rename(outside)
+    entry.symlink_to(outside)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+
+
+def test_hardening_template_requires_readable_regular_file(home, facts, tmp_path, monkeypatch):
+    for kind in ('missing', 'directory', 'link', 'pipe'):
+        source = tmp_path / kind
+        if kind == 'directory':
+            source.mkdir()
+        elif kind == 'link':
+            source.symlink_to(dataset.MCP_TEMPLATE)
+        elif kind == 'pipe':
+            dataset.os.mkfifo(source)
+        monkeypatch.setattr(dataset, 'MCP_TEMPLATE', source)
+        with pytest.raises(dataset.DatasetError):
+            dataset.build(home, out=tmp_path / ('out-' + kind), today=TODAY)
+
+
+def test_hardening_template_read_error_hides_path_and_value(home, facts, tmp_path, monkeypatch):
+    real = dataset.os.open
+    def fail(path, *args, **kwargs):
+        if Path(path).name == dataset.MCP_FILE:
+            raise PermissionError(_hardening_secret())
+        return real(path, *args, **kwargs)
+    monkeypatch.setattr(dataset.os, 'open', fail)
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert _hardening_secret() not in str(err.value) and str(tmp_path) not in str(err.value)
+
+
+def test_hardening_snapshot_links_are_refused(home, facts, tmp_path):
+    path = price.latest_snapshot(home, 'eu-de')
+    outside = tmp_path / 'outside.json'
+    path.rename(outside)
+    path.symlink_to(outside)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+
+
+def test_hardening_malformed_snapshot_shapes_fail_closed(home, facts, tmp_path):
+    path = price.latest_snapshot(home, 'eu-de')
+    for i, data in enumerate(([], {'records': []}, {'records': ['bad']}, {'records': [dict(RAW, id={})]})):
+        path.write_text(json.dumps(data))
+        with pytest.raises(dataset.DatasetError) as err:
+            dataset.build(home, out=tmp_path / str(i), today=TODAY)
+        assert str(tmp_path) not in str(err.value)
+
+
+def test_hardening_oversized_input_is_rejected_before_parsing(home, facts, tmp_path):
+    path = price.latest_snapshot(home, 'eu-de')
+    with path.open('wb') as stream:
+        stream.write(b'{"records":[' + json.dumps(RAW).encode() + b']}')
+        stream.seek(33 * 1024 * 1024)
+        stream.write(b' ')
+    with pytest.raises(dataset.DatasetError, match='bounded|large'):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+
+
+def test_hardening_recheck_corruption_does_not_restore_refuted_facts(home, facts, tmp_path):
+    for name, columns in (('refuted.tsv', 2), ('requested.tsv', 3)):
+        path = home.shared / 'recheck' / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b'\xff')
+        with pytest.raises(dataset.DatasetError):
+            dataset.build(home, out=tmp_path / name, today=TODAY)
+        path.write_text(facts.id + '\t2026-99-99' + ('\trecheck' if columns == 3 else '') + '\n')
+        with pytest.raises(dataset.DatasetError):
+            dataset.build(home, out=tmp_path / name, today=TODAY)
+        path.unlink()
+
+
+def test_hardening_recheck_links_and_unreadable_files_fail_closed(home, facts, tmp_path, monkeypatch):
+    path = home.shared / 'recheck' / 'refuted.tsv'
+    path.parent.mkdir(exist_ok=True)
+    outside = tmp_path / 'external.tsv'
+    outside.write_text(facts.id + '\t2026-10-08\n')
+    path.symlink_to(outside)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    path.unlink()
+    path.write_text(outside.read_text())
+    real = dataset.os.open
+    def fail(name, *args, **kwargs):
+        if Path(name).name == 'refuted.tsv':
+            raise PermissionError(_hardening_secret())
+        return real(name, *args, **kwargs)
+    monkeypatch.setattr(dataset.os, 'open', fail)
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert _hardening_secret() not in str(err.value)
+
+
+def test_hardening_registered_name_in_tag_is_not_published_or_echoed(home, facts, tmp_path):
+    entry = home.kb / kb.ENTRIES / (facts.id + '.md')
+    name = fx.PERSON_FORMS[0].split()[-1].lower()
+    entry.write_text(entry.read_text().replace('tags: ecs', 'tags: ' + name))
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert name not in str(err.value).lower()
+    assert not _hardening_artifacts(tmp_path / 'out')
+
+
+def test_hardening_generated_template_is_screened_for_secrets(home, facts, tmp_path, monkeypatch):
+    template = tmp_path / 'template.py'
+    template.write_text('# ' + _hardening_secret() + '\n')
+    monkeypatch.setattr(dataset, 'MCP_TEMPLATE', template)
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert _hardening_secret() not in str(err.value)
+    assert not _hardening_artifacts(tmp_path / 'out')
+
+
+def test_hardening_generated_service_text_is_screened_for_names(home, facts, tmp_path, monkeypatch):
+    real = dataset.service_line
+    monkeypatch.setattr(dataset, 'service_line', lambda service: real(service) + ' ' + fx.PERSON_FORMS[0])
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert fx.PERSON_FORMS[0] not in str(err.value)
+    assert not _hardening_artifacts(tmp_path / 'out')
+
+
+def test_hardening_person_in_pdf_text_is_detected(home, tmp_path):
+    path = tmp_path / 'HOW-TO.pdf'
+    # A compressed page keeps the identity out of the raw bytes.
+    import zlib
+    stream = zlib.compress(('BT /F1 12 Tf 40 700 Td (' + fx.PLANTED_PERSON
+                            + ' compiled these public facts for a private review.) Tj ET').encode())
+    objects = [b'<< /Type /Catalog /Pages 2 0 R >>',
+               b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+               b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+               b'/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+               b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+               b'<< /Length ' + str(len(stream)).encode() + b' /Filter /FlateDecode >>\nstream\n'
+               + stream + b'\nendstream']
+    data, offsets = b'%PDF-1.4\n', [0]
+    for i, obj in enumerate(objects, 1):
+        offsets.append(len(data))
+        data += str(i).encode() + b' 0 obj\n' + obj + b'\nendobj\n'
+    xref = len(data)
+    data += b'xref\n0 6\n0000000000 65535 f \n'
+    data += b''.join(('%010d 00000 n \n' % n).encode() for n in offsets[1:])
+    data += b'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n' + str(xref).encode() + b'\n%%EOF\n'
+    assert fx.PLANTED_PERSON.encode() not in data
+    path.write_bytes(data)
+    problems = dataset.scan_people([path], [fx.PLANTED_PERSON], home.register)
+    assert any('a person' in problem for problem in problems)
+    assert fx.PLANTED_PERSON not in ' '.join(problems)
+
+
+def test_hardening_privacy_scan_refuses_unreadable_and_secret_files(home, tmp_path, monkeypatch):
+    path = tmp_path / 'facts.md'
+    path.write_text(_hardening_secret())
+    assert any('secret' in p for p in dataset.scan_people([path], [], home.register))
+    path.write_bytes(b'\x00\x01')
+    assert any('opaque' in p for p in dataset.scan_people([path], [], home.register))
+
+
+def test_hardening_price_diagnostic_withholds_secret_identifiers(home, facts, tmp_path, monkeypatch):
+    path = price.latest_snapshot(home, 'eu-de')
+    data = json.loads(path.read_text())
+    data['records'][0]['id'] = _hardening_secret()
+    path.write_text(json.dumps(data))
+    monkeypatch.setattr(price, 'fetch', lambda *a: SimpleNamespace(records=[]))
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert _hardening_secret() not in str(err.value)
+
+
+def test_hardening_zero_price_sample_cannot_bypass_validation(home, facts, tmp_path):
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY, sample=0)
+
+
+def test_hardening_command_failures_do_not_echo_positional_values(tmp_path, monkeypatch):
+    private = _hardening_secret()
+    monkeypatch.setattr(dataset.subprocess, 'run', lambda *a, **k: subprocess.CompletedProcess(a[0], 1))
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset._run(['git', 'show', private], cwd=tmp_path)
+    assert private not in str(err.value) and 'git show' in str(err.value)
+
+
+def test_hardening_command_os_errors_are_value_free(tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        raise PermissionError(_hardening_secret())
+    monkeypatch.setattr(dataset.subprocess, 'run', fail)
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset._run(['git', 'status'], cwd=tmp_path)
+    assert _hardening_secret() not in str(err.value) and str(tmp_path) not in str(err.value)
+
+
+def test_hardening_existing_tag_parser_blocks_project_escape(home, facts, tmp_path):
+    entry = home.kb / kb.ENTRIES / (facts.id + '.md')
+    entry.write_text(entry.read_text().replace('tags: ecs', 'tags: ../../../outside'))
+    with pytest.raises((kb.KBError, dataset.DatasetError)):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert not (tmp_path / 'outside.md').exists()
+
+
+def test_hardening_existing_export_withholds_secret_fact(home, facts, tmp_path):
+    entry = home.kb / kb.ENTRIES / (facts.id + '.md')
+    entry.write_text(entry.read_text() + '\n' + _hardening_secret() + '\n')
+    built = dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    rows = dataset.read_facts(built.folder / 'facts.jsonl')
+    assert facts.id not in {row['id'] for row in rows}
+    assert _hardening_secret() not in (built.folder / 'facts.jsonl').read_text()
+
+
+def test_hardening_service_catalog_links_and_malformed_rows_are_refused(home, facts, tmp_path, monkeypatch):
+    catalog = tmp_path / 'catalog.tsv'
+    original = dataset.offered.CATALOG
+    catalog.symlink_to(original)
+    monkeypatch.setattr(dataset.offered, 'CATALOG', catalog)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    catalog.unlink()
+    catalog.write_text(original.read_text() + '\ninvalid row\n')
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+
+
+def test_hardening_price_self_check_cannot_collide_with_real_price(home, facts, tmp_path, monkeypatch):
+    raw = dict(RAW, priceAmount='9.999999 EUR')
+    snapshot(home, 'eu-de', '2026-10-07', [raw])
+    monkeypatch.setattr(price, 'fetch', lambda *a: SimpleNamespace(records=[price.Record.from_raw(raw)]))
+    built = dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert 'live price check eu-de: 1 rows of 1 services match the API' in built.lines
+
+
+def test_hardening_export_and_levels_share_one_knowledge_snapshot(home, facts, tmp_path, monkeypatch):
+    real = kb.export
+    entry = home.kb / kb.ENTRIES / (facts.id + '.md')
+    def export_then_update(*args, **kwargs):
+        result = real(*args, **kwargs)
+        entry.write_text(entry.read_text() + '--- check\ntier: read\nneeds: none\n')
+        return result
+    monkeypatch.setattr(kb, 'export', export_then_update)
+    built = dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    row = next(row for row in dataset.read_facts(built.folder / 'facts.jsonl') if row['id'] == facts.id)
+    assert row['level'] == 'V3'
+
+
+def test_hardening_open_snapshot_remains_pinned_after_path_swap(home, facts, tmp_path, monkeypatch):
+    path = price.latest_snapshot(home, 'eu-de')
+    outside = tmp_path / 'external.json'
+    outside.write_text(_hardening_secret())
+    real, swapped = dataset.os.open, []
+    def swap(name, *args, **kwargs):
+        fd = real(name, *args, **kwargs)
+        if Path(name).name == path.name and not swapped:
+            path.unlink()
+            path.symlink_to(outside)
+            swapped.append(True)
+        return fd
+    monkeypatch.setattr(dataset.os, 'open', swap)
+    built = dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert swapped and built.facts == 3
+    assert outside.read_text() == _hardening_secret()
+
+
+def test_hardening_hardlinked_archive_is_replaced_without_changing_other_link(home, facts, tmp_path):
+    base = tmp_path / 'out'
+    base.mkdir()
+    outside = tmp_path / 'external.zip'
+    outside.write_bytes(b'keep these bytes')
+    dataset.os.link(outside, base / 'tcp-facts-2026-10-08.zip')
+    built = dataset.build(home, out=base, today=TODAY)
+    assert outside.read_bytes() == b'keep these bytes'
+    assert built.zip.read_bytes().startswith(b'PK')
+
+
+def test_hardening_missing_prices_do_not_count_as_a_live_match(home, facts, tmp_path, monkeypatch):
+    raw = {key: value for key, value in RAW.items() if key != 'priceAmount'}
+    snapshot(home, 'eu-de', '2026-10-07', [raw])
+    monkeypatch.setattr(price, 'fetch', lambda *a: SimpleNamespace(records=[price.Record.from_raw(raw)]))
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+
+
+def test_hardening_privacy_check_fails_closed_without_register_or_file(home, tmp_path):
+    path = tmp_path / 'facts.md'
+    path.write_text(fx.PERSON_FORMS[0])
+    home.register.unlink()
+    with pytest.raises(dataset.DatasetError):
+        dataset.scan_people([path], [], home.register)
+    path.unlink()
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.scan_people([path], [], None)
+    assert str(tmp_path) not in str(err.value)
+
+
+def test_hardening_download_instructions_quote_shell_metacharacters():
+    import shlex
+    identity = 'facts; printf planted'
+    signers = '$(printf planted)/allowed signers'
+    line = dataset.check_text({'identity': identity, 'signers': signers}).splitlines()[1]
+    assert shlex.quote(identity) in line and shlex.quote(signers) in line
+    args = shlex.split(line)
+    assert args[args.index('-I') + 1] == identity and args[args.index('-f') + 1] == signers
+
+
+def test_hardening_unreadable_snapshot_directory_cannot_skip_live_check(home, facts, tmp_path, monkeypatch):
+    folder = price.snapshot_dir(home) / 'eu-de'
+    def guard(real):
+        def checked(path):
+            name = dataset.os.readlink('/proc/self/fd/%d' % path) if isinstance(path, int) else str(path)
+            if Path(name) == folder:
+                raise PermissionError(_hardening_secret())
+            return real(path)
+        return checked
+    monkeypatch.setattr(dataset.os, 'scandir', guard(dataset.os.scandir))
+    monkeypatch.setattr(dataset.os, 'listdir', guard(dataset.os.listdir))
+    with pytest.raises(dataset.DatasetError) as err:
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert _hardening_secret() not in str(err.value)
+
+
+def test_hardening_empty_linked_snapshot_directory_is_refused(home, facts, tmp_path):
+    folder = price.snapshot_dir(home) / 'eu-de'
+    dataset.shutil.rmtree(folder)
+    outside = tmp_path / 'external-snapshots'
+    outside.mkdir()
+    folder.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(dataset.DatasetError):
+        dataset.build(home, out=tmp_path / 'out', today=TODAY)
+    assert list(outside.iterdir()) == []

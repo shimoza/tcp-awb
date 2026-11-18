@@ -71,20 +71,25 @@ no customer code, no snapshot of a tenant and no review is part of the dataset.
 from __future__ import annotations
 
 import collections
+import contextlib
 import datetime
+import fcntl
 import hashlib
 import json
 import random
 import re
 import os
+import shlex
 import shutil
 import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import zipfile
 import zlib
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 
 from awb import bucket, bucket_layout, config, gate, kb, kbreview, obs, offered, pdf, register
@@ -636,13 +641,23 @@ def price_check(kept: dict[str, list], *, sample: int, seed: str, fetch=None) ->
                     out.append("%s snapshot %s live %s" % (r.id, want, got_r.price("PAYG")))
             return out
 
-        planted = price.Record.from_raw(dict(picks[0].raw, priceAmount="9.999999 EUR"))
+        wrong = (picks[0].price("PAYG") or Decimal(0)) + 1
+        planted = price.Record.from_raw(dict(picks[0].raw, priceAmount="%s EUR" % wrong))
         if not mismatches([planted]):
             raise DatasetError("the live price check failed its own test; nothing was built")
+        if any(r.price("PAYG") is None for r in picks):
+            raise DatasetError("the live price check needs a readable snapshot price")
         bad = mismatches(picks)
         if bad:
+            detail = "; ".join(bad)
+            matcher = gate._load_matcher(config.paths().register)
+            found = gate._scan_bytes("dataset.txt", detail.encode(), matcher)
+            person = _person_re(person_values())
+            if (person and person.search(detail)) or any(f.cls in
+                    ("name", "secret", "private-key", "token", "homepath", "blocklist") for f in found):
+                detail = "%d rows differ (values withheld)" % len(bad)
             raise DatasetError("live price check of %s: %s; take a new price snapshot and build again"
-                               % (region, "; ".join(bad)))
+                               % (region, detail))
         lines.append("live price check %s: %d rows of %d services match the API" % (region, len(picks), len(by_service)))
     return lines
 
@@ -668,24 +683,215 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+INPUT_LIMIT = 32 * 1024 * 1024
+
+
+@contextlib.contextmanager
+def _directory(path: Path, *, create: bool = False, shared: bool = False):
+    """Pin every directory component without following links, including ancestors."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for index, part in enumerate(path.parts[1:], 1):
+            created = False
+            if create:
+                try:
+                    os.mkdir(part, 0o777, dir_fd=fd)
+                    created = True
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            try:
+                if shared and index == len(path.parts) - 1:
+                    info, parent = os.fstat(child), os.fstat(fd)
+                    if created or (info.st_uid == os.geteuid() and not info.st_mode & stat.S_ISGID):
+                        mode = (stat.S_ISGID | (parent.st_mode & 0o770)) if parent.st_mode & stat.S_ISGID else 0o2775
+                        os.fchmod(child, mode)
+            except BaseException:
+                os.close(child)
+                raise
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read_input(path: Path, *, optional: bool = False) -> bytes:
+    """A bounded regular-file snapshot; only absence is optional, never an unreadable file."""
+    try:
+        with _directory(path.parent) as parent:
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            with os.fdopen(fd, "rb") as stream:
+                return _read_stream(stream)
+    except FileNotFoundError:
+        if optional:
+            return b""
+        raise DatasetError("a required dataset input is missing") from None
+    except OSError:
+        raise DatasetError("a dataset input cannot be read safely") from None
+
+
+def _read_stream(stream) -> bytes:
+    info = os.fstat(stream.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_size > INPUT_LIMIT:
+        raise DatasetError("a dataset input is not a bounded regular file")
+    data = stream.read(INPUT_LIMIT + 1)
+    if len(data) > INPUT_LIMIT:
+        raise DatasetError("a dataset input is too large")
+    return data
+
+
+def _knowledge(p: config.Paths, today: datetime.date):
+    # Export and validation levels must see the same bytes, even during a KB update.
+    with tempfile.TemporaryDirectory(prefix="dataset-input-") as temp:
+        folder = Path(temp) / kb.ENTRIES
+        folder.mkdir()
+        try:
+            with _directory(kb.root(p) / kb.ENTRIES) as fd:
+                for name in sorted(os.listdir(fd)):
+                    if kb._FILE_RE.fullmatch(name):
+                        # The parent is our pinned descriptor, not an input symlink.
+                        entry = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+                        with os.fdopen(entry, "rb") as stream:
+                            data = _read_stream(stream)
+                        (folder / name).write_bytes(data)
+        except FileNotFoundError:
+            # Only an absent KB is empty, not an entry removed while it was being read.
+            if not (kb.root(p) / kb.ENTRIES).exists():
+                return [], {}, {}
+            raise DatasetError("the knowledge input is missing") from None
+        records, left = kb.export(Path(temp), today=today, include_expired=True)
+        return records, left, {e.id: e.block for e in kb.load(Path(temp))}
+
+
+def _recheck_dates(path: Path, columns: int) -> dict:
+    out: dict = {}
+    try:
+        for line in _read_input(path, optional=True).decode("utf-8").splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) != columns or not kb.ID_RE.fullmatch(parts[0]) or not kb._valid_date(parts[1]):
+                raise ValueError
+            if columns == 2:
+                out[parts[0]] = max(out.get(parts[0], ""), parts[1])
+            else:
+                out.setdefault(parts[0], []).append(parts[1])
+    except (ValueError, UnicodeError):
+        raise DatasetError("a recheck input is malformed") from None
+    return out
+
+
+def _catalog() -> offered.Catalog:
+    """Read the service tables with the same file boundary as the other build inputs."""
+    revision, services, rows = "", [], []
+    for line in _read_input(offered.CATALOG).decode("utf-8").splitlines():
+        if line.startswith("#"):
+            match = re.search(r"revision (\d{4}-\d{2}-\d{2})", line)
+            revision = match.group(1) if match else revision
+        elif line.strip():
+            fields = line.split("\t")
+            if len(fields) > 7:
+                raise DatasetError("the service catalog is malformed")
+            number, name, area, status, aliases, ends, end_kind = (fields + [""] * 7)[:7]
+            if (not re.fullmatch(r"\d+(?:\.\d+)*", number) or not name or not area
+                    or status not in ("offered", "optional", "preview") or (ends and not kb._valid_date(ends))):
+                raise DatasetError("the service catalog is malformed")
+            services.append(offered.Service(number, name, area, status,
+                                            [a.strip() for a in aliases.split("|") if a.strip()], ends, end_kind))
+    for line in _read_input(offered.NOT_OFFERED, optional=True).decode("utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            row = [f.strip() for f in line.split("|") if f.strip()]
+            if not row:
+                raise DatasetError("the service exclusions are malformed")
+            rows.append(row)
+    if not services or (revision and not kb._valid_date(revision)):
+        raise DatasetError("the service catalog is malformed")
+    return offered.Catalog(revision, services, rows)
+
+
+def _snapshot(p: config.Paths, region: str) -> bytes | None:
+    # glob() suppresses permission errors, making an unreadable price directory
+    # look like a region with no snapshot and silently skipping its live check.
+    with contextlib.ExitStack() as stack:
+        try:
+            fd = stack.enter_context(_directory(price.snapshot_dir(p) / region))
+        except FileNotFoundError:
+            return None
+        names = sorted(n for n in os.listdir(fd) if re.fullmatch(r"....-..-..\.json", n))
+        if not names:
+            return None
+        file = os.open(names[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        with os.fdopen(file, "rb") as stream:
+            return _read_stream(stream)
+
+
 def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | None = None,
           force: bool = False, live: bool = True, sample: int = 3) -> Built:
-    """The folder tcp-facts-<date>/ and the zip beside it. Refused without facts, over an existing folder
-    unless `force`, and when a tenant alias is left in any file."""
+    """Serialize builds and publish only complete, checked artifacts from a private staging folder."""
     _prove_rewrite()
+    base = out if out is not None else datasets_dir(p)
+    try:
+        with _directory(base, create=True, shared=out is None) as fd:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise DatasetError("another dataset build is running") from None
+            pinned = Path("/proc/self/fd") / str(fd)
+            day = (today or datetime.date.today()).isoformat()
+            name = "%s-%s" % (SLUG, day)
+            names = [name, name + ".zip", name + ".mcpb"]
+            for i, item in enumerate(names):
+                try:
+                    mode = os.stat(item, dir_fd=fd, follow_symlinks=False).st_mode
+                except FileNotFoundError:
+                    continue
+                if not (stat.S_ISDIR(mode) if i == 0 else stat.S_ISREG(mode)):
+                    raise DatasetError("a dataset destination is not a plain file or folder")
+                if i == 0 and not force:
+                    raise DatasetError("the folder of %s exists; give --force to build it again" % day)
+            with tempfile.TemporaryDirectory(prefix=".dataset-", dir=pinned) as temp:
+                stage = Path(temp)
+                built = _build(p, out=stage, today=today, live=live, sample=sample)
+                moved, saved = [], []
+                try:
+                    for item in names:
+                        if (pinned / item).exists():
+                            os.replace(pinned / item, stage / (item + ".old"))
+                            saved.append(item)
+                        os.replace(stage / item, pinned / item)
+                        moved.append(item)
+                except OSError:
+                    for item in reversed(moved):
+                        os.replace(pinned / item, stage / item)
+                    for item in reversed(saved):
+                        os.replace(stage / (item + ".old"), pinned / item)
+                    raise
+                built.folder, built.zip = base / name, base / (name + ".zip")
+                return built
+    except DatasetError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, OverflowError, kb.KBError,
+            price.PriceError, register.RegisterError, gate.GateError) as err:
+        raise DatasetError("the dataset build failed (%s); no replacement was published" % type(err).__name__) from None
+
+
+def _build(p: config.Paths, *, out: Path, today: datetime.date | None = None,
+           live: bool = True, sample: int = 3) -> Built:
+    """Prepare all release artifacts inside the private staging directory."""
     today = today or datetime.date.today()
     day = today.isoformat()
     best_before = (today + datetime.timedelta(days=BEST_BEFORE_DAYS)).isoformat()
     # task KS: a fact leaves only when something invalidates it, never for its date. An expired fact stays with
     # recheck_due; retired (and so superseded) facts never come out of the export, a refuted one is left out here
     # and one that names a service the service description no longer offers by facts_check below.
-    records, left = kb.export(p, today=today, include_expired=True)
-    refutes = recheck.refuted()
-    try:
-        asked = recheck.requested_dates()
-    except Exception:                                   # noqa: BLE001 - no request file: no request
-        asked = {}
-    blocks = {e.id: e.block for e in kb.load(p)}
+    if type(sample) is not int or sample < 1:
+        raise DatasetError("the live price sample must be a positive integer")
+    catalog = _catalog()
+    records, left, blocks = _knowledge(p, today)
+    refutes = _recheck_dates(p.shared.joinpath(*recheck.REFUTED_TSV), 2)
+    asked = _recheck_dates(p.shared.joinpath(*recheck.REQUESTED_TSV), 3)
     left["contradicted by a recheck"] = 0
     kept = []
     for r in records:
@@ -700,7 +906,6 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     records = kept
     if not records:
         raise DatasetError("no fact fit to leave: nothing to build")
-    catalog = offered.load()
     _prove_facts_check(catalog, day)
     _prove_price_filter(catalog, day)
     records, flagged = facts_check(records, catalog, day)
@@ -722,20 +927,23 @@ def build(p: config.Paths, *, out: Path | None = None, today: datetime.date | No
     revision = offered.revision_label(catalog) or "unknown"
     snapshots: dict[str, tuple[dict, list[price.Record]]] = {}
     for region in REGIONS:
-        path = price.latest_snapshot(p, region)
-        if path is not None:
-            snapshots[region] = price.load_snapshot(path)
+        raw = _snapshot(p, region)
+        if raw is not None:
+            data = json.loads(raw)
+            if not isinstance(data, dict) or not isinstance(data.get("records"), list) or not data["records"]:
+                raise DatasetError("a price snapshot is malformed")
+            if any(not isinstance(r, dict) or any(not isinstance(v, (str, int, float, type(None)))
+                                                for v in r.values()) for r in data["records"]):
+                raise DatasetError("a price snapshot row is malformed")
+            snapshots[region] = ({k: v for k, v in data.items() if k != "records"},
+                                 [price.Record.from_raw(r) for r in data["records"]])
     fetched = ""
     for meta, _ in snapshots.values():
         fetched = max(fetched, str(meta.get("fetched_at") or ""))
     counts = {r: len(recs) for r, (_, recs) in snapshots.items()}
 
-    base = out or config.make_dir(datasets_dir(p), 0o2775, shared=True)
+    base = out
     root = base / ("%s-%s" % (SLUG, day))
-    if root.exists():
-        if not force:
-            raise DatasetError("the folder of %s exists; give --force to build it again" % day)
-        shutil.rmtree(root)
     (root / "topics").mkdir(parents=True)
     try:
         return _write(root, p, day, best_before, fetched, records, flagged, left, grades, bytag, tags, catalog, revision,
@@ -805,14 +1013,14 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                                           ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
         + cover + levels + recheck_due_blocks(records) + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]), encoding="utf-8")
 
-    shutil.copyfile(MCP_TEMPLATE, root / MCP_FILE)
+    (root / MCP_FILE).write_bytes(_read_input(MCP_TEMPLATE))
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix in (".md", ".jsonl", ".csv", ".py"):
             text = path.read_text(encoding="utf-8")
             if _LEFT_RE.search(text):
-                raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
+                raise DatasetError("a tenant alias was left in a dataset file; the folder was removed")
             if _TOOL_LEFT_RE.search(text):
-                raise DatasetError("a name of the tooling was left in %s; the folder was removed" % path.name)
+                raise DatasetError("a name of the tooling was left in a dataset file; the folder was removed")
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
     manifest = {"dataset": NAME, "date": day, "built_at": built_at, "best_before": best_before, "facts": len(records),
@@ -822,6 +1030,13 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                                 "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "compiled_by": COMPILED_BY,
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
     (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+
+    # The PDF is generated from the same blocks as PROMPT.md, with fixed public metadata.
+    # Screen those source texts instead of depending on an external PDF extractor during a build.
+    problems = scan_people([x for x in files if x.name != "HOW-TO.pdf"] + [root / "MANIFEST.json"],
+                           person_values(), p.register)
+    if problems:
+        raise DatasetError("refused, nothing was built: " + "; ".join(problems))
 
     zpath = root.parent / (root.name + ".zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
@@ -952,7 +1167,7 @@ def sign_settings() -> dict[str, str] | None:
 def check_text(sign: dict[str, str]) -> str:
     """The block "check a download": the sums, then the signature of the sums file."""
     return ("sha256sum -c %s\nssh-keygen -Y verify -f %s -I %s -n file -s %s.sig < %s"
-            % (SUMS_FILE, sign["signers"], sign["identity"], SUMS_FILE, SUMS_FILE))
+            % (SUMS_FILE, shlex.quote(sign["signers"]), shlex.quote(sign["identity"]), SUMS_FILE, SUMS_FILE))
 
 
 def check_blocks(sign: dict[str, str] | None) -> list[tuple[str, str]]:
@@ -1012,17 +1227,25 @@ def check_clone(clone: Path) -> None:
 def _run(args: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
     """One git or gh call. A failure names the command and its exit code, never its output."""
     shown = args[3:] if args[1:2] == ["-c"] else args[1:]          # the safe.directory setting names a path
+    command = shown[0] if shown and shown[0] in {
+        "tag", "show", "status", "config", "fetch", "push", "pull", "add", "diff", "commit", "checkout",
+        "clean", "ls-files", "ls-remote", "rev-parse", "symbolic-ref", "rm", "api", "repo", "release"} else "command"
+    if command == "tag" and shown[1:2] == ["--list"]:
+        command += " --list"
+    program = args[0] if args[0] in ("git", "gh", "ssh-keygen") else "program"
     try:
         # umask 022: what git writes into the clone stays writable by the owner alone (check_clone), whatever the
         # owner's own umask
         res = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT, umask=0o022,
                              env=_git_env() if args[0] in ("git", "gh") else None)
     except FileNotFoundError:
-        raise DatasetError("%s is not installed" % args[0]) from None
+        raise DatasetError("%s is not installed" % program) from None
     except subprocess.TimeoutExpired:
-        raise DatasetError("%s %s took longer than %d seconds" % (args[0], shown[0], GIT_TIMEOUT)) from None
+        raise DatasetError("%s %s took longer than %d seconds" % (program, command, GIT_TIMEOUT)) from None
+    except (OSError, UnicodeError):
+        raise DatasetError("%s %s could not run" % (program, command)) from None
     if check and res.returncode != 0:
-        raise DatasetError("%s %s failed (exit %d)" % (args[0], " ".join(shown[:2]), res.returncode))
+        raise DatasetError("%s %s failed (exit %d)" % (program, command, res.returncode))
     return res
 
 
@@ -1060,15 +1283,29 @@ def scan_people(files: list[Path], values: list[str], register_path: Path | None
     rx = _person_re(values)
     problems = []
     for f in files:
-        if rx is not None and rx.search(f.read_bytes().decode("utf-8", "replace")):
-            problems.append("%s: a person (commit identity or an old author setting)" % f.name)
+        try:
+            data = f.read_bytes()
+        except OSError:
+            raise DatasetError("a dataset file cannot be read for the privacy check") from None
+        text = data.decode("utf-8", "replace")
+        if data.startswith(b"%PDF-"):
+            text += "\n" + (gate.pdf_text(data) or "")
+        if rx is not None and rx.search(text):
+            problems.append("%s: a person (commit identity or an old author setting)" % _public_label(f))
     try:
+        if register_path is not None:
+            kb._require_register(register_path)
         findings = gate.scan_files(files, register_path)
-    except register.RegisterError as err:   # check.CheckUnavailable included
+    except (register.RegisterError, kb.KBError) as err:   # check.CheckUnavailable included
         raise DatasetError("the name check cannot run (%s); nothing was published" % type(err).__name__) from None
-    problems += sorted({"%s: %s" % (Path(f.file).name, f.cls) for f in findings if f.cls in ("name", "blocklist",
-                                                                                          "homepath")})
+    problems += sorted({"%s: %s" % (_public_label(Path(f.file)), f.cls) for f in findings if f.cls in
+                        ("name", "blocklist", "homepath", "secret", "private-key", "token", "opaque")})
     return problems
+
+
+def _public_label(path: Path) -> str:
+    return path.name if path.name in ("README.md", "PROMPT.md", "facts.md", "facts.jsonl", "services.md",
+                                      "MANIFEST.json", "HOW-TO.pdf", MCP_FILE) else "dataset file"
 
 
 def release_notes(manifest: dict, sums: dict[str, str] | None = None, new: str = "",

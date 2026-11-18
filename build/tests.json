@@ -24079,8 +24079,267 @@
    "name": "pdf: convert io errors are value free",
    "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_convert_io_errors_are_value_free",
    "status": "passing"
+  },
+  {
+   "id": "DATASET-H01",
+   "phase": "T",
+   "name": "dataset: linked archive destinations leave external files intact",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_linked_archive_destinations_leave_external_files_intact",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H02",
+   "phase": "T",
+   "name": "dataset: linked output ancestors are refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_linked_output_ancestors_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H03",
+   "phase": "T",
+   "name": "dataset: linked build folder is refused without removing target",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_linked_build_folder_is_refused_without_removing_target",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H04",
+   "phase": "T",
+   "name": "dataset: dangling archive link is refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_dangling_archive_link_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H05",
+   "phase": "T",
+   "name": "dataset: failed forced build preserves all previous bytes",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_failed_forced_build_preserves_all_previous_bytes",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H06",
+   "phase": "T",
+   "name": "dataset: failed first build leaves no release assets",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_failed_first_build_leaves_no_release_assets",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H07",
+   "phase": "T",
+   "name": "dataset: concurrent build cannot delete active staging",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_concurrent_build_cannot_delete_active_staging",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H08",
+   "phase": "T",
+   "name": "dataset: failed publication rolls back previous artifacts",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_failed_publication_rolls_back_previous_artifacts",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H09",
+   "phase": "T",
+   "name": "dataset: knowledge links are refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_knowledge_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H10",
+   "phase": "T",
+   "name": "dataset: template requires readable regular file",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_template_requires_readable_regular_file",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H11",
+   "phase": "T",
+   "name": "dataset: template read error hides path and value",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_template_read_error_hides_path_and_value",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H12",
+   "phase": "T",
+   "name": "dataset: snapshot links are refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_snapshot_links_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H13",
+   "phase": "T",
+   "name": "dataset: malformed snapshot shapes fail closed",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_malformed_snapshot_shapes_fail_closed",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H14",
+   "phase": "T",
+   "name": "dataset: oversized input is rejected before parsing",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_oversized_input_is_rejected_before_parsing",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H15",
+   "phase": "T",
+   "name": "dataset: recheck corruption does not restore refuted facts",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_recheck_corruption_does_not_restore_refuted_facts",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H16",
+   "phase": "T",
+   "name": "dataset: recheck links and unreadable files fail closed",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_recheck_links_and_unreadable_files_fail_closed",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H17",
+   "phase": "T",
+   "name": "dataset: registered name in tag is not published or echoed",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_registered_name_in_tag_is_not_published_or_echoed",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H18",
+   "phase": "T",
+   "name": "dataset: generated template is screened for secrets",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_generated_template_is_screened_for_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H19",
+   "phase": "T",
+   "name": "dataset: generated service text is screened for names",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_generated_service_text_is_screened_for_names",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H20",
+   "phase": "T",
+   "name": "dataset: person in pdf text is detected",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_person_in_pdf_text_is_detected",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H21",
+   "phase": "T",
+   "name": "dataset: privacy scan refuses unreadable and secret files",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_privacy_scan_refuses_unreadable_and_secret_files",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H22",
+   "phase": "T",
+   "name": "dataset: price diagnostic withholds secret identifiers",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_price_diagnostic_withholds_secret_identifiers",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H23",
+   "phase": "T",
+   "name": "dataset: zero price sample cannot bypass validation",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_zero_price_sample_cannot_bypass_validation",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H24",
+   "phase": "T",
+   "name": "dataset: command failures do not echo positional values",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_command_failures_do_not_echo_positional_values",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H25",
+   "phase": "T",
+   "name": "dataset: command os errors are value free",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_command_os_errors_are_value_free",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H26",
+   "phase": "T",
+   "name": "dataset: existing tag parser blocks project escape",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_existing_tag_parser_blocks_project_escape",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H27",
+   "phase": "T",
+   "name": "dataset: existing export withholds secret fact",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_existing_export_withholds_secret_fact",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H28",
+   "phase": "T",
+   "name": "dataset: service catalog links and malformed rows are refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_service_catalog_links_and_malformed_rows_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H29",
+   "phase": "T",
+   "name": "dataset: price self check cannot collide with real price",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_price_self_check_cannot_collide_with_real_price",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H30",
+   "phase": "T",
+   "name": "dataset: export and levels share one knowledge snapshot",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_export_and_levels_share_one_knowledge_snapshot",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H31",
+   "phase": "T",
+   "name": "dataset: open snapshot remains pinned after path swap",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_open_snapshot_remains_pinned_after_path_swap",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H32",
+   "phase": "T",
+   "name": "dataset: hardlinked archive is replaced without changing other link",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_hardlinked_archive_is_replaced_without_changing_other_link",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H33",
+   "phase": "T",
+   "name": "dataset: missing prices do not count as a live match",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_missing_prices_do_not_count_as_a_live_match",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H34",
+   "phase": "T",
+   "name": "dataset: privacy check fails closed without register or file",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_privacy_check_fails_closed_without_register_or_file",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H35",
+   "phase": "T",
+   "name": "dataset: download instructions quote shell metacharacters",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_download_instructions_quote_shell_metacharacters",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H36",
+   "phase": "T",
+   "name": "dataset: unreadable snapshot directory cannot skip live check",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_unreadable_snapshot_directory_cannot_skip_live_check",
+   "status": "passing"
+  },
+  {
+   "id": "DATASET-H37",
+   "phase": "T",
+   "name": "dataset: empty linked snapshot directory is refused",
+   "run": ".venv/bin/pytest tests/test_dataset.py::test_hardening_empty_linked_snapshot_directory_is_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 3440,
+ "total_tests": 3477,
  "checked": "2026-11-18"
 }
