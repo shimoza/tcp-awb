@@ -1061,3 +1061,479 @@ def test_ods_text_boxes_on_a_sheet_reach_text(tmp_path):
     assert "## plan" in lines
     assert "kasten %s" % CUSTOMER_SHORT in lines
     assert "| zelle |" in lines
+
+
+# --------------------------------------------------------------------------- hardening (2026-11-17)
+
+
+def _oh_document(path: Path, parts=None, body="safe body") -> Path:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("word/document.xml", '<document><body><p><r><t>%s</t></r></p></body></document>' % body)
+        for name, data in (parts or {}).items():
+            zf.writestr(name, data)
+    return path
+
+
+def _oh_private_value() -> str:
+    return "pass" + "word" + "=fixture-only-" + "7391"
+
+
+def _oh_failed(ex):
+    assert ex.state == "failed"
+    assert not ex.text and not ex.detect_text and not ex.scan_text and not ex.children
+    assert _oh_private_value() not in "\n".join(ex.notes)
+    assert_clean_notes(ex)
+
+
+def test_oh_source_symlink_is_refused(tmp_path):
+    source = _oh_document(tmp_path / "source.docx", body=PERSON)
+    link = tmp_path / "link.docx"
+    link.symlink_to(source)
+    _oh_failed(office.extract_office(link, "docx"))
+
+
+def test_oh_linked_parent_is_refused(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _oh_document(source / "a.docx", body=PERSON)
+    link = tmp_path / "link"
+    link.symlink_to(source, target_is_directory=True)
+    _oh_failed(office.extract_office(link / "a.docx", "docx"))
+
+
+def test_oh_missing_file_has_value_free_failure(tmp_path):
+    _oh_failed(office.extract_office(tmp_path / (_oh_private_value() + PERSON + ".docx"), "docx"))
+
+
+def test_oh_unreadable_file_has_value_free_failure(tmp_path, monkeypatch):
+    import io
+    import os
+
+    path = _oh_document(tmp_path / "a.docx")
+    original_open, original_io_open = os.open, io.open
+
+    def deny_open(name, *args, **kwargs):
+        if str(name) in (str(path), path.name):
+            raise PermissionError(_oh_private_value() + PERSON)
+        return original_open(name, *args, **kwargs)
+
+    def deny_io_open(name, *args, **kwargs):
+        if name == path:
+            raise PermissionError(_oh_private_value() + PERSON)
+        return original_io_open(name, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", deny_open)
+    monkeypatch.setattr(io, "open", deny_io_open)
+    _oh_failed(office.extract_office(path, "docx"))
+
+
+def test_oh_special_source_never_reaches_zip_reader(tmp_path, monkeypatch):
+    import os
+
+    fifo = tmp_path / "pipe.docx"
+    os.mkfifo(fifo)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("non-regular input reached the zip reader")
+
+    monkeypatch.setattr(office.zipfile, "ZipFile", unexpected)
+    _oh_failed(office.extract_office(fifo, "docx"))
+    _oh_failed(office.extract_office(tmp_path, "docx"))
+
+
+def test_oh_source_is_pinned_before_zip_read(tmp_path, monkeypatch):
+    path = _oh_document(tmp_path / "a.docx")
+    outside = _oh_document(tmp_path / "outside.docx", body=PERSON)
+    original = zipfile.ZipFile
+
+    def swap(source, *args, **kwargs):
+        path.unlink()
+        path.symlink_to(outside)
+        return original(source, *args, **kwargs)
+
+    monkeypatch.setattr(office.zipfile, "ZipFile", swap)
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.text == "safe body"
+    assert PERSON not in ex.detect_text + ex.scan_text
+
+
+def test_oh_encrypted_xml_is_incomplete_without_losing_body(tmp_path, monkeypatch):
+    path = _oh_document(tmp_path / "a.docx", {"docProps/core.xml": "<properties/>"})
+    original = zipfile.ZipFile.open
+
+    def encrypted(self, name, *args, **kwargs):
+        if getattr(name, "filename", name) == "docProps/core.xml":
+            raise RuntimeError(_oh_private_value() + PERSON)
+        return original(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", encrypted)
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.text == "safe body"
+    assert ex.meta.get("incomplete")
+    assert _oh_private_value() not in "\n".join(ex.notes)
+    assert_clean_notes(ex)
+
+
+def test_oh_bad_compressed_part_is_incomplete(tmp_path, monkeypatch):
+    import zlib
+
+    path = _oh_document(tmp_path / "a.docx", {"opaque.bin": b"data"})
+    original = zipfile.ZipFile.open
+
+    def broken(self, name, *args, **kwargs):
+        if getattr(name, "filename", name) == "opaque.bin":
+            raise zlib.error(_oh_private_value() + PERSON)
+        return original(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", broken)
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.text == "safe body"
+    assert ex.meta.get("incomplete")
+    assert _oh_private_value() not in "\n".join(ex.notes)
+    assert_clean_notes(ex)
+
+
+def test_oh_deep_xml_is_refused_before_recursive_walk(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "MAX_XML_DEPTH", 16, raising=False)
+    body = "</t></r></p>" + "<wrapper>" * 20 + "<p><r><t>deep</t></r></p>" + "</wrapper>" * 20 + "<p><r><t>"
+    _oh_failed(office.extract_office(_oh_document(tmp_path / "a.docx", body=body), "docx"))
+
+
+def test_oh_entity_declarations_are_refused(tmp_path):
+    path = tmp_path / "a.docx"
+    xml = '<!DOCTYPE document [<!ENTITY value "expanded">]><document><body><p><r><t>&value;</t></r></p></body></document>'
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("word/document.xml", xml.encode("utf-16"))
+    _oh_failed(office.extract_office(path, "docx"))
+
+
+def test_oh_raw_xml_uses_the_same_parser_limits(tmp_path):
+    xml = '<!DOCTYPE root [<!ENTITY value "expanded">]><root>&value;</root>'
+    path = _oh_document(tmp_path / "a.docx", {"custom/extra.xml": xml})
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.meta.get("incomplete")
+    assert xml in ex.scan_text
+
+
+def test_oh_odf_spaces_cannot_expand_without_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "_MAX_REPEAT", 16)
+    path = _odf_with(tmp_path / "a.odt", "odt", '<text:p>before<text:s text:c="1000"/>after</text:p>')
+    _oh_failed(office.extract_office(path, "odt"))
+
+
+def test_oh_odf_repetition_cannot_silently_shift_hidden_columns(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "_MAX_REPEAT", 16)
+    body = ('<table:table><table:table-column table:number-columns-repeated="20" table:visibility="collapse"/>'
+            '<table:table-row><table:table-cell table:number-columns-repeated="10"/>'
+            '<table:table-cell table:number-columns-repeated="9"/><table:table-cell><text:p>%s</text:p>'
+            '</table:table-cell></table:table-row></table:table>' % PERSON)
+    _oh_failed(office.extract_office(_odf_with(tmp_path / "a.ods", "ods", body), "ods"))
+
+
+def test_oh_malformed_raw_xml_preserves_attribute_names_for_detection(tmp_path):
+    xml = '<root private="%s" secret="%s"><broken' % (PERSON, _oh_private_value())
+    ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"custom/extra.xml": xml}), "docx")
+    assert ex.meta.get("incomplete")
+    assert PERSON in ex.scan_text and _oh_private_value() in ex.scan_text
+    assert PERSON not in ex.text and _oh_private_value() not in ex.text
+    assert_clean_notes(ex)
+
+
+def test_oh_last_raw_part_budget_truncation_is_incomplete(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "MAX_RAW_TOTAL", 8)
+    path = tmp_path / "a.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("extra.txt", "a" * 20)
+    ex = Extraction(path, "docx", "ok")
+    with zipfile.ZipFile(path) as zf:
+        scan, _ = office._raw_parts(zf, ex, 0, set())
+    assert ex.meta.get("incomplete")
+    assert len("".join(scan)) <= 8
+
+
+def test_oh_negative_shared_string_index_is_not_a_valid_cell(tmp_path):
+    sst = '<sst xmlns="%s"><si><t>%s</t></si></sst>' % (X_NS, PERSON)
+    path = _xlsx_with_cells(tmp_path, '<c r="A1" t="s"><v>-1</v></c>', {"xl/sharedStrings.xml": sst})
+    ex = office.extract_office(path, "xlsx")
+    assert ex.meta.get("incomplete")
+    assert PERSON not in ex.text
+    assert PERSON in ex.scan_text
+
+
+def test_oh_wide_hidden_column_range_never_reaches_visible_text(tmp_path):
+    secret = _oh_private_value()
+    path = _xlsx_with_cells(tmp_path, '<c r="BXX1" t="inlineStr"><is><t>%s %s</t></is></c>' % (PERSON, secret))
+    _rewrite(path, edit=lambda name, data: data.replace(b"<sheetData>", b'<cols><col min="1" max="16384" hidden="1"/></cols><sheetData>')
+             if name == "xl/worksheets/sheet1.xml" else data)
+    ex = office.extract_office(path, "xlsx")
+    assert PERSON not in ex.text and secret not in ex.text
+    assert PERSON in ex.detect_text and secret in ex.detect_text
+
+
+def test_oh_missing_relationship_target_marks_document_incomplete(tmp_path):
+    rels = '<Relationships><Relationship Id="h" Type="%sheader" Target="absent.xml"/></Relationships>' % REL_T
+    ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"word/_rels/document.xml.rels": rels}), "docx")
+    assert ex.state == "ok" and ex.text == "safe body" and ex.meta.get("incomplete")
+
+
+def test_oh_missing_sheet_relationship_marks_workbook_incomplete(tmp_path):
+    path = _xlsx_with_cells(tmp_path, '<c r="A1"><v>7</v></c>')
+    _rewrite(path, drop=("xl/_rels/workbook.xml.rels",))
+    ex = office.extract_office(path, "xlsx")
+    assert ex.meta.get("incomplete")
+    assert "7" in ex.detect_text
+
+
+def test_oh_missing_slide_relationship_marks_presentation_incomplete(tmp_path):
+    path = make_pptx(tmp_path / "a.pptx")
+    _rewrite(path, drop=("ppt/_rels/presentation.xml.rels",))
+    ex = office.extract_office(path, "pptx")
+    assert ex.text and ex.meta.get("incomplete")
+
+
+def test_oh_long_numeric_part_name_does_not_crash_sorting(tmp_path):
+    name = "word/header" + "9" * 5000 + ".xml"
+    rels = '<Relationships><Relationship Id="h" Type="%sheader" Target="%s"/></Relationships>' % (REL_T, name[5:])
+    path = _oh_document(tmp_path / "a.docx", {name: "<hdr><p><r><t>header text</t></r></p></hdr>",
+                                            "word/_rels/document.xml.rels": rels})
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.text == "safe body" and "header text" in ex.detect_text
+
+
+def test_oh_invalid_numeric_properties_do_not_discard_body(tmp_path):
+    path = _oh_document(tmp_path / "a.docx", {"docProps/app.xml": "<Properties><Pages>²</Pages></Properties>"})
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.text == "safe body"
+    assert ex.meta.get("incomplete") and "page_count" not in ex.meta
+
+
+def test_oh_alt_chunks_share_the_container_byte_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "MAX_TOTAL_BYTES", 10)
+    path = tmp_path / "a.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        for i in range(3):
+            zf.writestr("chunk%d.txt" % i, "body %d" % i)
+    ex = Extraction(path, "docx", "ok")
+    with zipfile.ZipFile(path) as zf:
+        parts = office._Parts(zf, ex)
+        parts.child_parts = zf.namelist()
+        office._alt_chunks(parts, ex, 0)
+    assert len(ex.children) == 1
+    assert ex.meta.get("incomplete")
+
+
+def test_oh_child_write_failure_is_private_and_cleans_temp(tmp_path, monkeypatch):
+    import os
+
+    work = tmp_path / "scratch"
+    work.mkdir(mode=0o700)
+    monkeypatch.setattr(office, "make_temp_dir", lambda prefix: work)
+    original = os.open
+
+    def fail_write(name, flags, *args, **kwargs):
+        if flags & os.O_WRONLY:
+            raise OSError(_oh_private_value() + PERSON)
+        return original(name, flags, *args, **kwargs)
+
+    path = _docx_with(tmp_path, '<w:altChunk xmlns:r="%s" r:id="chunk"/>' % R_NS,
+                      {"word/chunk.txt": "child"}, rels=[("chunk", "aFChunk", "chunk.txt")])
+    monkeypatch.setattr(os, "open", fail_write)
+    _oh_failed(office.extract_office(path, "docx"))
+    assert not work.exists()
+
+
+def test_oh_children_use_private_files_and_clean_them(tmp_path, monkeypatch):
+    import stat
+    import awb.extract as readers
+
+    path = _docx_with(tmp_path, '<w:altChunk xmlns:r="%s" r:id="chunk"/>' % R_NS,
+                      {"word/chunk.txt": "child"}, rels=[("chunk", "aFChunk", "chunk.txt")])
+    original = readers.extract
+    seen = []
+
+    def inspect(path, depth=0):
+        seen.append(path)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+        return original(path, depth)
+
+    monkeypatch.setattr(readers, "extract", inspect)
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.children[0].text == "child"
+    assert seen and all(not path.parent.exists() for path in seen)
+
+
+def test_oh_member_paths_cannot_escape_scratch(tmp_path):
+    work = tmp_path / "scratch"
+    work.mkdir(mode=0o700)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("unchanged")
+    for name in ("../outside.txt", str(outside), "..\\outside.txt"):
+        child = office._child_of(b"child", name, len(list(work.iterdir())), 0, work, "bin")
+        assert child.text == "child" and child.path.parent == work
+    assert outside.read_text() == "unchanged"
+
+
+def test_oh_concurrent_extractions_do_not_share_child_storage(tmp_path, monkeypatch):
+    import concurrent.futures
+    import threading
+    import awb.extract as readers
+
+    path = _docx_with(tmp_path, '<w:altChunk xmlns:r="%s" r:id="chunk"/>' % R_NS,
+                      {"word/chunk.txt": "child"}, rels=[("chunk", "aFChunk", "chunk.txt")])
+    original = readers.extract
+    barrier = threading.Barrier(2)
+    seen = []
+
+    def inspect(path, depth=0):
+        seen.append(path)
+        barrier.wait(timeout=10)
+        return original(path, depth)
+
+    monkeypatch.setattr(readers, "extract", inspect)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(office.extract_office, path, "docx") for _ in range(2)]
+        results = [future.result(timeout=20) for future in futures]
+    assert all(ex.state == "ok" and ex.children[0].text == "child" for ex in results)
+    assert len({path.parent for path in seen}) == 2
+    assert all(not path.parent.exists() for path in seen)
+
+
+def test_oh_regular_source_outside_project_is_supported(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    path = _oh_document(tmp_path / "outside.docx")
+    monkeypatch.chdir(project)
+    ex = office.extract_office(path, "docx")
+    assert ex.state == "ok" and ex.text == "safe body"
+    assert path.is_file()
+
+
+def test_oh_child_depth_limit_is_incomplete_without_reading(tmp_path, monkeypatch):
+    path = _docx_with(tmp_path, '<w:altChunk xmlns:r="%s" r:id="chunk"/>' % R_NS,
+                      {"word/chunk.txt": "child"}, rels=[("chunk", "aFChunk", "chunk.txt")])
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("depth limit allowed child extraction")
+
+    monkeypatch.setattr(office, "_child_of", unexpected)
+    ex = office.extract_office(path, "docx", office.MAX_ARCHIVE_DEPTH)
+    assert ex.meta.get("incomplete") and not ex.children
+
+
+def test_oh_existing_child_is_never_overwritten(tmp_path):
+    destination = tmp_path / "0000.txt"
+    destination.write_text("unchanged")
+    with pytest.raises(FileExistsError):
+        office._child_of(b"replacement", "member.txt", 0, 0, tmp_path, "bin")
+    assert destination.read_text() == "unchanged"
+
+
+def test_oh_sparse_table_padding_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "MAX_TABLE_CELLS", 32, raising=False)
+    cells = '<c r="Z1" t="inlineStr"><is><t>wide</t></is></c>'
+    path = _xlsx_with_cells(tmp_path, cells)
+    _rewrite(path, edit=lambda name, data: data.replace(b"</sheetData>", b'<row r="2"><c r="A2"><v>1</v></c></row></sheetData>')
+             if name == "xl/worksheets/sheet1.xml" else data)
+    _oh_failed(office.extract_office(path, "xlsx"))
+
+
+def test_oh_shared_strings_cannot_amplify_table_output_without_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "MAX_TABLE_CHARS", 100, raising=False)
+    sst = '<sst xmlns="%s"><si><t>%s</t></si></sst>' % (X_NS, "x" * 40)
+    cells = ''.join('<c r="%s1" t="s"><v>0</v></c>' % col for col in "ABC")
+    path = _xlsx_with_cells(tmp_path, cells, {"xl/sharedStrings.xml": sst})
+    _oh_failed(office.extract_office(path, "xlsx"))
+
+
+def test_oh_external_main_relationship_is_never_rendered(tmp_path):
+    rels = ('<Relationships><Relationship Id="main" Type="%sofficeDocument" Target="other.xml" '
+            'TargetMode="External"/></Relationships>' % REL_T)
+    other = '<document><body><p><r><t>%s</t></r></p></body></document>' % PERSON
+    ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"_rels/.rels": rels, "other.xml": other}), "docx")
+    assert ex.text == "safe body" and PERSON not in ex.text
+    assert ex.meta.get("incomplete") and PERSON in ex.scan_text
+
+
+def test_oh_repeated_relationship_ids_keep_all_external_targets(tmp_path):
+    values = (PERSON, _oh_private_value())
+    rels = '<Relationships>' + ''.join('<Relationship Id="same" TargetMode="External" Target="%s"/>' % value
+                                      for value in values) + '</Relationships>'
+    ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"word/_rels/document.xml.rels": rels}), "docx")
+    assert all(value in ex.detect_text for value in values)
+    assert all(value not in ex.text for value in values)
+
+
+def test_oh_unresolved_alt_chunk_is_incomplete(tmp_path):
+    path = _docx_with(tmp_path, '<w:altChunk xmlns:r="%s" r:id="absent"/>' % R_NS)
+    ex = office.extract_office(path, "docx")
+    assert ex.text and ex.meta.get("incomplete") and not ex.children
+
+
+def test_oh_skipped_font_outside_known_folders_is_incomplete(tmp_path):
+    ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"custom/opaque.ttf": b"opaque"}), "docx")
+    assert ex.state == "ok" and ex.meta.get("incomplete")
+
+
+def test_oh_svg_text_past_image_probe_is_scanned(tmp_path):
+    svg = '<svg xmlns="http://www.w3.org/2000/svg"><!--%s--><text>%s</text></svg>' % (" " * (office.MEDIA_PROBE + 1), PERSON)
+    ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"word/media/drawing.svg": svg}), "docx")
+    assert PERSON in ex.scan_text and PERSON not in ex.text
+
+
+def test_oh_xml_after_long_whitespace_still_checks_structure(tmp_path):
+    xml = " " * 600 + '<root private="%s"><broken' % PERSON
+    ex = office.extract_office(_oh_document(tmp_path / "a.docx", {"custom/extra.xml": xml}), "docx")
+    assert ex.meta.get("incomplete") and PERSON in ex.scan_text
+
+
+def test_oh_invalid_odf_statistic_preserves_body(tmp_path):
+    path = _odf_with(tmp_path / "a.odt", "odt", '<text:p>safe body</text:p>')
+    _rewrite(path, {"meta.xml": '<meta><document-statistic page-count="%s"/></meta>' % ("9" * 5000)})
+    ex = office.extract_office(path, "odt")
+    assert ex.state == "ok" and ex.text == "safe body" and ex.meta.get("incomplete")
+    assert "page_count" not in ex.meta
+
+
+def test_oh_invalid_odf_repeat_is_refused(tmp_path):
+    path = _odf_with(tmp_path / "a.odt", "odt", '<text:p>before<text:s text:c="%s"/>after</text:p>' % ("9" * 5000))
+    _oh_failed(office.extract_office(path, "odt"))
+
+
+def test_oh_missing_graphic_relationship_is_incomplete(tmp_path):
+    drawing = _drawing('<c:chart xmlns:c="%s" xmlns:r="%s" r:id="absent"/>' % (C_NS, R_NS), C_NS)
+    ex = office.extract_office(_docx_with(tmp_path, drawing), "docx")
+    assert ex.text and ex.meta.get("incomplete")
+
+
+def test_oh_column_reference_integer_work_is_bounded(tmp_path):
+    path = _xlsx_with_cells(tmp_path, '<c r="%s1"><v>1</v></c>' % ("Z" * 100))
+    _oh_failed(office.extract_office(path, "xlsx"))
+
+
+def test_oh_external_sheet_target_cannot_become_visible(tmp_path):
+    path = _xlsx_with_cells(tmp_path, '<c r="A1" t="inlineStr"><is><t>%s</t></is></c>' % PERSON)
+    _rewrite(path, edit=lambda name, data: data.replace(b'Type="%sworksheet"' % REL_T.encode(),
+                                                       b'TargetMode="External" Type="%sworksheet"' % REL_T.encode())
+             if name == "xl/_rels/workbook.xml.rels" else data)
+    ex = office.extract_office(path, "xlsx")
+    assert ex.meta.get("incomplete") and PERSON not in ex.text
+    assert PERSON in ex.detect_text
+
+
+def test_oh_negative_comment_author_is_not_a_valid_index(tmp_path):
+    comments = '<comments><authors><author>%s</author></authors><commentList><comment ref="A1" authorId="-1"><text><t>note</t></text></comment></commentList></comments>' % PERSON
+    path = _xlsx_with_cells(tmp_path, '<c r="A1"><v>1</v></c>', {"xl/comments1.xml": comments})
+    ex = office.extract_office(path, "xlsx")
+    assert ex.meta.get("incomplete")
+    assert "comment on A1 by : note" in ex.detect_text
+    assert PERSON in ex.scan_text
+
+
+def test_oh_sparse_rows_are_bounded_before_markdown_rendering(tmp_path, monkeypatch):
+    monkeypatch.setattr(office, "MAX_TABLE_CELLS", 32)
+    monkeypatch.setattr(office, "_md_rows", lambda rows: ["table"])
+    path = _xlsx_with_cells(tmp_path, '<c r="T1"><v>1</v></c>')
+    _rewrite(path, edit=lambda name, data: data.replace(b"</sheetData>", b'<row r="2"><c r="T2"><v>2</v></c></row></sheetData>')
+             if name == "xl/worksheets/sheet1.xml" else data)
+    _oh_failed(office.extract_office(path, "xlsx"))

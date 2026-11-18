@@ -24779,8 +24779,323 @@
    "name": "intake: move detects same size edit with restored mtime",
    "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_detects_same_size_edit_with_restored_mtime",
    "status": "passing"
+  },
+  {
+   "id": "OFFICE-H1",
+   "phase": "T",
+   "name": "office: source symlink is refused",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_source_symlink_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H2",
+   "phase": "T",
+   "name": "office: linked parent is refused",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_linked_parent_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H3",
+   "phase": "T",
+   "name": "office: missing file has value free failure",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_missing_file_has_value_free_failure",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H4",
+   "phase": "T",
+   "name": "office: unreadable file has value free failure",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_unreadable_file_has_value_free_failure",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H5",
+   "phase": "T",
+   "name": "office: special source never reaches zip reader",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_special_source_never_reaches_zip_reader",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H6",
+   "phase": "T",
+   "name": "office: source is pinned before zip read",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_source_is_pinned_before_zip_read",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H7",
+   "phase": "T",
+   "name": "office: encrypted xml is incomplete without losing body",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_encrypted_xml_is_incomplete_without_losing_body",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H8",
+   "phase": "T",
+   "name": "office: bad compressed part is incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_bad_compressed_part_is_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H9",
+   "phase": "T",
+   "name": "office: deep xml is refused before recursive walk",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_deep_xml_is_refused_before_recursive_walk",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H10",
+   "phase": "T",
+   "name": "office: entity declarations are refused",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_entity_declarations_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H11",
+   "phase": "T",
+   "name": "office: raw xml uses the same parser limits",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_raw_xml_uses_the_same_parser_limits",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H12",
+   "phase": "T",
+   "name": "office: odf spaces cannot expand without bound",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_odf_spaces_cannot_expand_without_bound",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H13",
+   "phase": "T",
+   "name": "office: odf repetition cannot silently shift hidden columns",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_odf_repetition_cannot_silently_shift_hidden_columns",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H14",
+   "phase": "T",
+   "name": "office: malformed raw xml preserves attribute names for detection",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_malformed_raw_xml_preserves_attribute_names_for_detection",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H15",
+   "phase": "T",
+   "name": "office: last raw part budget truncation is incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_last_raw_part_budget_truncation_is_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H16",
+   "phase": "T",
+   "name": "office: negative shared string index is not a valid cell",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_negative_shared_string_index_is_not_a_valid_cell",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H17",
+   "phase": "T",
+   "name": "office: wide hidden column range never reaches visible text",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_wide_hidden_column_range_never_reaches_visible_text",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H18",
+   "phase": "T",
+   "name": "office: missing relationship target marks document incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_missing_relationship_target_marks_document_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H19",
+   "phase": "T",
+   "name": "office: missing sheet relationship marks workbook incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_missing_sheet_relationship_marks_workbook_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H20",
+   "phase": "T",
+   "name": "office: missing slide relationship marks presentation incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_missing_slide_relationship_marks_presentation_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H21",
+   "phase": "T",
+   "name": "office: long numeric part name does not crash sorting",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_long_numeric_part_name_does_not_crash_sorting",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H22",
+   "phase": "T",
+   "name": "office: invalid numeric properties do not discard body",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_invalid_numeric_properties_do_not_discard_body",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H23",
+   "phase": "T",
+   "name": "office: alt chunks share the container byte budget",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_alt_chunks_share_the_container_byte_budget",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H24",
+   "phase": "T",
+   "name": "office: child write failure is private and cleans temp",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_child_write_failure_is_private_and_cleans_temp",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H25",
+   "phase": "T",
+   "name": "office: children use private files and clean them",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_children_use_private_files_and_clean_them",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H26",
+   "phase": "T",
+   "name": "office: member paths cannot escape scratch",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_member_paths_cannot_escape_scratch",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H27",
+   "phase": "T",
+   "name": "office: concurrent extractions do not share child storage",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_concurrent_extractions_do_not_share_child_storage",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H28",
+   "phase": "T",
+   "name": "office: regular source outside project is supported",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_regular_source_outside_project_is_supported",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H29",
+   "phase": "T",
+   "name": "office: child depth limit is incomplete without reading",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_child_depth_limit_is_incomplete_without_reading",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H30",
+   "phase": "T",
+   "name": "office: existing child is never overwritten",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_existing_child_is_never_overwritten",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H31",
+   "phase": "T",
+   "name": "office: sparse table padding is bounded",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_sparse_table_padding_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H32",
+   "phase": "T",
+   "name": "office: shared strings cannot amplify table output without bound",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_shared_strings_cannot_amplify_table_output_without_bound",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H33",
+   "phase": "T",
+   "name": "office: external main relationship is never rendered",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_external_main_relationship_is_never_rendered",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H34",
+   "phase": "T",
+   "name": "office: repeated relationship ids keep all external targets",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_repeated_relationship_ids_keep_all_external_targets",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H35",
+   "phase": "T",
+   "name": "office: unresolved alt chunk is incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_unresolved_alt_chunk_is_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H36",
+   "phase": "T",
+   "name": "office: skipped font outside known folders is incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_skipped_font_outside_known_folders_is_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H37",
+   "phase": "T",
+   "name": "office: svg text past image probe is scanned",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_svg_text_past_image_probe_is_scanned",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H38",
+   "phase": "T",
+   "name": "office: xml after long whitespace still checks structure",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_xml_after_long_whitespace_still_checks_structure",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H39",
+   "phase": "T",
+   "name": "office: invalid odf statistic preserves body",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_invalid_odf_statistic_preserves_body",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H40",
+   "phase": "T",
+   "name": "office: invalid odf repeat is refused",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_invalid_odf_repeat_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H41",
+   "phase": "T",
+   "name": "office: missing graphic relationship is incomplete",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_missing_graphic_relationship_is_incomplete",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H42",
+   "phase": "T",
+   "name": "office: column reference integer work is bounded",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_column_reference_integer_work_is_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H43",
+   "phase": "T",
+   "name": "office: external sheet target cannot become visible",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_external_sheet_target_cannot_become_visible",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H44",
+   "phase": "T",
+   "name": "office: negative comment author is not a valid index",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_negative_comment_author_is_not_a_valid_index",
+   "status": "passing"
+  },
+  {
+   "id": "OFFICE-H45",
+   "phase": "T",
+   "name": "office: sparse rows are bounded before markdown rendering",
+   "run": ".venv/bin/pytest tests/test_extract_office.py::test_oh_sparse_rows_are_bounded_before_markdown_rendering",
+   "status": "passing"
   }
  ],
- "total_tests": 3540,
+ "total_tests": 3585,
  "checked": "2026-11-18"
 }

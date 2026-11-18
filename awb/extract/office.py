@@ -43,12 +43,15 @@ deflated part cannot grow into gigabytes of memory.
 """
 from __future__ import annotations
 
-import io
 import os
 import re
 import shutil
+import stat
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
+from bisect import bisect_right
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -64,6 +67,10 @@ MAX_RAW_TOTAL = 256 * 1024 * 1024
 MEDIA_PROBE = 64 * 1024
 """Bytes of an image read for the printable strings of its metadata."""
 _MAX_REPEAT = 1024
+MAX_XML_DEPTH = 128
+MAX_TABLE_CELLS = 1_000_000
+MAX_TABLE_CHARS = 64 * 1024 * 1024
+_READ_ERRORS = (zipfile.BadZipFile, ValueError, NotImplementedError, EOFError, OSError, RuntimeError, zlib.error)
 
 _HEADING_STYLE_RE = re.compile(r"^(?:heading|.*berschrift|titre|t.tulo|kop)\s*(\d)$", re.IGNORECASE)
 _TITLE_STYLE_RE = re.compile(r"^(?:title|titel)$", re.IGNORECASE)
@@ -120,8 +127,15 @@ def _md_rows(rows: list[list[str]]) -> list[str]:
     if not rows:
         return []
     width = max(len(r) for r in rows)
+    # Padding sparse rows and reusing shared strings can amplify a small XML part enormously.
+    if width * len(rows) > MAX_TABLE_CELLS:
+        raise _TooBig()
+    chars = 0
     lines = []
     for i, row in enumerate(rows):
+        chars += sum(len(c) + c.count("|") for c in row) + width * 3 + 3
+        if chars > MAX_TABLE_CHARS:
+            raise _TooBig()
         cells = [_md_cell(c) for c in row] + [""] * (width - len(row))
         lines.append("| " + " | ".join(cells) + " |")
         if i == 0:
@@ -155,10 +169,23 @@ class _Parts:
         """The first `limit` bytes of a part, None when it is missing or cannot be read."""
         if name not in self.name_set:
             return None
+        size = self.zf.getinfo(name).file_size
+        if size > MAX_PART_BYTES or self.read_bytes + size > MAX_TOTAL_BYTES:
+            self.skipped += 1
+            self.ex.meta[INCOMPLETE] = True
+            return None
         try:
             with self.zf.open(name) as fh:
-                return fh.read(limit)
-        except (zipfile.BadZipFile, ValueError, NotImplementedError, EOFError, OSError, RuntimeError):
+                data = fh.read(min(limit, MAX_PART_BYTES, MAX_TOTAL_BYTES - self.read_bytes) + 1)
+            self.read_bytes += len(data)
+            if len(data) > min(limit, MAX_PART_BYTES) or self.read_bytes > MAX_TOTAL_BYTES:
+                self.skipped += 1
+                self.ex.meta[INCOMPLETE] = True
+                return None
+            return data
+        except _READ_ERRORS:
+            # Charge failed reads too: decompression may already have consumed the whole part.
+            self.read_bytes += size
             self.bad += 1
             self.ex.meta[INCOMPLETE] = True
             return None
@@ -175,17 +202,12 @@ class _Parts:
         return root
 
     def _parse(self, name: str) -> ET.Element | None:
-        if name not in self.name_set:
+        data = self.raw(name)
+        if data is None:
             return None
-        info = self.zf.getinfo(name)
-        if info.file_size > MAX_PART_BYTES or self.read_bytes + info.file_size > MAX_TOTAL_BYTES:
-            self.skipped += 1
-            self.ex.meta[INCOMPLETE] = True
-            return None
-        self.read_bytes += info.file_size
         try:
-            return _capped_xml(self.zf.read(name))
-        except (ET.ParseError, zipfile.BadZipFile, ValueError, NotImplementedError, EOFError, OSError, _TooBig):
+            return _capped_xml(data)
+        except (ET.ParseError, ValueError, _TooBig):
             self.bad += 1
             self.ex.meta[INCOMPLETE] = True
             return None
@@ -211,16 +233,20 @@ class _Parts:
         if root is not None:
             for rel in root:
                 if (_attr(rel, "Type") or "").endswith("/officeDocument"):
+                    if (_attr(rel, "TargetMode") or "").lower() == "external":
+                        self.ex.meta[INCOMPLETE] = True
+                        continue
                     target = _resolve("", _attr(rel, "Target") or "")
                     if target in self.name_set:
                         return target
+                    self.ex.meta[INCOMPLETE] = True
         return default
 
     def external_targets(self) -> list[str]:
         """External relationship targets of every part: hyperlinks, attached templates, linked files."""
         seen: dict[str, None] = {}
         for name in self.matching(r"(?:.*/)?_rels/[^/]*\.rels"):
-            for target, external in self.rels(name).values():
+            for _, target, external, _ in self.rel_rows(name):
                 if external and target.strip():
                     seen.setdefault(target.strip(), None)
         return list(seen)
@@ -241,6 +267,8 @@ class _Parts:
                 continue
             if not external:
                 target = _resolve(base, target)
+                if target not in self.name_set:
+                    self.ex.meta[INCOMPLETE] = True
             rows.append((rid, target, external, _attr(rel, "Type") or ""))
         return rows
 
@@ -283,23 +311,33 @@ class _Parts:
 
 
 class _TooBig(Exception):
-    """An xml part holds more than MAX_ELEMENTS elements."""
+    """An XML part exceeds a parser or expansion limit."""
 
 
 class _CappedBuilder(ET.TreeBuilder):
     def __init__(self) -> None:
         super().__init__()
         self.count = 0
+        self.depth = 0
 
     def start(self, tag, attrs):
         self.count += 1
-        if self.count > MAX_ELEMENTS:
+        self.depth += 1
+        if self.count > MAX_ELEMENTS or self.depth > MAX_XML_DEPTH:
             raise _TooBig()
         return super().start(tag, attrs)
 
+    def end(self, tag):
+        self.depth -= 1
+        return super().end(tag)
+
+    def doctype(self, name, pubid, system):
+        # Office parts do not need DTDs. Refuse entity expansion before allocating its output.
+        raise _TooBig()
+
 
 def _capped_xml(data: bytes) -> ET.Element:
-    """ET.fromstring with an element cap. The parser resolves no external entity (expat default)."""
+    """ET.fromstring with element and nesting caps and no DTD or entity expansion."""
     parser = ET.XMLParser(target=_CappedBuilder())
     parser.feed(data)
     return parser.close()
@@ -319,7 +357,15 @@ def _resolve(base: str, target: str) -> str:
 
 
 def _natural_key(name: str):
-    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", name)]
+    # Compare digit strings numerically without building unbounded integers.
+    key = []
+    for i, part in enumerate(re.split(r"(\d+)", name)):
+        if i % 2:
+            digits = "".join(str(int(c)) for c in part).lstrip("0") or "0"
+            key.append((1, len(digits), digits))
+        else:
+            key.append((0, part))
+    return key
 
 
 @dataclass
@@ -345,6 +391,7 @@ class _Ctx:
     rendered: set[str] = field(default_factory=set)
     # string cells that point past the shared string table
     missing_strings: int = 0
+    table_cells: int = 0
     # odf only: user field and variable declarations by name, for an empty field in the body
     decls: dict[str, str] = field(default_factory=dict)
 
@@ -458,10 +505,13 @@ _DIAGRAM_RE = r"(?:word|ppt|xl)/diagrams/data\d*\.xml"
 def _graphic_lines(ctx: _Ctx, rid: str | None, kind: str) -> list[str]:
     """The lines of the chart or diagram part behind relationship `rid` of the part being walked, once per
     part. `kind` is "chart" or "diagram"."""
-    if ctx.parts is None or not rid:
+    if ctx.parts is None:
         return []
-    target, external = ctx.rels.get(rid, ("", True))
-    if external or not target or target in ctx.rendered:
+    target, external = ctx.rels.get(rid or "", ("", True))
+    if external or not target or not ctx.parts.has(target):
+        ctx.parts.ex.meta[INCOMPLETE] = True
+        return []
+    if target in ctx.rendered:
         return []
     root = ctx.parts.get(target)
     if root is None:
@@ -659,6 +709,8 @@ def _w_blocks(el: ET.Element, out: list[str], ctx: _Ctx) -> None:
                 if target not in ctx.parts.child_parts:
                     ctx.parts.child_parts.append(target)
                 out.append("[alt chunk, read as a separate part of this file]")
+            elif ctx.parts is not None:
+                ctx.parts.ex.meta[INCOMPLETE] = True
         elif tag == "sdtPr":
             _w_sdt_props(c, ctx)
         elif tag in ("sectPr", "tblPr", "tblGrid", "pPr", "tcPr", "trPr"):
@@ -811,6 +863,8 @@ def _col_index(ref: str) -> int:
     m = _COL_RE.match(ref or "")
     if not m:
         return 0
+    if len(m.group(1)) > 8:
+        raise _TooBig()
     n = 0
     for ch in m.group(1):
         n = n * 26 + (ord(ch) - 64)
@@ -923,7 +977,10 @@ def _cell_value(c: ET.Element, shared: list[str], ctx: _Ctx) -> tuple[str, str |
             formula = "(shared formula)"
     if ctype == "s":
         try:
-            value = shared[int((v.text or "").strip())] if v is not None else ""
+            index = int((v.text or "").strip()) if v is not None else -1
+            if index < 0:
+                raise IndexError()
+            value = shared[index]
         except (ValueError, IndexError):
             value = ""
             ctx.missing_strings += 1
@@ -939,14 +996,21 @@ def _cell_value(c: ET.Element, shared: list[str], ctx: _Ctx) -> tuple[str, str |
 
 def _xlsx_sheet(root: ET.Element, shared: list[str], sheet_hidden: bool, out: list[str], ctx: _Ctx) -> int:
     """Render one worksheet. Returns the number of cells seen."""
-    hidden_cols: set[int] = set()
+    hidden_cols: list[tuple[int, int]] = []
     for col in root.iter():
         if _local(col.tag) == "col" and (_attr(col, "hidden") or "0") in ("1", "true"):
             try:
                 lo, hi = int(_attr(col, "min") or 0), int(_attr(col, "max") or 0)
             except ValueError:
                 continue
-            hidden_cols.update(range(lo, min(hi, lo + _MAX_REPEAT) + 1))
+            hidden_cols.append((lo, hi))
+    merged: list[tuple[int, int]] = []
+    for lo, hi in sorted(hidden_cols):
+        if merged and lo <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+        else:
+            merged.append((lo, hi))
+    starts = [lo for lo, _ in merged]
     visible_rows: list[list[str]] = []
     hidden_rows: list[list[str]] = []
     cells_seen = 0
@@ -974,14 +1038,15 @@ def _xlsx_sheet(root: ET.Element, shared: list[str], sheet_hidden: bool, out: li
                 ctx.formulas.append("formula %s: =%s -> %s" % (ref, formula, value))
             if not value:
                 continue
-            if sheet_hidden or row_hidden or idx in hidden_cols:
+            interval = bisect_right(starts, idx) - 1
+            if sheet_hidden or row_hidden or (interval >= 0 and idx <= merged[interval][1]):
                 hidden[idx] = value
             else:
                 visible[idx] = value
         if visible:
-            visible_rows.append(_positional(visible))
+            visible_rows.append(_positional(visible, ctx))
         if hidden:
-            hidden_rows.append(_positional(hidden))
+            hidden_rows.append(_positional(hidden, ctx))
     out.extend(_md_rows(visible_rows))
     if hidden_rows:
         ctx.hidden.extend(_md_rows(hidden_rows))
@@ -994,9 +1059,13 @@ def _xlsx_sheet(root: ET.Element, shared: list[str], sheet_hidden: bool, out: li
     return cells_seen
 
 
-def _positional(cells: dict[int, str]) -> list[str]:
+def _positional(cells: dict[int, str], ctx: _Ctx | None = None) -> list[str]:
     """Cells in column order. Columns beyond the width limit are appended, never dropped."""
     width = min(max(cells), _MAX_REPEAT)
+    if ctx is not None:
+        ctx.table_cells += width + sum(i > width for i in cells)
+        if ctx.table_cells > MAX_TABLE_CELLS:
+            raise _TooBig()
     row = [cells.get(i, "") for i in range(1, width + 1)]
     row.extend(cells[i] for i in sorted(cells) if i > width)
     return row
@@ -1016,7 +1085,10 @@ def _xlsx(parts: _Parts, ex: Extraction, out: list[str], det: list[str]) -> None
     for node in wb.iter():
         if _local(node.tag) == "sheet":
             rid = _rid(node) or ""
-            target = rels.get(rid, ("", False))[0]
+            target, external = rels.get(rid, ("", False))
+            if external:
+                ex.meta[INCOMPLETE] = True
+                target = ""
             sheets.append((_attr(node, "name") or "", (_attr(node, "state") or "visible").lower(), target))
         elif _local(node.tag) == "definedName":
             ctx.formulas.append("defined name %s: %s" % (_attr(node, "name") or "", (node.text or "").strip()))
@@ -1029,6 +1101,7 @@ def _xlsx(parts: _Parts, ex: Extraction, out: list[str], det: list[str]) -> None
         det.append("sheet: %s" % name)
         root = parts.get(target) if target else None
         if root is None:
+            ex.meta[INCOMPLETE] = True
             ex.notes.append("a sheet part is missing or not well-formed")
             continue
         seen_targets.add(target)
@@ -1063,9 +1136,13 @@ def _xlsx(parts: _Parts, ex: Extraction, out: list[str], det: list[str]) -> None
                 continue
             comment_count += 1
             try:
-                author = authors[int(_attr(cm, "authorId") or 0)]
+                index = int(_attr(cm, "authorId") or 0)
+                if index < 0:
+                    raise IndexError()
+                author = authors[index]
             except (ValueError, IndexError):
                 author = ""
+                ex.meta[INCOMPLETE] = True
             text = _all_text(cm)
             det.append("comment on %s by %s: %s" % (_attr(cm, "ref") or "", author, text))
     persons = {}
@@ -1244,6 +1321,8 @@ def _pptx_slides(parts: _Parts, main: str) -> tuple[list[str], list[str]]:
             if _local(node.tag) != "sldId":
                 continue
             target, external = rels.get(_rid(node) or "", ("", True))
+            if external or not target or not parts.has(target):
+                parts.ex.meta[INCOMPLETE] = True
             if not external and target and parts.has(target) and target not in listed:
                 listed.append(target)
     named = parts.matching(r"ppt/slides/slide\d+\.xml")
@@ -1354,10 +1433,7 @@ def _odf_text(el: ET.Element, ctx: _Ctx) -> str:
     for c in el:
         tag = _local(c.tag)
         if tag == "s":
-            try:
-                parts.append(" " * int(_attr(c, "c") or 1))
-            except ValueError:
-                parts.append(" ")
+            parts.append(" " * _odf_repeat(c, "c"))
         elif tag == "tab":
             parts.append("\t")
         elif tag == "line-break":
@@ -1417,9 +1493,12 @@ def _odf_annotation(el: ET.Element, ctx: _Ctx) -> None:
 
 def _odf_repeat(el: ET.Element, name: str) -> int:
     try:
-        return max(1, min(int(_attr(el, name) or 1), _MAX_REPEAT))
+        value = int(_attr(el, name) or 1)
     except ValueError:
-        return 1
+        raise _TooBig() from None
+    if value > _MAX_REPEAT:
+        raise _TooBig()
+    return max(1, value)
 
 
 _ODF_COLUMN_GROUPS = ("table-columns", "table-header-columns", "table-column-group")
@@ -1488,9 +1567,9 @@ def _odf_table(tbl: ET.Element, out: list[str], ctx: _Ctx, det: list[str]) -> No
                         visible[k + 1] = value
             idx += n
         if visible:
-            visible_rows.append(_positional(visible))
+            visible_rows.append(_positional(visible, ctx))
         if hidden:
-            hidden_rows.append(_positional(hidden))
+            hidden_rows.append(_positional(hidden, ctx))
     out.extend(_md_rows(visible_rows))
     out.append("")
     if hidden_rows:
@@ -1618,8 +1697,10 @@ def _odf(parts: _Parts, ex: Extraction, out: list[str], det: list[str]) -> None:
                 ex.meta.setdefault("custom", {})[_attr(node, "name") or ""] = node.text.strip()
             elif tag == "document-statistic":
                 pages = _attr(node, "page-count")
-                if pages and pages.isdigit():
-                    ex.meta["page_count"] = int(pages)
+                if pages:
+                    count = _property_count(pages, ex)
+                    if count is not None:
+                        ex.meta["page_count"] = count
     _flush_ctx(ctx, ex, det)
 
 
@@ -1651,6 +1732,13 @@ _APP_KEYS = {
 }
 
 
+def _property_count(value: str, ex: Extraction) -> int | None:
+    if value.isascii() and value.isdecimal() and len(value) <= 20:
+        return int(value)
+    ex.meta[INCOMPLETE] = True
+    return None
+
+
 def _ooxml_props(parts: _Parts, ex: Extraction, det: list[str]) -> None:
     core = parts.get("docProps/core.xml")
     if core is not None:
@@ -1670,8 +1758,9 @@ def _ooxml_props(parts: _Parts, ex: Extraction, det: list[str]) -> None:
                 value = node.text.strip()
                 if key in ("page_count", "slide_count", "word_count"):
                     # a count taken from the container wins over the stored statistic, which can be stale
-                    if value.isdigit() and key not in ex.meta:
-                        ex.meta[key] = int(value)
+                    count = _property_count(value, ex)
+                    if count is not None and key not in ex.meta:
+                        ex.meta[key] = count
                 elif key not in ex.meta:
                     ex.meta[key] = value
             elif tag == "TitlesOfParts":
@@ -1773,24 +1862,18 @@ _PACKAGE_MAGIC = (b"PK\x03\x04",)
 
 
 def _xml_strings(data: bytes) -> list[str] | None:
-    """Every text node, tail and attribute value of an xml part, streamed with the element cap. Namespace
+    """Every text node, tail and attribute value of an XML part, with the same limits as the reader. Namespace
     declarations are not attributes to the parser. None when the part is not well-formed."""
     out: list[str] = []
-    count = 0
     try:
-        for event, el in ET.iterparse(io.BytesIO(data), events=("start", "end")):
-            if event == "start":
-                count += 1
-                if count > MAX_ELEMENTS:
-                    return None
-                out.extend(v for v in el.attrib.values() if v and v.strip())
-                continue
+        root = _capped_xml(data)
+        for el in root.iter():
+            out.extend(v for v in el.attrib.values() if v and v.strip())
             if el.text and el.text.strip():
                 out.append(el.text)
             if el.tail and el.tail.strip():
                 out.append(el.tail)
-            el.clear()
-    except (ET.ParseError, ValueError):
+    except (ET.ParseError, ValueError, _TooBig):
         return None
     return out
 
@@ -1859,27 +1942,34 @@ def _raw_parts(zf: zipfile.ZipFile, ex: Extraction, depth: int, skip: set[str]) 
     try:
         for index, info in enumerate(zf.infolist()):
             name = info.filename
-            if info.is_dir() or _SKIP_RAW_RE.fullmatch(name) or name in skip:
+            if info.is_dir() or name in skip:
+                continue
+            if _SKIP_RAW_RE.fullmatch(name):
+                ex.meta[INCOMPLETE] = True
                 continue
             if info.flag_bits & 0x1:
                 ex.meta[INCOMPLETE] = True
                 continue
-            limit = MEDIA_PROBE if _IMAGE_RE.fullmatch(name) else MAX_PART_BYTES
+            image = bool(_IMAGE_RE.fullmatch(name)) and not name.lower().endswith(".svg")
+            limit = MEDIA_PROBE if image else MAX_PART_BYTES
             if total >= MAX_RAW_TOTAL:
                 ex.meta[INCOMPLETE] = True
                 ex.notes.append("raw part limit reached, later parts not checked")
                 break
+            read_limit = min(limit, MAX_RAW_TOTAL - total)
             try:
                 with zf.open(info) as fh:
-                    data = fh.read(min(limit, MAX_RAW_TOTAL - total) + 1)
-            except (zipfile.BadZipFile, ValueError, NotImplementedError, EOFError, OSError, RuntimeError):
+                    data = fh.read(read_limit + 1)
+            except _READ_ERRORS:
                 ex.meta[INCOMPLETE] = True
+                total += min(info.file_size, read_limit)
                 continue
             total += len(data)
-            if len(data) > limit and limit == MAX_PART_BYTES:
-                ex.meta[INCOMPLETE] = True
-                data = data[:limit]
-            if _IMAGE_RE.fullmatch(name):
+            if len(data) > read_limit:
+                if limit == MAX_PART_BYTES or read_limit < limit:
+                    ex.meta[INCOMPLETE] = True
+                data = data[:read_limit]
+            if image:
                 scan.extend(binary_strings(data))
                 continue
             if data.startswith(_PACKAGE_MAGIC):
@@ -1892,13 +1982,15 @@ def _raw_parts(zf: zipfile.ZipFile, ex: Extraction, depth: int, skip: set[str]) 
                 as_child.add(name)
                 continue
             head = data[:512].lstrip()
-            if head.startswith((b"<", b"\xef\xbb\xbf<", b"\xff\xfe<", b"\xfe\xff\x00<")):
+            if name.lower().endswith((".xml", ".rels", ".svg")) or head.startswith((b"<", b"\xef\xbb\xbf<", b"\xff\xfe<", b"\xfe\xff\x00<")):
                 strings = _xml_strings(data)
                 if strings is not None:
                     scan.append(" ".join(strings))
                     continue
+                ex.meta[INCOMPLETE] = True
                 text, _ = decode_bytes(data)
-                scan.append(strip_html(text) if "<" in text else text)
+                # A recovery parser can discard the very attributes detection needs to see.
+                scan.append(text)
                 continue
             text, _ = decode_bytes(data)
             printable = sum(1 for c in text[:4096] if c.isprintable() or c in "\n\r\t")
@@ -1928,6 +2020,30 @@ def _join_lines(lines: list[str]) -> str:
     return "\n".join(out).strip()
 
 
+@contextmanager
+def _source_file(path: Path):
+    """Pin a regular source through non-linked directories; never block opening a FIFO."""
+    parent_fd = os.open("/" if path.is_absolute() else ".", os.O_RDONLY | os.O_DIRECTORY)
+    fd = None
+    try:
+        components = path.parts[1:] if path.is_absolute() else path.parts
+        for component in components[:-1]:
+            next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+            os.close(parent_fd)
+            parent_fd = next_fd
+        fd = os.open(components[-1] if components else ".", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     dir_fd=parent_fd)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a regular file")
+        with os.fdopen(fd, "rb") as fh:
+            fd = None
+            yield fh
+    finally:
+        if fd is not None:
+            os.close(fd)
+        os.close(parent_fd)
+
+
 def extract_office(path: Path, kind: str, depth: int = 0) -> Extraction:
     """Read a docx, xlsx, pptx, odt, ods or odp file straight from its zip container. `depth` is the nesting
     level of `path`, as for archives: embedded packages are read as children up to MAX_ARCHIVE_DEPTH."""
@@ -1938,7 +2054,7 @@ def extract_office(path: Path, kind: str, depth: int = 0) -> Extraction:
     out: list[str] = []
     det: list[str] = []
     try:
-        with zipfile.ZipFile(path) as zf:
+        with _source_file(path) as source, zipfile.ZipFile(source) as zf:
             parts = _Parts(zf, ex)
             _READERS[kind](parts, ex, out, det)
             if ex.state == "failed":
@@ -1952,6 +2068,8 @@ def extract_office(path: Path, kind: str, depth: int = 0) -> Extraction:
             parts.finish_notes()
     except zipfile.BadZipFile:
         return Extraction(path, kind, "failed", notes=["container is not a readable zip"])
+    except (_TooBig, ET.ParseError, *_READ_ERRORS):
+        return Extraction(path, kind, "failed", notes=["office file could not be read within its limits"])
     ex.text = _join_lines(out)
     extra = [line for line in det if line and line.strip()]
     ex.detect_text = "\n".join([ex.text] + extra + _meta_lines(ex.meta)).strip()
