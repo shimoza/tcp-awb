@@ -24345,8 +24345,414 @@
    "name": "lab runs: keep row keeps the mode of RESOURCES.md for the daemon",
    "run": ".venv/bin/pytest tests/test_lr_lab_runs.py::test_lr_keep_row_keeps_the_mode_of_resources_md_for_the_daemon",
    "status": "passing"
+  },
+  {
+   "id": "INTAKE-H1",
+   "phase": "T",
+   "name": "intake: invalid path has no value",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_invalid_path_has_no_value",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H2",
+   "phase": "T",
+   "name": "intake: unreadable source is refused without values",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_unreadable_source_is_refused_without_values",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H3",
+   "phase": "T",
+   "name": "intake: source hardlink does not change other file",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_source_hardlink_does_not_change_other_file",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H4",
+   "phase": "T",
+   "name": "intake: inputs are rechecked after lock wait",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_inputs_are_rechecked_after_lock_wait",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H5",
+   "phase": "T",
+   "name": "intake: source changed during extraction is not archived",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_source_changed_during_extraction_is_not_archived",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H6",
+   "phase": "T",
+   "name": "intake: linked layout never chmods or writes outside",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_linked_layout_never_chmods_or_writes_outside",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H7",
+   "phase": "T",
+   "name": "intake: linked original customer folder is refused",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_linked_original_customer_folder_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H8",
+   "phase": "T",
+   "name": "intake: move never follows a dangling destination link",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_never_follows_a_dangling_destination_link",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H9",
+   "phase": "T",
+   "name": "intake: move preserves existing sealed original",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_preserves_existing_sealed_original",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H10",
+   "phase": "T",
+   "name": "intake: undo preserves a recreated inbox file",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_undo_preserves_a_recreated_inbox_file",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H11",
+   "phase": "T",
+   "name": "intake: undo validates sealed data before creating source",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_undo_validates_sealed_data_before_creating_source",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H12",
+   "phase": "T",
+   "name": "intake: dangling sealed report name is reserved",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_dangling_sealed_report_name_is_reserved",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H13",
+   "phase": "T",
+   "name": "intake: reader notes scrub secrets and learn names",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_reader_notes_scrub_secrets_and_learn_names",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H14",
+   "phase": "T",
+   "name": "intake: public report secret fallback is checked",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_public_report_secret_fallback_is_checked",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H15",
+   "phase": "T",
+   "name": "intake: private report failure rolls back without error values",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_private_report_failure_rolls_back_without_error_values",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H16",
+   "phase": "T",
+   "name": "intake: report render failure rolls back",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_report_render_failure_rolls_back",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H17",
+   "phase": "T",
+   "name": "intake: failed redo restores previous output and report",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_failed_redo_restores_previous_output_and_report",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H18",
+   "phase": "T",
+   "name": "intake: redo mapping is validated before extraction",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_redo_mapping_is_validated_before_extraction",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H19",
+   "phase": "T",
+   "name": "intake: vault error does not echo dependency value",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_vault_error_does_not_echo_dependency_value",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H20",
+   "phase": "T",
+   "name": "intake: sticky error does not echo path or owner",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_sticky_error_does_not_echo_path_or_owner",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H21",
+   "phase": "T",
+   "name": "intake: text final check refuses secrets",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_final_check_refuses_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H22",
+   "phase": "T",
+   "name": "intake: text checks bytes written by callback",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_checks_bytes_written_by_callback",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H23",
+   "phase": "T",
+   "name": "intake: text rejects external callback path without deleting it",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_rejects_external_callback_path_without_deleting_it",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H24",
+   "phase": "T",
+   "name": "intake: text private report failure removes public report",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_private_report_failure_removes_public_report",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H25",
+   "phase": "T",
+   "name": "intake: output write error withholds values and removes partial file",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_output_write_error_withholds_values_and_removes_partial_file",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H26",
+   "phase": "T",
+   "name": "intake: parallel runs revalidate a shared input",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_parallel_runs_revalidate_a_shared_input",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H27",
+   "phase": "T",
+   "name": "intake: external regular input is supported",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_external_regular_input_is_supported",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H28",
+   "phase": "T",
+   "name": "intake: invalid file list is refused without values",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_invalid_file_list_is_refused_without_values",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H29",
+   "phase": "T",
+   "name": "intake: fifo source is refused without reading",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_fifo_source_is_refused_without_reading",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H30",
+   "phase": "T",
+   "name": "intake: linked source parent is refused",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_linked_source_parent_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H31",
+   "phase": "T",
+   "name": "intake: review rechecks input before detection",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_review_rechecks_input_before_detection",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H32",
+   "phase": "T",
+   "name": "intake: review error withholds dependency values",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_review_error_withholds_dependency_values",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H33",
+   "phase": "T",
+   "name": "intake: extraction uses a private snapshot and cleans it",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_extraction_uses_a_private_snapshot_and_cleans_it",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H34",
+   "phase": "T",
+   "name": "intake: source changed after output is not archived",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_source_changed_after_output_is_not_archived",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H35",
+   "phase": "T",
+   "name": "intake: move rechecks expected identity",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_rechecks_expected_identity",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H36",
+   "phase": "T",
+   "name": "intake: move rechecks source after copy",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_rechecks_source_after_copy",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H37",
+   "phase": "T",
+   "name": "intake: move copy failure removes partial destination",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_copy_failure_removes_partial_destination",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H38",
+   "phase": "T",
+   "name": "intake: move pins destination directory",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_move_pins_destination_directory",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H39",
+   "phase": "T",
+   "name": "intake: undo refuses missing or invalid sealed payload",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_undo_refuses_missing_or_invalid_sealed_payload",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H40",
+   "phase": "T",
+   "name": "intake: undo sealed original refuses linked parent",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_undo_sealed_original_refuses_linked_parent",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H41",
+   "phase": "T",
+   "name": "intake: dangling plain report name is reserved",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_dangling_plain_report_name_is_reserved",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H42",
+   "phase": "T",
+   "name": "intake: names learned from notes are removed from other files",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_names_learned_from_notes_are_removed_from_other_files",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H43",
+   "phase": "T",
+   "name": "intake: public minimal report is checked for secrets",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_public_minimal_report_is_checked_for_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H44",
+   "phase": "T",
+   "name": "intake: public write failure restores previous report",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_public_write_failure_restores_previous_report",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H45",
+   "phase": "T",
+   "name": "intake: redo refuses unreadable or mismatched archives",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_redo_refuses_unreadable_or_mismatched_archives",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H46",
+   "phase": "T",
+   "name": "intake: text reader is checked for secrets",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_reader_is_checked_for_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H47",
+   "phase": "T",
+   "name": "intake: text callback must write the checked body",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_callback_must_write_the_checked_body",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H48",
+   "phase": "T",
+   "name": "intake: text notes scrub secrets and gate classes",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_notes_scrub_secrets_and_gate_classes",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H49",
+   "phase": "T",
+   "name": "intake: text failed report restores previous report",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_failed_report_restores_previous_report",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H50",
+   "phase": "T",
+   "name": "intake: text refused seal restores previous report",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_refused_seal_restores_previous_report",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H51",
+   "phase": "T",
+   "name": "intake: text vault error withholds dependency values",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_vault_error_withholds_dependency_values",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H52",
+   "phase": "T",
+   "name": "intake: text refuses linked private layout",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_refuses_linked_private_layout",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H53",
+   "phase": "T",
+   "name": "intake: input changed while holding images is not archived",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_input_changed_while_holding_images_is_not_archived",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H54",
+   "phase": "T",
+   "name": "intake: source swapped to link at open is refused",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_source_swapped_to_link_at_open_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H55",
+   "phase": "T",
+   "name": "intake: report backup refuses a link",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_report_backup_refuses_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H56",
+   "phase": "T",
+   "name": "intake: text callback cannot return the public report",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_text_callback_cannot_return_the_public_report",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H57",
+   "phase": "T",
+   "name": "intake: note secret left by first pass is dropped",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_note_secret_left_by_first_pass_is_dropped",
+   "status": "passing"
+  },
+  {
+   "id": "INTAKE-H58",
+   "phase": "T",
+   "name": "intake: public secret left by first pass is refused",
+   "run": ".venv/bin/pytest tests/test_intake.py::test_ih_public_secret_left_by_first_pass_is_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 3478,
+ "total_tests": 3536,
  "checked": "2026-11-18"
 }

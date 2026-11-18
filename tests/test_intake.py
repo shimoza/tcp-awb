@@ -1285,7 +1285,7 @@ def test_ih_unreadable_source_is_refused_without_values(home, monkeypatch):
         return real(path, flags, *args, **kwargs)
 
     monkeypatch.setattr(intake.os, "open", denied)
-    with pytest.raises((intake.IntakeError, OSError)) as err:
+    with pytest.raises(intake.IntakeError) as err:
         intake.run([source], fx.CUSTOMER_CODE, home)
     assert value not in str(err.value)
     assert source.is_file()
@@ -1331,6 +1331,12 @@ def test_ih_inputs_are_rechecked_after_lock_wait(home, monkeypatch):
 def test_ih_source_changed_during_extraction_is_not_archived(home, monkeypatch):
     source = _ih_note(home)
     real = intake._extract.extract
+    writes = []
+    write_outputs = intake._write_outputs
+
+    def written(*args, **kwargs):
+        writes.append(True)
+        return write_outputs(*args, **kwargs)
 
     def changed(path):
         result = real(path)
@@ -1338,9 +1344,11 @@ def test_ih_source_changed_during_extraction_is_not_archived(home, monkeypatch):
         return result
 
     monkeypatch.setattr(intake._extract, "extract", changed)
+    monkeypatch.setattr(intake, "_write_outputs", written)
     with pytest.raises(intake.IntakeError):
         intake.run([source], fx.CUSTOMER_CODE, home)
     assert source.read_text() == "replacement content\n"
+    assert writes == [], "a changed source is refused before outputs are written"
     _ih_no_run_files(home)
 
 
@@ -1350,9 +1358,11 @@ def test_ih_linked_layout_never_chmods_or_writes_outside(home, tmp_path):
     home.originals.rmdir()
     home.originals.symlink_to(outside, target_is_directory=True)
     source = _ih_note(home)
+    home.vault.chmod(0o755)
     with pytest.raises((intake.IntakeError, OSError)):
         intake.run([source], fx.CUSTOMER_CODE, home)
     assert stat.S_IMODE(outside.stat().st_mode) == 0o755
+    assert stat.S_IMODE(home.vault.stat().st_mode) == 0o755
     assert list(outside.iterdir()) == [] and source.exists()
 
 
@@ -1557,9 +1567,16 @@ def _ih_writer(outdir, text):
 
 def test_ih_text_final_check_refuses_secrets(home):
     key, value = _ih_secret()
+    writes = []
+
+    def writer(outdir, text):
+        writes.append(text)
+        return _ih_writer(outdir, text)
+
     with pytest.raises(intake.IntakeError, match="withheld"):
-        intake.run_text(key + "=" + value, fx.CUSTOMER_CODE, home, _ih_shape, _ih_writer,
+        intake.run_text(key + "=" + value, fx.CUSTOMER_CODE, home, _ih_shape, writer,
                         label="note", kind="text")
+    assert writes == [], "unchecked secrets must never reach the writer"
     assert not list(home.outbox.rglob("*.md"))
 
 
@@ -1624,8 +1641,15 @@ def test_ih_parallel_runs_revalidate_a_shared_input(home, monkeypatch):
     import threading
     source = _ih_note(home)
     entered, release = threading.Event(), threading.Event()
+    second_validated = threading.Event()
     real = intake._extract.extract
+    validate = intake._validate_files
     calls = []
+
+    def validated(files):
+        validate(files)
+        if entered.is_set() and not release.is_set():
+            second_validated.set()
 
     def slow(path):
         calls.append(path)
@@ -1634,10 +1658,12 @@ def test_ih_parallel_runs_revalidate_a_shared_input(home, monkeypatch):
         return real(path)
 
     monkeypatch.setattr(intake._extract, "extract", slow)
+    monkeypatch.setattr(intake, "_validate_files", validated)
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(intake.run, [source], fx.CUSTOMER_CODE, home)
         assert entered.wait(10)
         second = pool.submit(intake.run, [source], fx.CUSTOMER_CODE, home)
+        assert second_validated.wait(10)
         release.set()
         result = first.result(timeout=20)
         with pytest.raises(intake.IntakeError):
@@ -1652,3 +1678,454 @@ def test_ih_external_regular_input_is_supported(home, tmp_path):
     result = intake.run([source], fx.CUSTOMER_CODE, home)
     assert len(result.outputs) == 1 and not source.exists()
     assert next((home.originals / fx.CUSTOMER_CODE).iterdir()).read_text() == "ordinary text for the server\n"
+
+
+def test_ih_invalid_file_list_is_refused_without_values(home):
+    _, value = _ih_secret()
+
+    class BadPath:
+        def __fspath__(self):
+            raise ValueError(value)
+
+    for files in (None, [None], [BadPath()]):
+        with pytest.raises(intake.IntakeError) as err:
+            intake.run(files, fx.CUSTOMER_CODE, home)
+        assert value not in str(err.value)
+    _ih_no_run_files(home)
+
+
+def test_ih_fifo_source_is_refused_without_reading(home):
+    source = home.inbox / "pipe.txt"
+    _os.mkfifo(source)
+    with pytest.raises(intake.IntakeError):
+        intake.run([source], fx.CUSTOMER_CODE, home)
+    assert stat.S_ISFIFO(source.stat().st_mode)
+    _ih_no_run_files(home)
+
+
+def test_ih_linked_source_parent_is_refused(home, tmp_path):
+    source = _ih_note(home)
+    alias = tmp_path / "alias"
+    alias.symlink_to(home.inbox, target_is_directory=True)
+    with pytest.raises(intake.IntakeError):
+        intake.run([alias / source.name], fx.CUSTOMER_CODE, home)
+    assert source.is_file()
+    _ih_no_run_files(home)
+
+
+def test_ih_review_rechecks_input_before_detection(home, monkeypatch):
+    from contextlib import contextmanager
+    from awb import vault
+
+    source = _ih_note(home)
+    real = vault.vault_lock
+
+    @contextmanager
+    def changed(p):
+        with real(p):
+            source.unlink()
+            yield
+
+    calls = []
+    monkeypatch.setattr(vault, "vault_lock", changed)
+    monkeypatch.setattr(intake, "_review_stop", lambda *a: calls.append(a))
+    with pytest.raises(intake.IntakeError):
+        intake.run([source], fx.CUSTOMER_CODE, home, review=True)
+    assert calls == []
+    _ih_no_run_files(home)
+
+
+def test_ih_review_error_withholds_dependency_values(home, monkeypatch):
+    from awb import candidates
+
+    source = _ih_note(home)
+    source.write_text("contact: " + fx.PLANTED_PERSON + "\n")
+    _, value = _ih_secret()
+    calls = []
+
+    def failed(*args, **kwargs):
+        calls.append(args)
+        raise candidates.ReviewError(value)
+
+    monkeypatch.setattr(candidates, "review", failed)
+    with pytest.raises(intake.IntakeError) as err:
+        intake.run([source], fx.CUSTOMER_CODE, home, review=True)
+    assert calls and value not in str(err.value)
+    assert source.is_file() and not list(home.outbox.rglob("*.md"))
+
+
+def test_ih_extraction_uses_a_private_snapshot_and_cleans_it(home, monkeypatch):
+    source = _ih_note(home)
+    before = source.read_bytes()
+    real = intake._extract.extract
+    seen = []
+
+    def inspect(path):
+        seen.append(path)
+        assert path != source and path.name == source.name
+        assert path.is_relative_to(home.vault / "tmp")
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+        source.write_text("changed after the snapshot\n")
+        assert path.read_bytes() == before
+        return real(path)
+
+    monkeypatch.setattr(intake._extract, "extract", inspect)
+    with pytest.raises(intake.IntakeError):
+        intake.run([source], fx.CUSTOMER_CODE, home)
+    assert len(seen) == 1 and not seen[0].exists()
+    assert list((home.vault / "tmp").iterdir()) == []
+    _ih_no_run_files(home)
+
+
+def test_ih_source_changed_after_output_is_not_archived(home, monkeypatch):
+    source = _ih_note(home)
+    real = intake._write_outputs
+
+    def changed(*args, **kwargs):
+        real(*args, **kwargs)
+        source.write_text("changed after output\n")
+
+    monkeypatch.setattr(intake, "_write_outputs", changed)
+    with pytest.raises(intake.IntakeError):
+        intake.run([source], fx.CUSTOMER_CODE, home)
+    assert source.read_text() == "changed after output\n"
+    _ih_no_run_files(home)
+
+
+def test_ih_move_rechecks_expected_identity(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("before\n")
+    expected = intake._source_state(source)
+    source.write_text("after\n")
+    destination = tmp_path / "vault" / "F-ABCD.txt"
+    with pytest.raises(OSError):
+        intake._move_original(source, destination, expected)
+    assert source.read_text() == "after\n" and not destination.exists()
+
+
+def test_ih_move_rechecks_source_after_copy(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("before\n")
+    destination = tmp_path / "vault" / "F-ABCD.txt"
+    real = intake.shutil.copyfileobj
+
+    def changed(reader, writer):
+        real(reader, writer)
+        source.unlink()
+        source.write_text("arrival\n")
+
+    monkeypatch.setattr(intake.shutil, "copyfileobj", changed)
+    with pytest.raises(OSError):
+        intake._move_original(source, destination)
+    assert source.read_text() == "arrival\n" and not destination.exists()
+
+
+def test_ih_move_copy_failure_removes_partial_destination(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("original\n")
+    destination = tmp_path / "vault" / "F-ABCD.txt"
+
+    def failed(reader, writer):
+        writer.write(b"partial")
+        raise OSError("copy failed")
+
+    monkeypatch.setattr(intake.shutil, "copyfileobj", failed)
+    with pytest.raises(OSError):
+        intake._move_original(source, destination)
+    assert source.read_text() == "original\n" and not destination.exists()
+
+
+def test_ih_move_pins_destination_directory(tmp_path, monkeypatch):
+    source = tmp_path / "source.txt"
+    source.write_text("original\n")
+    destination = tmp_path / "vault" / "F-ABCD.txt"
+    destination.parent.mkdir()
+    pinned = tmp_path / "pinned"
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o755)
+    real = intake.os.open
+
+    def swapped(path, flags, *args, **kwargs):
+        if str(path) in (str(destination), destination.name) and flags & _os.O_CREAT:
+            destination.parent.rename(pinned)
+            destination.parent.symlink_to(outside, target_is_directory=True)
+        return real(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(intake.os, "open", swapped)
+    intake._move_original(source, destination)
+    assert (pinned / destination.name).read_text() == "original\n"
+    assert list(outside.iterdir()) == [] and not source.exists()
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o755
+
+
+def test_ih_undo_refuses_missing_or_invalid_sealed_payload(home, monkeypatch):
+    from awb import vault
+
+    source = home.inbox / "restore.txt"
+    destination = home.originals / fx.CUSTOMER_CODE / "F-ABCD.txt"
+    destination.parent.mkdir()
+    sealed = intake._sealed(destination)
+    sealed.write_bytes(b"ciphertext")
+    for answer in ({}, {"data": None}, {"data": 17}):
+        monkeypatch.setattr(vault, "admin_call", lambda *a, **k: answer)
+        intake._undo(home, fx.CUSTOMER_CODE, [(source, destination, "F-ABCD")], [], [])
+        assert not source.exists() and sealed.read_bytes() == b"ciphertext"
+
+
+def test_ih_undo_sealed_original_refuses_linked_parent(home, tmp_path, monkeypatch):
+    from awb import vault
+
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o755)
+    alias = home.inbox / "alias"
+    alias.symlink_to(outside, target_is_directory=True)
+    source = alias / "restore.txt"
+    destination = home.originals / fx.CUSTOMER_CODE / "F-ABCD.txt"
+    destination.parent.mkdir()
+    sealed = intake._sealed(destination)
+    sealed.write_bytes(b"ciphertext")
+    monkeypatch.setattr(vault, "admin_call", lambda *a, **k: {"data": base64.b64encode(b"original").decode()})
+    intake._undo(home, fx.CUSTOMER_CODE, [(source, destination, "F-ABCD")], [], [])
+    assert list(outside.iterdir()) == [] and sealed.read_bytes() == b"ciphertext"
+
+
+def test_ih_dangling_plain_report_name_is_reserved(home):
+    path = home.private_reports / "report.md"
+    path.symlink_to(home.vault / "absent")
+    assert intake._free_private_path(path) == path.with_name("report-2.md")
+
+
+def test_ih_names_learned_from_notes_are_removed_from_other_files(home, monkeypatch):
+    source = _ih_note(home)
+    other = _ih_note(home, "other.txt")
+    surname = fx.PLANTED_PERSON.split()[-1]
+    other.write_text("the server belongs to " + surname.lower() + "\n")
+    real = intake._extract.extract
+
+    def notes(path):
+        ex = real(path)
+        if path.name == source.name:
+            ex.notes = ["contact: " + fx.PLANTED_PERSON]
+        return ex
+
+    monkeypatch.setattr(intake._extract, "extract", notes)
+    res = intake.run([source, other], fx.CUSTOMER_CODE, home)
+    assert len(res.outputs) == 2
+    assert all(surname.lower() not in path.read_text().lower() for path in res.outputs)
+    assert fx.PLANTED_PERSON in res.private_report.read_text()
+
+
+def test_ih_public_minimal_report_is_checked_for_secrets(home, monkeypatch):
+    source = _ih_note(home)
+    key, value = _ih_secret()
+    monkeypatch.setattr(intake._report, "render_public", lambda rec: key + "=" + value)
+    monkeypatch.setattr(intake._report, "render_minimal", lambda rec: key + "=" + value)
+    with pytest.raises(intake.IntakeError):
+        intake.run([source], fx.CUSTOMER_CODE, home)
+    assert source.exists()
+    _ih_no_run_files(home)
+
+
+def test_ih_public_write_failure_restores_previous_report(home, monkeypatch):
+    first = intake.run([_ih_note(home)], fx.CUSTOMER_CODE, home)
+    previous = {path: path.read_bytes() for path in first.outputs + [first.public_report, first.private_report]}
+    original = next((home.originals / fx.CUSTOMER_CODE).iterdir())
+    source = _ih_note(home)
+    _, value = _ih_secret()
+
+    def failed(path, text):
+        path.write_text("partial report\n")
+        raise OSError(value)
+
+    monkeypatch.setattr(intake._report, "write_public", failed)
+    with pytest.raises(intake.IntakeError) as err:
+        intake.run([source], fx.CUSTOMER_CODE, home)
+    assert value not in str(err.value) and str(home.shared) not in str(err.value)
+    assert all(path.read_bytes() == data for path, data in previous.items())
+    assert source.exists() and list(original.parent.iterdir()) == [original]
+    assert sorted(home.outbox.rglob("*.md")) == sorted(first.outputs + [first.public_report])
+
+
+def test_ih_redo_refuses_unreadable_or_mismatched_archives(home, monkeypatch):
+    source = _ih_note(home)
+    original = home.originals / fx.CUSTOMER_CODE / "F-ABCD.txt"
+    original.parent.mkdir()
+    calls = []
+    monkeypatch.setattr(intake._extract, "extract", lambda path: calls.append(path))
+    for archived in (original, original.with_name("F-EFGH.txt")):
+        with pytest.raises(intake.IntakeError):
+            intake.run([source], fx.CUSTOMER_CODE, home, redo={source: ("F-ABCD", archived)})
+    assert calls == [] and source.exists()
+
+
+def test_ih_text_reader_is_checked_for_secrets(home):
+    key, value = _ih_secret()
+
+    def shape(engine, text):
+        return text, key + "=" + value, Counter(), [], "1 line"
+
+    with pytest.raises(intake.IntakeError, match="withheld"):
+        intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, shape, _ih_writer, label="note", kind="text")
+    assert not list(home.outbox.rglob("*.md"))
+
+
+def test_ih_text_callback_must_write_the_checked_body(home):
+    def writer(outdir, text):
+        return _ih_writer(outdir, "different ordinary text\n")
+
+    with pytest.raises(intake.IntakeError, match="withheld"):
+        intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, _ih_shape, writer, label="note", kind="text")
+    assert not list(home.outbox.rglob("*.md"))
+
+
+def test_ih_text_notes_scrub_secrets_and_gate_classes(home):
+    key, value = _ih_secret()
+    blocked = "CLIENT" + "739"
+    home_path = "/home/" + "fixture" + "/private.txt"
+
+    def shape(engine, text):
+        return text, None, Counter(), [key + "=" + value, home_path, blocked], "1 line"
+
+    res = intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, shape, _ih_writer, label="note", kind="text")
+    public = res.public_report.read_text()
+    assert value not in public and home_path not in public and blocked not in public
+    assert "[path]" in public and "[withheld]" in public
+    private = res.private_report.read_text()
+    assert value in private and home_path in private and blocked in private
+
+
+def test_ih_text_failed_report_restores_previous_report(home, monkeypatch):
+    first = intake.run([_ih_note(home)], fx.CUSTOMER_CODE, home)
+    previous = first.public_report.read_bytes()
+
+    def failed(*args):
+        raise OSError("private report failed")
+
+    monkeypatch.setattr(intake._report, "write_private", failed)
+    with pytest.raises(OSError):
+        intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, _ih_shape, _ih_writer, label="note", kind="text")
+    assert first.public_report.read_bytes() == previous
+    assert not (first.public_report.parent / "note.md").exists()
+    assert first.outputs[0].is_file()
+
+
+def test_ih_text_refused_seal_restores_previous_report(home, monkeypatch):
+    first = intake.run([_ih_note(home)], fx.CUSTOMER_CODE, home)
+    previous = first.public_report.read_bytes()
+    monkeypatch.setattr(intake, "vault_encrypted", lambda p: True)
+    monkeypatch.setattr(intake, "seal", lambda *a: "vault locked")
+    with pytest.raises(intake.IntakeError):
+        intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, _ih_shape, _ih_writer, label="note", kind="text")
+    assert first.public_report.read_bytes() == previous
+    assert not (first.public_report.parent / "note.md").exists()
+    assert list(home.private_reports.rglob("*.md")) == [first.private_report]
+
+
+def test_ih_text_vault_error_withholds_dependency_values(home, monkeypatch):
+    from contextlib import contextmanager
+    from awb import vault
+
+    _, value = _ih_secret()
+
+    @contextmanager
+    def failed(*args):
+        raise vault.VaultError(value)
+        yield
+
+    monkeypatch.setattr(vault, "vault_lock", failed)
+    with pytest.raises(intake.IntakeError) as err:
+        intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, _ih_shape, _ih_writer, label="note", kind="text")
+    assert value not in str(err.value)
+    _ih_no_run_files(home)
+
+
+def test_ih_text_refuses_linked_private_layout(home, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o755)
+    home.private_reports.rmdir()
+    home.private_reports.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OSError):
+        intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, _ih_shape, _ih_writer, label="note", kind="text")
+    assert list(outside.iterdir()) == []
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o755
+    assert not list(home.outbox.rglob("*.md"))
+
+
+def test_ih_input_changed_while_holding_images_is_not_archived(home, monkeypatch):
+    source = _ih_note(home)
+    calls = []
+
+    def changed(*args, **kwargs):
+        calls.append(True)
+        source.write_text("changed while holding images\n")
+        return 0
+
+    monkeypatch.setattr(intake._images, "hold", changed)
+    res = intake.run([source], fx.CUSTOMER_CODE, home)
+    assert calls and source.read_text() == "changed while holding images\n"
+    assert not list(home.originals.rglob("F-*"))
+    assert "original not moved" in res.private_report.read_text()
+
+
+def test_ih_source_swapped_to_link_at_open_is_refused(home, tmp_path, monkeypatch):
+    source = _ih_note(home)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside content\n")
+    outside.chmod(0o644)
+    real = intake.os.open
+
+    def swapped(path, flags, *args, **kwargs):
+        if path == source.name and not source.is_symlink():
+            source.unlink()
+            source.symlink_to(outside)
+        return real(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(intake.os, "open", swapped)
+    with pytest.raises(intake.IntakeError):
+        intake._validate_files([source])
+    assert source.is_symlink() and outside.read_text() == "outside content\n"
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o644
+
+
+def test_ih_report_backup_refuses_a_link(home, tmp_path):
+    source = _ih_note(home)
+    outside = tmp_path / "outside.md"
+    outside.write_text("previous private content\n")
+    report = home.outbox / fx.CUSTOMER_CODE / intake._report.PUBLIC_NAME
+    report.parent.mkdir()
+    report.symlink_to(outside)
+    with pytest.raises(OSError):
+        intake.run([source], fx.CUSTOMER_CODE, home)
+    assert source.exists() and report.is_symlink()
+    assert outside.read_text() == "previous private content\n"
+    _ih_no_run_files(home)
+
+
+def test_ih_text_callback_cannot_return_the_public_report(home):
+    public = home.outbox / fx.CUSTOMER_CODE / intake._report.PUBLIC_NAME
+    public.parent.mkdir()
+    public.write_text("ordinary text\n")
+    with pytest.raises(intake.IntakeError):
+        intake.run_text("ordinary text\n", fx.CUSTOMER_CODE, home, _ih_shape, lambda *a: public,
+                        label="note", kind="text")
+    assert public.read_text() == "ordinary text\n"
+    assert not list(home.private_reports.rglob("*.md"))
+
+
+def test_ih_note_secret_left_by_first_pass_is_dropped(monkeypatch):
+    key, _ = _ih_secret()
+    value = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    engine = intake._Engine([])
+    monkeypatch.setattr(intake.cleanlogs, "wipe_secrets", lambda text, counts: text)
+    monkeypatch.setattr(engine, "sanitize", lambda text, where: (text, Counter()))
+    cleaned = intake._clean_note(engine, "ordinary text\nthe " + key + " is " + value, "note")
+    assert value not in cleaned and "ordinary text" in cleaned
+
+
+def test_ih_public_secret_left_by_first_pass_is_refused(monkeypatch):
+    key, _ = _ih_secret()
+    value = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
+    engine = intake._Engine([])
+    monkeypatch.setattr(intake.cleanlogs, "wipe_secrets", lambda text, counts: text)
+    assert not intake._public_safe(engine, "the " + key + " is " + value)
