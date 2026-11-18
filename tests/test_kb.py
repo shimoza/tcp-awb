@@ -1263,3 +1263,489 @@ def test_a_read_block_that_tests_status_alone_or_whose_control_is_the_confirm_is
     assert any("tests status alone" in r for r in info.value.reasons)
     assert kb.get(e.id).check == ()
     assert kb.block_problems(kb.parse_block(BLOCK_WRITE.splitlines())) == []
+
+
+# --------------------------------------------------------------------------- hostile input and storage regressions
+
+
+def test_entry_links_are_refused_by_every_reader(home, tmp_path):
+    e = new(S_FLAVOR)
+    target = tmp_path / "outside.md"
+    e.path.rename(target)
+    e.path.symlink_to(target)
+    for reader in (lambda: kb.get(e.id), kb.load):
+        with pytest.raises(kb.KBError):
+            reader()
+    assert kb.verify([e.path])
+    assert target.read_text() == kb.render(e)
+
+
+def test_linked_entries_directory_cannot_escape_the_base(home, tmp_path):
+    e = new(S_FLAVOR)
+    outside = tmp_path / "outside"
+    e.path.parent.rename(outside)
+    e.path.parent.symlink_to(outside, target_is_directory=True)
+    for action in (kb.load, lambda: kb.get(e.id), lambda: new(S_GPU)):
+        with pytest.raises((kb.KBError, OSError)):
+            action()
+    assert list(outside.iterdir()) == [outside / e.path.name]
+
+
+def test_special_entry_is_refused_without_opening_a_blocking_stream(home, monkeypatch):
+    import os
+    e = new(S_FLAVOR)
+    e.path.unlink()
+    os.mkfifo(e.path)
+    real_open = os.open
+
+    def guarded_open(path, flags, *args, **kwargs):
+        if str(path) in (str(e.path), e.path.name):
+            assert flags & os.O_NONBLOCK, "a FIFO must never block the reader"
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", guarded_open)
+    # Catch the old Path reader before it blocks as well.
+    real_read = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda p, *a, **k: (_ for _ in ()).throw(
+        AssertionError("unbounded stream read")) if p == e.path else real_read(p, *a, **k))
+    with pytest.raises(kb.KBError):
+        kb.get(e.id)
+
+
+def test_entry_and_question_reads_have_a_size_bound(home, tmp_path):
+    e = new(S_FLAVOR)
+    e.path.write_text(kb.render(e) + "x" * (2 * 1024 * 1024))
+    with pytest.raises(kb.KBError):
+        kb.get(e.id)
+    questions = tmp_path / "questions.json"
+    questions.write_text('[{"question":"' + "x" * (2 * 1024 * 1024) + '","accept":[]}]')
+    with pytest.raises(kb.KBError):
+        kb.load_bench(questions)
+
+
+def test_scope_file_fails_closed_when_present_but_damaged(home, tmp_path, monkeypatch):
+    home.kb.mkdir(parents=True, exist_ok=True)
+    scope = home.kb / kb.SCOPE_FILE
+    assert kb.folder_scope() is None
+    for text in ("", "tcp hcs", "other", "\ufffd"):
+        scope.write_text(text)
+        with pytest.raises(kb.KBError):
+            new(S_FLAVOR)
+    scope.unlink()
+    target = tmp_path / "scope"
+    target.write_text("tcp\n")
+    scope.symlink_to(target)
+    with pytest.raises(kb.KBError):
+        new(S_FLAVOR)
+
+
+def test_unreadable_scope_does_not_disable_scope_enforcement(home, monkeypatch):
+    import os
+    home.kb.mkdir(parents=True, exist_ok=True)
+    scope = home.kb / kb.SCOPE_FILE
+    scope.write_text("hcs\n")
+    original_read, original_open = Path.read_text, os.open
+
+    def read(path, *args, **kwargs):
+        if path == scope:
+            raise PermissionError(SECRET_VALUE)
+        return original_read(path, *args, **kwargs)
+
+    def opened(path, *args, **kwargs):
+        if str(path) in (str(scope), scope.name):
+            raise PermissionError(SECRET_VALUE)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    monkeypatch.setattr(os, "open", opened)
+    with pytest.raises(kb.KBError) as err:
+        new(S_FLAVOR)
+    assert SECRET_VALUE not in str(err.value)
+
+
+def test_export_does_not_follow_a_predictable_temporary_link(home, tmp_path, capsys):
+    new(S_FLAVOR)
+    out = tmp_path / "facts.jsonl"
+    victim = tmp_path / "outside"
+    victim.write_text("keep")
+    trap = tmp_path / ".facts.jsonl.tmp"
+    trap.symlink_to(victim)
+    code, _, _ = run(["export", "--out", str(out)], capsys)
+    assert code == 0 and victim.read_text() == "keep" and trap.is_symlink()
+    assert json.loads(out.read_text())["statement"] == S_FLAVOR
+    assert out.stat().st_mode & 0o007 == 0
+
+
+def test_export_publication_preserves_a_concurrent_output(home, tmp_path, capsys, monkeypatch):
+    new(S_FLAVOR)
+    out = tmp_path / "facts.jsonl"
+    original = kb.export
+
+    def raced(**kwargs):
+        result = original(**kwargs)
+        out.write_text("winner\n")
+        return result
+
+    monkeypatch.setattr(kb, "export", raced)
+    code, _, _ = run(["export", "--out", str(out)], capsys)
+    assert code == 2 and out.read_text() == "winner\n"
+
+
+def test_export_refuses_linked_parents_and_special_destinations(home, tmp_path, capsys):
+    import os
+    new(S_FLAVOR)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(outside, target_is_directory=True)
+    code, _, _ = run(["export", "--out", str(link / "facts.jsonl")], capsys)
+    assert code == 2 and list(outside.iterdir()) == []
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    before = fifo.lstat()
+    code, _, _ = run(["export", "--force", "--out", str(fifo)], capsys)
+    assert code == 2 and fifo.lstat().st_ino == before.st_ino
+
+
+def test_export_failure_cleans_private_temporary_files(home, tmp_path, capsys, monkeypatch):
+    import os
+    new(S_FLAVOR)
+    out = tmp_path / "facts.jsonl"
+    out.write_text("previous\n")
+
+    def fail(*args, **kwargs):
+        raise OSError(SECRET_VALUE)
+
+    monkeypatch.setattr(os, "replace", fail)
+    code, stdout, stderr = run(["export", "--force", "--out", str(out)], capsys)
+    assert code == 2 and SECRET_VALUE not in stdout + stderr
+    assert out.read_text() == "previous\n"
+    assert not list(tmp_path.glob(".facts.jsonl*"))
+
+
+def test_export_never_prints_private_destination_values(home, tmp_path, capsys):
+    new(S_FLAVOR)
+    for value in (fixtures.CUSTOMER_FORMS[0], SECRET_LINE):
+        out = tmp_path / value
+        code, stdout, stderr = run(["export", "--out", str(out)], capsys)
+        assert code == 0 and value not in stdout + stderr
+
+
+def test_index_screens_registered_names_and_secrets(home):
+    e = new(S_FLAVOR)
+    for value in (fixtures.CUSTOMER_FORMS[0], SECRET_LINE):
+        e.path.write_text(kb.render(replace(e, statement=value)))
+        kb.write_index()
+        assert value not in (home.kb / kb.INDEX).read_text()
+        # The writer's already-loaded entries must use the same screen.
+        kb.write_index(entries=[replace(e, statement=value)])
+        assert value not in (home.kb / kb.INDEX).read_text()
+
+
+def test_screen_includes_tags_in_printed_entry_metadata(home, capsys):
+    e = new(S_FLAVOR)
+    token = GH_TOKEN.lower()
+    e.path.write_text(kb.render(replace(e, tags=(token,))))
+    code, stdout, stderr = run(["show", e.id], capsys)
+    assert code == 1 and token not in stdout + stderr
+    records, left = kb.export()
+    assert records == [] and left["withheld"] == 1
+
+
+def test_benchmark_misses_withhold_names_and_secrets(home, tmp_path, capsys):
+    e = new(S_FLAVOR)
+    for value in (fixtures.CUSTOMER_FORMS[0], SECRET_LINE):
+        path = tmp_path / "questions.json"
+        path.write_text(json.dumps([{"question": value, "accept": [e.id]}]))
+        code, stdout, stderr = run(["bench", str(path)], capsys)
+        assert code == 0 and value not in stdout + stderr
+        assert "withheld" in stdout
+
+
+def test_benchmark_rows_and_rank_limit_are_validated(home, tmp_path, capsys):
+    e = new(S_FLAVOR)
+    path = tmp_path / "questions.json"
+    for row in ({"question": "test", "accept": 42}, {"question": [], "accept": [e.id]},
+                {"question": "test", "accept": [[e.id]]}, {"question": "test", "accept": e.id}):
+        path.write_text(json.dumps([row]))
+        code, _, _ = run(["bench", str(path)], capsys)
+        assert code == 2
+    path.write_text(json.dumps([{"question": "test", "accept": [e.id]}]))
+    code, _, _ = run(["bench", "--top", "0", str(path)], capsys)
+    assert code == 2
+
+
+def test_benchmark_deep_json_is_a_safe_usage_error(home, tmp_path, capsys):
+    path = tmp_path / "questions.json"
+    path.write_text("[" * 20000 + "]" * 20000)
+    code, stdout, stderr = run(["bench", str(path)], capsys)
+    assert code == 2 and "cannot be read" in stderr
+
+
+def test_name_check_exception_values_are_withheld(home, monkeypatch, capsys):
+    def unavailable(*args, **kwargs):
+        raise check.CheckUnavailable(SECRET_LINE)
+
+    monkeypatch.setattr(check, "check_text", unavailable)
+    code, stdout, stderr = run(add_argv(S_FLAVOR), capsys)
+    assert code == 2 and "name check unavailable" in stderr
+    assert SECRET_VALUE not in stdout + stderr
+
+
+def test_name_check_hit_classes_cannot_echo_arbitrary_values(home, monkeypatch, capsys):
+    monkeypatch.setattr(kb, "_name_hits", lambda *args: [{"cls": SECRET_LINE}])
+    code, stdout, stderr = run(add_argv(S_FLAVOR), capsys)
+    assert code == 1 and SECRET_VALUE not in stdout + stderr
+
+
+def test_verify_git_exception_values_are_withheld(home, monkeypatch, capsys):
+    from awb import gate
+
+    def fail(*args):
+        raise gate.GateError(SECRET_LINE)
+
+    monkeypatch.setattr(gate, "staged_blobs", fail)
+    code, stdout, stderr = run(["verify", "--staged", "--repo", str(home.kb)], capsys)
+    assert code == 2 and SECRET_VALUE not in stdout + stderr
+
+
+def test_verify_diagnostics_do_not_print_private_paths(home, tmp_path, capsys):
+    for value in (fixtures.CUSTOMER_FORMS[0], SECRET_LINE):
+        code, stdout, stderr = run(["verify", str(tmp_path / value / "missing.md")], capsys)
+        assert code == 1 and value not in stdout + stderr
+
+
+def test_parser_diagnostic_labels_cannot_echo_untrusted_names():
+    for parse in (lambda: kb.parse("bad", SECRET_LINE),
+                  lambda: kb.parse_block(["bad"], SECRET_LINE)):
+        with pytest.raises(kb.KBError) as err:
+            parse()
+        assert SECRET_VALUE not in str(err.value)
+
+
+def test_expiry_overflow_and_invalid_dates_have_value_free_errors():
+    for value in (SECRET_LINE, "9999-12-31"):
+        with pytest.raises(kb.KBError) as err:
+            kb.expires_for(value, "stable")
+        assert SECRET_VALUE not in str(err.value)
+
+
+def test_verify_checks_header_and_block_control_characters(home):
+    e = new(S_FLAVOR)
+    for modified in (replace(e, source="guide\x1b[2J"),
+                     replace(e, check=(("tier", "none"), ("control", "field\x1b[2J"),
+                                       ("needs", "console")))):
+        e.path.write_text(kb.render(modified))
+        assert "control or invisible" in reasons(kb.verify([e.path]))
+
+
+def test_staged_entry_links_are_refused_even_if_the_blob_looks_valid(home):
+    e = new(S_FLAVOR)
+    committed_base(home.kb)
+    blob = kb_git(home.kb, "rev-parse", "HEAD:entries/" + e.path.name).stdout.strip()
+    assert kb_git(home.kb, "update-index", "--cacheinfo", "120000", blob,
+                  "entries/" + e.path.name).returncode == 0
+    assert kb.verify(staged_repo=home.kb)
+
+
+def test_rules_and_recipes_cannot_be_supplied_through_links(home, recipes, tmp_path):
+    target = tmp_path / "tags.txt"
+    target.write_text("ecs\n")
+    link = tmp_path / "tag-link"
+    link.symlink_to(target)
+    with pytest.raises(kb.KBError):
+        kb.known_tags(link)
+    recipe = recipes / "smn-http-confirm.json"
+    recipe.unlink()
+    recipe.symlink_to(target)
+    assert "not a recipe" in " ".join(kb.block_problems(kb.parse_block(BLOCK_WRITE.splitlines())))
+
+
+def test_writer_pins_the_locked_directory_across_a_path_swap(home, tmp_path, monkeypatch):
+    new(S_FLAVOR)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    entries = home.kb / kb.ENTRIES
+    moved = home.kb / "moved"
+    original = kb._new_id
+
+    def swapped(folder):
+        ident = original(folder)
+        entries.rename(moved)
+        entries.symlink_to(outside, target_is_directory=True)
+        return ident
+
+    monkeypatch.setattr(kb, "_new_id", swapped)
+    e = new(S_GPU)
+    assert list(outside.iterdir()) == []
+    assert (moved / e.path.name).read_text() == kb.render(e)
+
+
+def test_export_pins_publication_to_the_opened_parent(home, tmp_path, capsys, monkeypatch):
+    import os
+    new(S_FLAVOR)
+    parent, moved, outside = (tmp_path / n for n in ("output", "moved", "outside"))
+    parent.mkdir()
+    outside.mkdir()
+    out = parent / "facts.jsonl"
+    out.write_text("old")
+    victim = outside / out.name
+    victim.write_text("keep")
+    original = os.replace
+
+    def swapped(src, dst, **kwargs):
+        parent.rename(moved)
+        parent.symlink_to(outside, target_is_directory=True)
+        return original(src, dst, **kwargs)
+
+    monkeypatch.setattr(os, "replace", swapped)
+    code, _, _ = run(["export", "--force", "--out", str(out)], capsys)
+    assert code == 0 and victim.read_text() == "keep"
+    assert json.loads((moved / out.name).read_text())["statement"] == S_FLAVOR
+
+
+def test_index_failure_rolls_back_entry_creation_and_amendment(home, monkeypatch, capsys):
+    e = new(S_FLAVOR)
+    before = {p.name: p.read_bytes() for p in entry_files(home)}
+    index_before = (home.kb / kb.INDEX).read_bytes()
+    original = kb._write_atomic
+
+    def failed_index(path, text, **kwargs):
+        if path.name == kb.INDEX:
+            raise OSError(SECRET_VALUE)
+        return original(path, text, **kwargs)
+
+    monkeypatch.setattr(kb, "_write_atomic", failed_index)
+    for argv in (add_argv(S_GPU), ["amend", e.id, S_FLAVOR + " and eu-nl"]):
+        code, stdout, stderr = run(argv, capsys)
+        assert code == 2 and SECRET_VALUE not in stdout + stderr
+        assert {p.name: p.read_bytes() for p in entry_files(home)} == before
+        assert (home.kb / kb.INDEX).read_bytes() == index_before
+
+
+def test_add_preserves_an_entry_created_after_id_selection(home, monkeypatch):
+    e = new(S_FLAVOR)
+    before = e.path.read_bytes()
+    monkeypatch.setattr(kb, "_new_id", lambda folder: e.id)
+    with pytest.raises((kb.KBError, FileExistsError)):
+        new(S_GPU)
+    assert e.path.read_bytes() == before
+
+
+def test_standard_input_reads_are_bounded(home, capsys, monkeypatch):
+    e = new(S_FLAVOR)
+
+    class Input:
+        def read(self, size=-1):
+            assert 0 < size <= 1024 * 1024 + 1
+            return "x" * size
+
+    monkeypatch.setattr(sys, "stdin", Input())
+    for argv in (add_argv("-"), ["how", e.id, "-"]):
+        code, _, _ = run(argv, capsys)
+        assert code == 2
+    # Trimming the bounded prefix must not turn an oversized input into an accepted truncated fact.
+    text = S_GPU + " " * (kb.MAX_STATEMENT - len(S_GPU)) + " " + SECRET_LINE
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+    code, _, _ = run(add_argv("-"), capsys)
+    assert code == 2 and len(entry_files(home)) == 1
+
+    class BrokenInput:
+        def read(self, size=-1):
+            raw = SECRET_VALUE.encode()
+            raise UnicodeDecodeError("utf-8", raw, 0, len(raw), "invalid input")
+
+    monkeypatch.setattr(sys, "stdin", BrokenInput())
+    for argv in (add_argv("-"), ["how", e.id, "-"]):
+        code, stdout, stderr = run(argv, capsys)
+        assert code == 2 and SECRET_VALUE not in stdout + stderr
+
+
+def test_output_screen_withholds_terminal_control_characters(home, capsys):
+    e = new(S_FLAVOR)
+    hand_edit(e, S_FLAVOR, S_FLAVOR + "\x1b[2J")
+    code, stdout, stderr = run(["show", e.id], capsys)
+    assert code == 1 and "\x1b" not in stdout + stderr
+
+
+def test_concurrent_adds_keep_both_facts_and_index_rows(home, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    written, release, started, done = (threading.Event() for _ in range(4))
+    original = kb._write_atomic
+
+    def held(path, text, **kwargs):
+        result = original(path, text, **kwargs)
+        if path.parent.name == kb.ENTRIES and S_FLAVOR in text:
+            written.set()
+            assert release.wait(5)
+        return result
+
+    def add(statement):
+        if statement == S_GPU:
+            started.set()
+        result = new(statement)
+        if statement == S_GPU:
+            done.set()
+        return result
+
+    monkeypatch.setattr(kb, "_write_atomic", held)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(add, S_FLAVOR)
+        try:
+            assert written.wait(5)
+            second = pool.submit(add, S_GPU)
+            assert started.wait(5)
+            assert not done.wait(0.3), "the second mutation passed a held writer lock"
+        finally:
+            release.set()
+        entries = [first.result(timeout=5), second.result(timeout=5)]
+    assert len({e.id for e in entries}) == 2
+    assert {e.id for e in kb.load()} == {e.id for e in entries}
+    index = (home.kb / kb.INDEX).read_text()
+    assert all(e.id in index for e in entries)
+
+
+def test_missing_and_unreadable_entry_errors_withhold_values(home, monkeypatch, capsys):
+    import os
+    e = new(S_FLAVOR)
+    e.path.unlink()
+    code, stdout, stderr = run(["show", e.id], capsys)
+    assert code == 2 and "there is no entry" in stderr
+    e.path.write_text(kb.render(e))
+    original_open, original_read = os.open, Path.read_text
+
+    def opened(path, *args, **kwargs):
+        if str(path) in (str(e.path), e.path.name):
+            raise PermissionError(SECRET_LINE)
+        return original_open(path, *args, **kwargs)
+
+    def read(path, *args, **kwargs):
+        if path == e.path:
+            raise PermissionError(SECRET_LINE)
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", opened)
+    monkeypatch.setattr(Path, "read_text", read)
+    code, stdout, stderr = run(["show", e.id], capsys)
+    assert code == 2 and "cannot be read" in stderr
+    assert SECRET_VALUE not in stdout + stderr
+
+
+def test_empty_outputs_still_require_a_working_name_check(home, tmp_path, capsys, monkeypatch):
+    missing = tmp_path / "missing-vault"
+    monkeypatch.setenv("AWB_VAULT", str(missing))
+    questions = tmp_path / "questions.json"
+    questions.write_text("[]")
+    for argv in (["find", "flavor"], ["expired"], ["index"], ["scope", "ecs"],
+                 ["bench", str(questions)], ["export", "--out", str(tmp_path / "out.jsonl")]):
+        code, stdout, stderr = run(argv, capsys)
+        assert code == 2 and "name check unavailable" in stderr
+        assert stdout == ""
+
+
+def test_nul_paths_are_refused_without_echoing_the_path(home, tmp_path, capsys):
+    new(S_FLAVOR)
+    path = str(tmp_path / SECRET_LINE) + "\x00"
+    for argv in (["verify", path], ["export", "--out", path], ["bench", path]):
+        code, stdout, stderr = run(argv, capsys)
+        assert code in (1, 2) and SECRET_VALUE not in stdout + stderr

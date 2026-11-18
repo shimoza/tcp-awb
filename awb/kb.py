@@ -94,10 +94,11 @@ import math
 import os
 import re
 import secrets
+import stat
 import sys
-import tempfile
 import unicodedata
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace as _replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -161,6 +162,8 @@ GERMAN_LIMIT = 0.15
 MIN_TRIED = 2
 MAX_STATEMENT = 2000
 MAX_LINE = 300
+MAX_FILE_BYTES = 1024 * 1024
+_PINNED: ContextVar[dict[str, int]] = ContextVar("kb_directories", default={})
 
 ID_RE = re.compile(codes.KB)
 _FILE_RE = re.compile(codes.KB + r"\.md")
@@ -281,6 +284,52 @@ class Refused(KBError):
 # --------------------------------------------------------------------------- places and rules
 
 
+@contextmanager
+def _directory(path: Path, *, create: bool = False):
+    """Open each directory without following links; writers reuse their locked descriptors."""
+    if "\0" in str(path):
+        raise KBError("the path contains a NUL character")
+    path = Path(os.path.abspath(path))
+    pinned = _PINNED.get()
+    if str(path) in pinned:
+        fd = os.dup(pinned[str(path)])
+    else:
+        fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in path.parts[1:]:
+                if create:
+                    try:
+                        os.mkdir(part, dir_fd=fd)
+                    except FileExistsError:
+                        pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = child
+        except BaseException:
+            os.close(fd)
+            raise
+    try:
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read_text(path: Path) -> str:
+    """A bounded UTF-8 snapshot of a regular file, with no linked ancestors or leaves."""
+    if "\0" in str(path):
+        raise KBError("the path contains a NUL character")
+    with _directory(path.parent) as parent:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(fd, "rb") as stream:
+            st = os.fstat(stream.fileno())
+            if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_FILE_BYTES:
+                raise KBError("the input must be a bounded regular file")
+            data = stream.read(MAX_FILE_BYTES + 1)
+            if len(data) > MAX_FILE_BYTES:
+                raise KBError("the input is too large")
+    return data.decode("utf-8")
+
+
 def root(where=None) -> Path:
     """The knowledge base folder: `where` as a folder, the kb of a config.Paths, or config.paths().kb."""
     if where is None:
@@ -293,17 +342,21 @@ def root(where=None) -> Path:
 def folder_scope(where=None) -> str | None:
     """The scope the knowledge base holds, from its SCOPE file, or None when it names none."""
     try:
-        word = (root(where) / SCOPE_FILE).read_text(encoding="utf-8").split()
-    except (OSError, UnicodeDecodeError):
+        word = _read_text(root(where) / SCOPE_FILE).split()
+    except FileNotFoundError:
         return None
-    return word[0] if word and word[0] in SCOPES else None
+    except (OSError, UnicodeDecodeError):
+        raise KBError("the scope file cannot be read") from None
+    if len(word) != 1 or word[0] not in SCOPES:
+        raise KBError("the scope file must hold one scope: tcp or hcs")
+    return word[0]
 
 
 def known_tags(path: Path | None = None) -> tuple[str, ...]:
     """The controlled tag list of rules/tags.txt, in file order. Fails closed when it cannot be read."""
     f = Path(path) if path is not None else TAGS_FILE
     try:
-        text = f.read_text(encoding="utf-8")
+        text = _read_text(f)
     except (OSError, UnicodeDecodeError):
         raise KBError("rules/tags.txt cannot be read, tags cannot be checked") from None
     out = [line.strip().lower() for line in text.splitlines()]
@@ -314,7 +367,10 @@ def expires_for(checked: str, cls: str) -> str:
     """The expiry date of a fact of class `cls` checked on `checked` (ISO dates)."""
     if cls not in CLASSES:
         raise KBError("class must be one of: %s" % ", ".join(CLASSES))
-    return (date.fromisoformat(checked) + timedelta(days=CLASSES[cls])).isoformat()
+    try:
+        return (date.fromisoformat(checked) + timedelta(days=CLASSES[cls])).isoformat()
+    except (ValueError, OverflowError, TypeError):
+        raise KBError("checked must be an ISO date with a representable expiry") from None
 
 
 # --------------------------------------------------------------------------- text checks
@@ -352,8 +408,6 @@ def _counts(pairs: Iterable[tuple[str, int]]) -> str:
 
 
 def _unavailable(err: Exception) -> str:
-    if isinstance(err, check.CheckUnavailable):
-        return str(err)   # "name check unavailable: vault locked" and the like, no value by design
     return "name check unavailable: the register cannot be read"
 
 
@@ -369,6 +423,8 @@ def _require_register(register_path: Path) -> None:
         raise KBError(_unavailable(err)) from None
     if kind == check.MISSING:
         raise KBError("no register found, names cannot be checked")
+    if kind == check.REMOTE:
+        _name_hits("", register_path)
 
 
 def _name_hits(text: str, register_path: Path) -> list[dict]:
@@ -382,7 +438,7 @@ def _name_hits(text: str, register_path: Path) -> list[dict]:
 @functools.lru_cache(maxsize=4)
 def _service_patterns(path: str, stamp: tuple[int, int]) -> tuple[tuple[str, re.Pattern], ...]:
     names: set[str] = set()
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for line in _read_text(Path(path)).splitlines():
         if line.strip() and not line.startswith("#"):
             fields = (line.split("\t") + [""] * 5)[:5]
             names.add(fields[1].strip())
@@ -398,7 +454,7 @@ def service_names() -> tuple[tuple[str, re.Pattern], ...]:
     try:
         st = path.stat()
         return _service_patterns(str(path), (st.st_mtime_ns, st.st_size))
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError, KBError):
         return ()
 
 
@@ -472,6 +528,10 @@ def text_problems(label: str, text: str, register_path: Path, *, language: bool 
         by_cls: dict[str, int] = {}
         for h in hits:
             cls = h.get("cls", "unknown") if isinstance(h, dict) else "unknown"
+            if not isinstance(cls, str) or cls not in {
+                "name", "mail", "url", "domain", "ip", "ipv4", "ipv6", "mac", "iban", "bic", "vat", "phone", "hrb"
+            }:
+                cls = "unknown"
             by_cls[cls] = by_cls.get(cls, 0) + 1
         out.append("%s carries hits of the name check (%s)" % (label, _counts(sorted(by_cls.items()))))
     # a code with a look-alike dash or fullwidth characters inside is still a code (codes.count_codes)
@@ -595,6 +655,9 @@ def _valid_date(value: str) -> bool:
 
 def parse(text: str, name: str = "entry", path: Path | None = None) -> Entry:
     """An entry from its file text. Strict: KBError with the entry id and a line number, never the content."""
+    name = name if isinstance(name, str) and ID_RE.fullmatch(name) else "entry"
+    if not isinstance(text, str) or len(text) > MAX_FILE_BYTES:
+        raise KBError("the entry must be bounded text")
     lines = text.replace("\r\n", "\n").split("\n")
     try:
         sep = lines.index(SEPARATOR)
@@ -663,6 +726,7 @@ def parse_block(lines: Sequence[str], name: str = "entry", first: int = 1) -> tu
     """The check block from its `key: value` lines, in the order of CHECK_KEYS. Strict about the form (a known key,
     once, a known tier): KBError with the entry id and a line number (`first` is the number of the first line),
     never the content. Blank lines are skipped. What the fields say is judged by `block_problems`."""
+    name = name if isinstance(name, str) and (ID_RE.fullmatch(name) or name == "the check block") else "entry"
     fields: dict[str, str] = {}
     for i, line in enumerate(lines, start=first):
         if not line.strip():
@@ -691,7 +755,11 @@ never imports the platform package, so the place is named here again."""
 
 
 def _recipe_exists(recipe: str) -> bool:
-    return (Path(os.environ.get(RECIPES_ENV) or RECIPES_DIR) / ("%s.json" % recipe)).is_file()
+    try:
+        _read_text(Path(os.environ.get(RECIPES_ENV) or RECIPES_DIR) / ("%s.json" % recipe))
+        return True
+    except (OSError, UnicodeError, KBError):
+        return False
 
 
 def _read_test(line: str):
@@ -710,6 +778,11 @@ def block_problems(check: Sequence[tuple[str, str]]) -> list[str]:
     status test of a call that names its status stands (a missing endpoint proven by its 404)."""
     b = dict(check)
     out: list[str] = ["check %s is longer than %d characters" % (k, MAX_LINE) for k, v in check if len(v) > MAX_LINE]
+    for key, value in check:
+        try:
+            _one_line_field(value, "check " + key)
+        except KBError as err:
+            out.append(str(err))
     tier = b.get("tier")
     if tier is None:
         out.append("the check block has no tier (%s)" % ", ".join(TIERS))
@@ -769,21 +842,25 @@ def load(where=None) -> list[Entry]:
     KB-XXXX.md are entries; a malformed one is a KBError (id and line number only)."""
     folder = root(where) / ENTRIES
     try:
-        names = sorted(os.listdir(folder))
+        with _directory(folder) as fd:
+            names = sorted(os.listdir(fd))
+            out = []
+            token = _PINNED.set({**_PINNED.get(), str(Path(os.path.abspath(folder))): fd})
+            try:
+                for name in names:
+                    if _FILE_RE.fullmatch(name):
+                        path = folder / name
+                        try:
+                            text = _read_text(path)
+                        except (OSError, UnicodeError) as err:
+                            raise KBError("%s cannot be read (%s)" % (name[:-3], type(err).__name__)) from None
+                        out.append(parse(text, name[:-3], path))
+            finally:
+                _PINNED.reset(token)
     except FileNotFoundError:
         return []
     except OSError as err:
         raise KBError("the knowledge base cannot be read (%s)" % type(err).__name__) from None
-    out: list[Entry] = []
-    for name in names:
-        if not _FILE_RE.fullmatch(name):
-            continue
-        path = folder / name
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as err:
-            raise KBError("%s cannot be read (%s)" % (name[:-3], type(err).__name__)) from None
-        out.append(parse(text, name[:-3], path))
     return out
 
 
@@ -793,7 +870,7 @@ def get(kb_id: str, where=None) -> Entry:
         raise KBError("the argument is not a knowledge base id (KB-XXXX)")
     path = root(where) / ENTRIES / (kb_id + ".md")
     try:
-        text = path.read_text(encoding="utf-8")
+        text = _read_text(path)
     except FileNotFoundError:
         raise KBError("there is no entry %s" % kb_id) from None
     except (OSError, UnicodeDecodeError) as err:
@@ -801,38 +878,62 @@ def get(kb_id: str, where=None) -> Entry:
     return parse(text, kb_id, path)
 
 
-def _write_atomic(path: Path, text: str) -> None:
-    fd, tmp = tempfile.mkstemp(prefix=".%s." % path.name, suffix=".tmp", dir=path.parent)
-    try:
-        os.fchmod(fd, 0o640)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
+def _write_atomic(path: Path, text: str, *, overwrite: bool = True) -> None:
+    if "\0" in str(path):
+        raise KBError("the path contains a NUL character")
+    with _directory(path.parent) as parent:
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            st = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            st = None
+        if st is not None:
+            if not overwrite:
+                raise KBError("the output file exists; give --force to replace it")
+            if not stat.S_ISREG(st.st_mode):
+                raise KBError("the output must be a regular file")
+        tmp = ".%s.%s.tmp" % (path.name, secrets.token_hex(12))
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                os.fchmod(fh.fileno(), 0o640)
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+            if overwrite:
+                os.replace(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+            else:
+                os.link(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+        finally:
+            try:
+                os.unlink(tmp, dir_fd=parent)
+            except FileNotFoundError:
+                pass
 
 
 @contextmanager
 def _locked(folder: Path):
     """One writer at a time: an exclusive lock on the entries folder itself (no lock file in the repository)."""
-    d = folder / ENTRIES
-    d.mkdir(parents=True, exist_ok=True)
-    fd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        os.close(fd)
+    with _directory(folder, create=True) as parent:
+        try:
+            os.mkdir(ENTRIES, dir_fd=parent)
+        except FileExistsError:
+            pass
+        fd = os.open(ENTRIES, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            token = _PINNED.set({**_PINNED.get(), str(Path(os.path.abspath(folder))): parent,
+                                 str(Path(os.path.abspath(folder / ENTRIES))): fd})
+            try:
+                yield
+            finally:
+                _PINNED.reset(token)
+        finally:
+            os.close(fd)
 
 
 def _new_id(folder: Path) -> str:
-    taken = set(os.listdir(folder / ENTRIES))
+    with _directory(folder / ENTRIES) as fd:
+        taken = set(os.listdir(fd))
     for _ in range(1000):
         kb_id = "KB-" + "".join(secrets.choice(codes.ALPHABET) for _ in range(4))
         if kb_id + ".md" not in taken:
@@ -878,7 +979,8 @@ def render_index(entries: Sequence[Entry], today: date | None = None) -> str:
     return "\n".join(out) + "\n"
 
 
-def write_index(where=None, entries: Sequence[Entry] | None = None, today: date | None = None) -> Path:
+def write_index(where=None, entries: Sequence[Entry] | None = None, today: date | None = None,
+                *, register_path: Path | None = None) -> Path:
     """Write INDEX.md from the entries (all of them when not given). Returns its path.
 
     Reading and writing go under one lock when the entries are not given: a retire that lands between the two
@@ -887,15 +989,17 @@ def write_index(where=None, entries: Sequence[Entry] | None = None, today: date 
     """
     folder = root(where)
     if entries is not None:
-        return _index_file(folder, entries, today)
+        return _index_file(folder, entries, today, register_path)
     with _locked(folder):
-        return _index_file(folder, load(folder), today)
+        return _index_file(folder, load(folder), today, register_path)
 
 
-def _index_file(folder: Path, entries: Sequence[Entry], today: date | None) -> Path:
-    folder.mkdir(parents=True, exist_ok=True)
+def _index_file(folder: Path, entries: Sequence[Entry], today: date | None,
+                register_path: Path | None = None) -> Path:
+    shown, _ = screen(entries, register_path)
     path = folder / INDEX
-    _write_atomic(path, render_index(entries, today))
+    with _directory(folder, create=True):
+        _write_atomic(path, render_index(shown, today))
     return path
 
 
@@ -1046,19 +1150,37 @@ def add(statement: str, *, scope: str, tags: Sequence[str], grade: str, cls: str
         entry = Entry(id=kb_id, scope=scope, tags=tuple(tag_list), grade=grade, checked=checked, cls=cls,
                       expires=expires_for(checked, cls), source=source, tried=tuple(tried), statement=statement,
                       path=path)
-        _write_atomic(path, render(entry))
-        write_index(folder, entries + [entry], today)
+        _store(folder, entries + [entry], entry, today, reg, previous=None)
     return entry
 
 
 # --------------------------------------------------------------------------- amend and retire
 
 
-def _save(folder: Path, entries: Sequence[Entry], entry: Entry, today: date) -> Entry:
+def _save(folder: Path, entries: Sequence[Entry], entry: Entry, today: date,
+          register_path: Path | None = None) -> Entry:
     """Write one changed entry and INDEX.md again. Called under `_locked(folder)`."""
-    _write_atomic(folder / ENTRIES / (entry.id + ".md"), render(entry))
-    write_index(folder, [entry if e.id == entry.id else e for e in entries], today)
+    path = folder / ENTRIES / (entry.id + ".md")
+    previous = _read_text(path)
+    _store(folder, [entry if e.id == entry.id else e for e in entries], entry, today, register_path,
+           previous=previous)
     return entry
+
+
+def _store(folder: Path, entries: Sequence[Entry], entry: Entry, today: date,
+           register_path: Path | None, *, previous: str | None) -> None:
+    """Keep a failed index publication from leaving a partly applied mutation, under the writer lock."""
+    path = folder / ENTRIES / (entry.id + ".md")
+    _write_atomic(path, render(entry), overwrite=previous is not None)
+    try:
+        write_index(folder, entries, today, register_path=register_path)
+    except BaseException:
+        if previous is None:
+            with _directory(path.parent) as parent:
+                os.unlink(path.name, dir_fd=parent)
+        else:
+            _write_atomic(path, previous)
+        raise
 
 
 def amend(kb_id: str, statement: str, *, checked: str | date | None = None, force_new: bool = False,
@@ -1111,7 +1233,7 @@ def amend(kb_id: str, statement: str, *, checked: str | date | None = None, forc
         at = when or old.checked
         return _save(folder, entries, _replace(old, statement=statement, checked=at,
                                                tried=old.tried if new_tried is None else tuple(new_tried),
-                                               expires=expires_for(at, old.cls)), today)
+                                               expires=expires_for(at, old.cls)), today, reg)
 
 
 def recheck(kb_id: str, *, grade: str, source: str, tried: Sequence[str] = (), checked: str | date | None = None,
@@ -1152,7 +1274,7 @@ def recheck(kb_id: str, *, grade: str, source: str, tried: Sequence[str] = (), c
             raise Refused(reasons)
         return _save(folder, entries, _replace(old, grade=grade, source=source,
                                                tried=tuple(tried) if tried else old.tried, checked=when,
-                                               expires=expires_for(when, old.cls)), today)
+                                               expires=expires_for(when, old.cls)), today, reg)
 
 
 def retire(kb_id: str, why: str, *, where=None, register_path: Path | None = None,
@@ -1176,7 +1298,7 @@ def retire(kb_id: str, why: str, *, where=None, register_path: Path | None = Non
         reasons += problems
         if reasons:
             raise Refused(reasons)
-        return _save(folder, entries, _replace(old, retired=today.isoformat(), why=why), today)
+        return _save(folder, entries, _replace(old, retired=today.isoformat(), why=why), today, reg)
 
 
 # --------------------------------------------------------------------------- the check block
@@ -1205,8 +1327,8 @@ def how(kb_id: str, text: str, *, where=None, register_path: Path | None = None,
     today = today or date.today()
     folder = root(where)
     get(kb_id, folder)
-    if not isinstance(text, str):
-        raise KBError("the check block must be text")
+    if not isinstance(text, str) or len(text) > MAX_FILE_BYTES:
+        raise KBError("the check block must be bounded text")
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if lines and lines[0].strip() == CHECK_SEPARATOR:
         lines = lines[1:]
@@ -1226,7 +1348,7 @@ def how(kb_id: str, text: str, *, where=None, register_path: Path | None = None,
         reasons += problems
         if reasons:
             raise Refused(reasons)
-        return _save(folder, entries, _replace(old, check=check), today)
+        return _save(folder, entries, _replace(old, check=check), today, reg)
 
 
 # --------------------------------------------------------------------------- reading
@@ -1244,6 +1366,10 @@ def verify_text(text: str, name: str, register_path: Path) -> list[str]:
     try:
         e = parse(text, kb_id)
         _clean_statement(e.statement)
+        for label, value in [("the source", e.source), *[("tried", t) for t in e.tried]]:
+            _one_line_field(value, label)
+        if e.why:
+            _one_line_field(e.why, "the reason why")
     except KBError as err:
         return [str(err)]
     out: list[str] = []
@@ -1251,8 +1377,11 @@ def verify_text(text: str, name: str, register_path: Path) -> list[str]:
         out += _clean_tags(list(e.tags))[1]
     except KBError as err:
         out.append(str(err))
-    if e.expires != expires_for(e.checked, e.cls):
-        out.append("expires does not follow checked and class (%s gives %d days)" % (e.cls, CLASSES[e.cls]))
+    try:
+        if e.expires != expires_for(e.checked, e.cls):
+            out.append("expires does not follow checked and class (%s gives %d days)" % (e.cls, CLASSES[e.cls]))
+    except KBError as err:
+        out.append(str(err))
     out += text_problems("the statement", e.statement, register_path)
     out += text_problems("the source", e.source, register_path, language=False)
     for i, tried in enumerate(e.tried, start=1):
@@ -1284,8 +1413,8 @@ def verify(files: Sequence[Path] = (), *, staged_repo: Path | None = None,
     items: list[tuple[str, str | None]] = []
     for f in files:
         try:
-            items.append((str(f), Path(f).read_text(encoding="utf-8")))
-        except (OSError, UnicodeDecodeError):
+            items.append((str(f), _read_text(Path(f))))
+        except (OSError, UnicodeDecodeError, KBError):
             items.append((str(f), None))
     problems: list[tuple[str, str]] = []
     if staged_repo is not None:
@@ -1293,11 +1422,16 @@ def verify(files: Sequence[Path] = (), *, staged_repo: Path | None = None,
         try:
             staged = gate.staged_blobs(staged_repo)
             deleted = _staged_deletions(staged_repo)
-        except gate.GateError as err:
-            raise KBError(str(err)) from None
+            modes = {rel: mode for rel, mode, _ in gate._staged_entries(gate._toplevel(staged_repo))}
+        except gate.GateError:
+            raise KBError("the staged entries cannot be read") from None
         for rel, data in staged:
             if rel.startswith(ENTRIES + "/") and rel.endswith(".md"):
-                items.append((rel, data.decode("utf-8", "replace") if data is not None else None))
+                try:
+                    text = data.decode("utf-8") if data is not None and len(data) <= MAX_FILE_BYTES else None
+                except UnicodeDecodeError:
+                    text = None
+                items.append((rel, text if modes.get(rel) in ("100644", "100755") else None))
         for rel in deleted:
             if rel.startswith(ENTRIES + "/") and rel.endswith(".md"):
                 problems.append((rel, "the entry is deleted; withdraw a wrong fact with awb kb retire instead"))
@@ -1375,6 +1509,10 @@ def bench(questions: Sequence[dict], where=None, top: int = 5) -> dict:
     """How well `find` answers questions whose answering entries are known: {"answerable", "hit1", "hit_top",
     "top", "misses"} where misses are the positions of the questions whose entries are not in the first `top`.
     A question counts only while one of its accepted entries stands, so a retirement never reads as a miss."""
+    _validate_questions(questions)
+    _require_register(register_of())
+    if not isinstance(top, int) or isinstance(top, bool) or top < 1:
+        raise KBError("top must be a positive integer")
     live = {e.id for e in load(where) if not e.is_retired}
     n = hit1 = hit_top = 0
     misses: list[int] = []
@@ -1392,16 +1530,24 @@ def bench(questions: Sequence[dict], where=None, top: int = 5) -> dict:
     return {"answerable": n, "hit1": hit1, "hit_top": hit_top, "top": top, "misses": misses}
 
 
+def _validate_questions(questions) -> None:
+    if not isinstance(questions, (list, tuple)) or not all(isinstance(q, dict) for q in questions):
+        raise KBError("the question file holds no list of questions")
+    for q in questions:
+        if (not isinstance(q.get("question"), str) or not isinstance(q.get("accept"), list)
+                or not all(isinstance(a, str) and ID_RE.fullmatch(a) for a in q["accept"])):
+            raise KBError("a question needs text and a list of knowledge base ids")
+
+
 def load_bench(path: Path) -> list[dict]:
     """A question file: a JSON list of {"question", "accept": [ids]}, or an object that holds it under
     "questions". Raises KBError when it is neither."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as err:
+        data = json.loads(_read_text(Path(path)))
+    except (OSError, ValueError, RecursionError) as err:
         raise KBError("the question file cannot be read (%s)" % type(err).__name__) from None
     questions = data.get("questions") if isinstance(data, dict) else data
-    if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
-        raise KBError("the question file holds no list of questions")
+    _validate_questions(questions)
     return questions
 
 
@@ -1410,8 +1556,8 @@ def synonym_groups(path: Path | None = None) -> list[list[frozenset[str]]]:
     works without them."""
     f = Path(path) if path is not None else SYNONYMS_FILE
     try:
-        text = f.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        text = _read_text(f)
+    except (OSError, UnicodeDecodeError, KBError):
         return []
     groups = []
     for line in text.splitlines():
@@ -1468,15 +1614,17 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
     a register or project code, an identifier, a home path, a secret or a token): an entry file written past kb add
     (P3 of the review of 2026-10-10). Raises KBError when the name check cannot run."""
     entries = list(entries)
-    if not entries:
-        return [], 0
     reg = register_of(register_path)
     _require_register(reg)
+    if not entries:
+        return [], 0
 
     def dirty(group: list[Entry]) -> bool:
         # every class of the name check but a web address: a source URL is the usual source of a fact and must not
         # send every search into one check per entry; a name inside it is still a name hit
         text = "\n\n".join(_entry_text(e) for e in group)
+        if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") and c not in "\n\t" for c in text):
+            return True
         hits = _name_hits(text, reg)
         if any(not isinstance(h, dict) or h.get("cls") != "url" for h in hits):
             return True
@@ -1587,7 +1735,7 @@ def export(where=None, *, scope: str | None = "tcp", grades: Sequence[str] = EXP
 
 
 def _entry_text(e: Entry) -> str:
-    return "\n".join([e.statement, e.source, e.why, *e.tried, *(v for _, v in e.check)])
+    return "\n".join([*e.tags, e.statement, e.source, e.why, *e.tried, *(v for _, v in e.check)])
 
 
 def _withheld_line(n: int) -> str:
@@ -1685,9 +1833,19 @@ def _print_similar(near: Sequence[tuple[float, Entry]], reg: Path, today: date) 
         print("  " + _withheld_line(withheld))
 
 
+def _stdin(limit: int) -> str:
+    try:
+        text = sys.stdin.read(limit + 1)
+    except UnicodeError:
+        raise KBError("standard input cannot be read as text") from None
+    if len(text) > limit:
+        raise KBError("standard input is too large")
+    return text
+
+
 def _statement_of(parts: Sequence[str]) -> str:
     text = " ".join(parts)
-    return sys.stdin.read() if text == "-" else text
+    return _stdin(MAX_STATEMENT) if text == "-" else text
 
 
 def _refused(command: str, ref: Refused, reg: Path, today: date) -> int:
@@ -1741,7 +1899,7 @@ def _cmd_how(args, today: date) -> int:
         return 2
     reg = register_of()
     try:
-        entry = how(args.id, sys.stdin.read(), today=today)
+        entry = how(args.id, _stdin(MAX_FILE_BYTES), today=today)
     except Refused as ref:
         return _refused("how", ref, reg, today)
     print("%s: the check block is written (tier %s)" % (entry.id, entry.block["tier"]))
@@ -1756,7 +1914,10 @@ def _cmd_bench(args, today: date) -> int:
           "(%d%%)" % (r["answerable"], r["hit1"], round(100 * r["hit1"] / n), r["top"], r["hit_top"],
                       round(100 * r["hit_top"] / n)))
     for i in r["misses"]:
-        print("  missed #%d: %s" % (i, " ".join(questions[i]["question"].split())[:110]))
+        question = questions[i]["question"]
+        if text_problems("question", question, register_of(), language=False):
+            question = "withheld"
+        print("  missed #%d: %s" % (i, " ".join(question.split())[:110]))
     return 0
 
 
@@ -1826,11 +1987,9 @@ def _cmd_export(args, today: date) -> int:
     records, left = export(scope=args.scope or None, grades=args.grade or EXPORT_GRADES, tags=args.tag,
                            include_expired=args.include_expired, today=today)
     text = "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records)
-    tmp = out.with_name(".%s.tmp" % out.name)
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, out)
+    _write_atomic(out, text, overwrite=args.force)
     grades = sorted({r["grade"] for r in records})
-    print("exported %s to %s (grades %s)" % (_n(len(records), "entry", "entries"), out, ", ".join(grades) or "-"))
+    print("exported %s (grades %s)" % (_n(len(records), "entry", "entries"), ", ".join(grades) or "-"))
     print("left out: %s" % ", ".join("%s %d" % kv for kv in left.items() if kv[1]) or "left out: nothing")
     return 0
 
@@ -1850,10 +2009,10 @@ def _cmd_review(args, today: date) -> int:
 
 def _cmd_expired(args, today: date) -> int:
     old = expired(today=today)
+    shown, withheld = screen(old)
     if not old:
         print("no expired entries")
         return 0
-    shown, withheld = screen(old)
     for e in shown:
         print("  ".join([e.id, "expired %s" % e.expires, e.scope, e.grade, "checked %s" % e.checked,
                          _one_line(e.statement)]))
@@ -1870,7 +2029,8 @@ def _cmd_verify(args, today: date) -> int:
     repo = (args.repo if args.repo is not None else Path.cwd()) if args.staged else None
     problems = verify(args.paths, staged_repo=repo)
     for label, why in problems:
-        print("%s: %s" % (label, why))
+        base = Path(label).name
+        print("%s: %s" % (base if _FILE_RE.fullmatch(base) else "entry", why))
     if problems:
         return 1
     print("awb kb verify: every entry passes the checks of kb add")

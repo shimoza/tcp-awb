@@ -25696,8 +25696,253 @@
    "name": "billed: a start row never runs past the next full hour",
    "run": ".venv/bin/pytest tests/test_billed.py::test_a_start_row_never_runs_past_the_next_full_hour",
    "status": "passing"
+  },
+  {
+   "id": "KB-HARD-001",
+   "phase": "T",
+   "name": "kb hardening: entry links are refused by every reader",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_entry_links_are_refused_by_every_reader",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-002",
+   "phase": "T",
+   "name": "kb hardening: linked entries directory cannot escape the base",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_linked_entries_directory_cannot_escape_the_base",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-003",
+   "phase": "T",
+   "name": "kb hardening: special entry is refused without opening a blocking stream",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_special_entry_is_refused_without_opening_a_blocking_stream",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-004",
+   "phase": "T",
+   "name": "kb hardening: entry and question reads have a size bound",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_entry_and_question_reads_have_a_size_bound",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-005",
+   "phase": "T",
+   "name": "kb hardening: scope file fails closed when present but damaged",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_scope_file_fails_closed_when_present_but_damaged",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-006",
+   "phase": "T",
+   "name": "kb hardening: unreadable scope does not disable scope enforcement",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_unreadable_scope_does_not_disable_scope_enforcement",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-007",
+   "phase": "T",
+   "name": "kb hardening: export does not follow a predictable temporary link",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_export_does_not_follow_a_predictable_temporary_link",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-008",
+   "phase": "T",
+   "name": "kb hardening: export publication preserves a concurrent output",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_export_publication_preserves_a_concurrent_output",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-009",
+   "phase": "T",
+   "name": "kb hardening: export refuses linked parents and special destinations",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_export_refuses_linked_parents_and_special_destinations",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-010",
+   "phase": "T",
+   "name": "kb hardening: export failure cleans private temporary files",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_export_failure_cleans_private_temporary_files",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-011",
+   "phase": "T",
+   "name": "kb hardening: export never prints private destination values",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_export_never_prints_private_destination_values",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-012",
+   "phase": "T",
+   "name": "kb hardening: index screens registered names and secrets",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_index_screens_registered_names_and_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-013",
+   "phase": "T",
+   "name": "kb hardening: screen includes tags in printed entry metadata",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_screen_includes_tags_in_printed_entry_metadata",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-014",
+   "phase": "T",
+   "name": "kb hardening: benchmark misses withhold names and secrets",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_benchmark_misses_withhold_names_and_secrets",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-015",
+   "phase": "T",
+   "name": "kb hardening: benchmark rows and rank limit are validated",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_benchmark_rows_and_rank_limit_are_validated",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-016",
+   "phase": "T",
+   "name": "kb hardening: benchmark deep json is a safe usage error",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_benchmark_deep_json_is_a_safe_usage_error",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-017",
+   "phase": "T",
+   "name": "kb hardening: name check exception values are withheld",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_name_check_exception_values_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-018",
+   "phase": "T",
+   "name": "kb hardening: name check hit classes cannot echo arbitrary values",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_name_check_hit_classes_cannot_echo_arbitrary_values",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-019",
+   "phase": "T",
+   "name": "kb hardening: verify git exception values are withheld",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_verify_git_exception_values_are_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-020",
+   "phase": "T",
+   "name": "kb hardening: verify diagnostics do not print private paths",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_verify_diagnostics_do_not_print_private_paths",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-021",
+   "phase": "T",
+   "name": "kb hardening: parser diagnostic labels cannot echo untrusted names",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_parser_diagnostic_labels_cannot_echo_untrusted_names",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-022",
+   "phase": "T",
+   "name": "kb hardening: expiry overflow and invalid dates have value free errors",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_expiry_overflow_and_invalid_dates_have_value_free_errors",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-023",
+   "phase": "T",
+   "name": "kb hardening: verify checks header and block control characters",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_verify_checks_header_and_block_control_characters",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-024",
+   "phase": "T",
+   "name": "kb hardening: staged entry links are refused even if the blob looks valid",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_staged_entry_links_are_refused_even_if_the_blob_looks_valid",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-025",
+   "phase": "T",
+   "name": "kb hardening: rules and recipes cannot be supplied through links",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_rules_and_recipes_cannot_be_supplied_through_links",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-026",
+   "phase": "T",
+   "name": "kb hardening: writer pins the locked directory across a path swap",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_writer_pins_the_locked_directory_across_a_path_swap",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-027",
+   "phase": "T",
+   "name": "kb hardening: export pins publication to the opened parent",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_export_pins_publication_to_the_opened_parent",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-028",
+   "phase": "T",
+   "name": "kb hardening: index failure rolls back entry creation and amendment",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_index_failure_rolls_back_entry_creation_and_amendment",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-029",
+   "phase": "T",
+   "name": "kb hardening: add preserves an entry created after id selection",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_add_preserves_an_entry_created_after_id_selection",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-030",
+   "phase": "T",
+   "name": "kb hardening: standard input reads are bounded",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_standard_input_reads_are_bounded",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-031",
+   "phase": "T",
+   "name": "kb hardening: output screen withholds terminal control characters",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_output_screen_withholds_terminal_control_characters",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-032",
+   "phase": "T",
+   "name": "kb hardening: concurrent adds keep both facts and index rows",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_concurrent_adds_keep_both_facts_and_index_rows",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-033",
+   "phase": "T",
+   "name": "kb hardening: missing and unreadable entry errors withhold values",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_missing_and_unreadable_entry_errors_withhold_values",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-034",
+   "phase": "T",
+   "name": "kb hardening: empty outputs still require a working name check",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_empty_outputs_still_require_a_working_name_check",
+   "status": "passing"
+  },
+  {
+   "id": "KB-HARD-035",
+   "phase": "T",
+   "name": "kb hardening: nul paths are refused without echoing the path",
+   "run": ".venv/bin/pytest tests/test_kb.py::test_nul_paths_are_refused_without_echoing_the_path",
+   "status": "passing"
   }
  ],
- "total_tests": 3671,
+ "total_tests": 3706,
  "checked": "2026-11-18"
 }
