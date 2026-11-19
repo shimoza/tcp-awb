@@ -33,6 +33,8 @@ Parts, in this order:
   The counts (cases, leaks, losses, by case module) go into the report and as one line into
   <shared>/refresh/wipe.tsv with the release; more leaks or more losses than the last line is overdue.
 - projects: active projects whose STATE.md is older than --max-state-age days (14), with their open items.
+- packages: `awb solutions status` of every solution package of <shared>/packages.tsv, live prices included, one
+  line each; a stale package is overdue (Q-0019).
 - defaults: the pointers the Workbench carries still point somewhere: every command the work rules and
   COMMANDS.md name exists, every knowledge id the code and the rules cite exists and is not retired, and every
   contract entry that cites revisions of the service description cites the current one among them.
@@ -80,7 +82,7 @@ import awb
 from awb import check, codes, config, jobs, kb, offered, projects
 from awb.tcp import board, dataset, mirror, price, recheck
 
-PARTS = ("mirrors", "release-notes", "prices", "knowledge", "wipe", "projects", "defaults", "dataset")
+PARTS = ("mirrors", "release-notes", "prices", "knowledge", "wipe", "projects", "packages", "defaults", "dataset")
 VERDICTS = ("confirmed", "changed", "refuted", "unchecked")
 MAX_STATE_AGE = 14
 RN_FIRST_DAYS = 30
@@ -829,6 +831,38 @@ def part_projects(p: config.Paths, *, today: datetime.date, max_age: int) -> Par
     return _finish(part)
 
 
+def part_packages(p: config.Paths, *, today: datetime.date) -> Part:
+    """The status of every registered solution package (awb solutions status, live prices included), one line each;
+    a stale package is overdue. Codes, slugs and counts only."""
+    from awb import packages, solutions
+
+    part = Part("packages")
+    rows = packages.rows(p)
+    if not rows:
+        part.lines.append("no package registered")
+        return _finish(part)
+    try:
+        paths = {r.code: Path(r.path) for r in projects.load(p) if r.state in projects.LIVE_STATES}
+    except projects.ProjectError:
+        part.error = "project register cannot be read"
+        return _finish(part)
+    for r in rows:
+        folder = paths.get(r["project"])
+        if folder is None:
+            part.lines.append("%s: its solutions project is not live" % r["slug"])
+            part.overdue += 1
+            continue
+        try:
+            st = solutions.status(r["slug"], project=folder, today=today, p=p)
+        except kb.KBError:
+            part.lines.append("%s: the status could not be read" % r["slug"])
+            part.overdue += 1
+            continue
+        part.lines.append(st.line() + ("  OVERDUE" if st.state == "stale" else ""))
+        part.overdue += int(st.state == "stale")
+    return _finish(part)
+
+
 # --------------------------------------------------------------------------- defaults
 
 
@@ -965,6 +999,8 @@ def _run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.d
                 done.append(part_wipe(p, today=today))
             elif name == "projects":
                 done.append(part_projects(p, today=today, max_age=max_state_age))
+            elif name == "packages":
+                done.append(part_packages(p, today=today))
             elif name == "defaults":
                 done.append(part_defaults(p, base))
             else:

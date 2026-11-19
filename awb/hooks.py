@@ -1417,6 +1417,12 @@ def hook_stop(data: dict) -> int:
         harvest_msg = harvest.due(config.paths(), data.get("transcript_path"), data.get("session_id"))
     except Exception:
         harvest_msg = None
+    contrib_msg = None
+    try:
+        from awb import packages
+        contrib_msg = packages.due(config.paths(), root, data.get("transcript_path"), data.get("session_id"))
+    except Exception:
+        contrib_msg = None
     late_msg = None
     try:
         from awb import status as _status
@@ -1437,7 +1443,7 @@ def hook_stop(data: dict) -> int:
     except (OSError, UnicodeError, opensweep.OpenError):
         pass
     # task GT: the stop hook never asks for a review, a tier or a request check
-    said = [m for m in (draft_msg, harvest_msg, late_msg, drafts_msg, open_msg) if m]
+    said = [m for m in (draft_msg, harvest_msg, contrib_msg, late_msg, drafts_msg, open_msg) if m]
     if said:
         print("\n".join(said), file=sys.stderr)
         return BLOCK

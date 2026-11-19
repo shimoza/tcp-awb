@@ -10,7 +10,8 @@ A package is a folder of the solutions project, `packages/<slug>/`:
 
 Manifest keys: slug (the folder name), kind (offer | guide | kit), audience (one line), tags (rules/tags.txt),
 parts (a comma list of the files, in order), services (a comma list of service names of the service description,
-each checked at build), best-before (days, default 90) and, written by hand when it is over, state: retired.
+each checked at build), terms (a comma list the sweep looks for, default the tags), best-before (days, default
+90) and, written by hand when it is over, state: retired.
 
 A price never stands in a part. A part writes `{{price SERVICE FLAVOR [os=TEXT] [term=PAYG|R12|...]
 [region=REGION]}}` and the build fills the line live from the price API with term, region and date, and keeps the
@@ -26,6 +27,17 @@ version that is not released yet is built again in place; a released one is neve
     awb solutions screen SLUG [--version V] [--project DIR]
     awb solutions screen --selftest
     awb solutions release SLUG [--project DIR]
+    awb solutions sweep SLUG [--dry-run] [--project DIR]
+
+`sweep` (5.2) is the desk's name-free work-side command: a program scans every live project but the solutions
+project (working Markdown files only, never input/, in/ or originals) for the manifest's terms (`terms:`, else its
+tags) and prints codes and counts. A project with hits and a change since its mark in
+`<shared>/patterns/sweep/<slug>.tsv` gets `awb projects note` when a session holds it now, else a side session
+`contrib-<slug>` (awb side, the default cheap model) with a fixed brief: write cards through `awb kb pattern add`,
+nothing else. No model reads a project here.
+
+Every build, status and release writes the package's row of `<shared>/packages.tsv` (awb/packages.py), which the
+board shows and the refresh writes again with the live status.
 
 `status` prints one line per package: version, state and the counts of the staleness reasons of 4.5: changed
 (a source's statement or check date moved), retired, expired, new (an entry or card of the package's tags or slug
@@ -54,7 +66,9 @@ Exit codes: 0 ok, 1 refused or findings, 2 usage or error.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -73,7 +87,7 @@ RELEASES = "RELEASES.tsv"
 PRICES = "PRICES.tsv"
 OUT = "out"
 KINDS = ("offer", "guide", "kit")
-KEYS = ("slug", "kind", "audience", "tags", "parts", "services", "best-before", "region", "state")
+KEYS = ("slug", "kind", "audience", "tags", "parts", "services", "terms", "best-before", "region", "state")
 REQUIRED = ("slug", "kind", "audience", "tags", "parts")
 BEST_BEFORE = 90
 NEVER_LEAVES = ("risks.md",)
@@ -102,6 +116,7 @@ class Manifest:
     best_before: int = BEST_BEFORE
     region: str = "eu-de"
     state: str = ""
+    terms: tuple[str, ...] = ()
 
 
 @dataclass
@@ -183,7 +198,8 @@ def read_manifest(d: Path) -> Manifest:
         raise SolutionsError("best-before is a number of days") from None
     return Manifest(slug=head["slug"], kind=head["kind"], audience=head["audience"], tags=tuple(tags),
                     parts=_list(head["parts"]), services=_list(head.get("services", "")), best_before=best,
-                    region=head.get("region") or "eu-de", state=head.get("state", ""))
+                    region=head.get("region") or "eu-de", state=head.get("state", ""),
+                    terms=_list(head.get("terms", "").lower()))
 
 
 def releases(d: Path) -> list[tuple[str, str, str]]:
@@ -388,6 +404,7 @@ def build(slug: str, *, project: Path | None = None, major: bool = False, fetche
             pdfmod.convert(out / (slug + ".md"), start=proj)
         except pdfmod.PdfError as err:
             raise SolutionsError("the PDF was not written: %s" % err) from None
+    status(slug, project=proj, offline=True, today=today, where=where)
     return version, out, {"sources": len(rows), "prices": len(prices)}
 
 
@@ -395,9 +412,26 @@ def build(slug: str, *, project: Path | None = None, major: bool = False, fetche
 
 
 def status(slug: str, *, project: Path | None = None, offline: bool = False, fetcher: Callable | None = None,
-           today: date | None = None, where=None) -> Status:
+           today: date | None = None, where=None, p: config.Paths | None = None) -> Status:
+    """The status of one package; its row in <shared>/packages.tsv is written again with it."""
     today = today or date.today()
     proj = project_root(project)
+    st = _status(slug, proj, offline=offline, fetcher=fetcher, today=today, where=where)
+    m = read_manifest(package_dir(proj, slug))
+    rel = releases(package_dir(proj, slug))
+    from awb import packages
+
+    try:
+        packages.record({"slug": slug, "kind": m.kind, "tags": ",".join(m.tags), "state": st.state,
+                         "version": st.version, "released": rel[-1][1] if rel else "", "project": proj.name,
+                         "counts": ";".join("%s=%d" % kv for kv in st.counts.items()), "checked": today.isoformat()},
+                        p)
+    except (OSError, ValueError):
+        pass   # the register is a view for the board; the status itself stands
+    return st
+
+
+def _status(slug: str, proj: Path, *, offline: bool, fetcher: Callable | None, today: date, where=None) -> Status:
     d = package_dir(proj, slug)
     m = read_manifest(d)
     rel = releases(d)
@@ -618,8 +652,142 @@ def release(slug: str, *, project: Path | None = None, today: date | None = None
     _git(proj, "add", "--", rel_path)
     _git(proj, "commit", "-q", "-m", "Release %s %s" % (slug, version), "--", rel_path)
     _git(proj, "tag", "%s/%s" % (slug, version))
+    status(slug, project=proj, offline=True, today=today, where=where, p=p)
     return version, []
 
+
+
+# --------------------------------------------------------------------------- the sweep (5.2)
+
+SWEEP_SKIP = frozenset({"input", "in", "originals", ".git", ".side", "node_modules", "__pycache__"})
+MAX_SWEEP_FILE = 1024 * 1024
+BRIEF = """# Pattern cards for the package %(slug)s
+
+Written by awb solutions sweep. Read the working files of this project (never input/, in/ or an original) and
+write the reusable pieces for the solution package %(slug)s as pattern cards through awb kb pattern add --package
+%(slug)s, or count a card that says it already with awb kb pattern support PAT-XXXX (awb kb pattern find first).
+Write nothing else and change no other file.
+
+The rules (DESIGN 5.4 and 5.5): a statement about TCP carries the KB id it rests on; a number becomes a range, an
+ask becomes a signal, an inventory line becomes a sizing rule; no total, no date, no code, no name, no quote and no
+resource name of this project (the fingerprint check refuses them with the class). When nothing is reusable, write
+one line that says so in STATE.md and stop.
+"""
+
+
+def sweep_marks_file(slug: str, p: config.Paths | None = None) -> Path:
+    return kbpattern.shared_folder(p) / "sweep" / ("%s.tsv" % slug)
+
+
+def _sweep_marks(slug: str, p: config.Paths | None) -> dict[str, float]:
+    out = {}
+    for r in read_tsv(sweep_marks_file(slug, p)):
+        if codes.is_project_code(r.get("code", "")):
+            try:
+                out[r["code"]] = float(r.get("mtime", "0"))
+            except ValueError:
+                pass
+    return out
+
+
+def _term_res(terms: Sequence[str]) -> list[re.Pattern]:
+    return [re.compile(r"(?<![\w-])%s(?![\w-])" % re.escape(t), re.I) for t in terms if t]
+
+
+def scan(folder: Path, terms: Sequence[str]) -> tuple[int, float]:
+    """(working Markdown files that name a term, newest mtime of those files). Never input/, in/ or originals."""
+    pats = _term_res(terms)
+    hits, newest = 0, 0.0
+    for top, dirs, files in os.walk(folder, followlinks=False):
+        dirs[:] = [x for x in dirs if x not in SWEEP_SKIP and not x.startswith(".")]
+        for name in files:
+            if not name.endswith(".md"):
+                continue
+            f = Path(top) / name
+            try:
+                st = f.lstat()
+                if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_SWEEP_FILE:
+                    continue
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if any(x.search(text) for x in pats):
+                hits += 1
+                newest = max(newest, st.st_mtime)
+    return hits, newest
+
+
+def _solutions_of(slug: str, project: Path | None, p: config.Paths) -> Path:
+    try:
+        return project_root(project)
+    except kb.KBError:
+        pass
+    from awb import packages, projects
+
+    for r in packages.rows(p):
+        if r["slug"] == slug and r["project"]:
+            for pr in projects.load(p):
+                if pr.code == r["project"]:
+                    return Path(pr.path)
+    raise SolutionsError("package %s is in no register row; run awb solutions status in the solutions project" % slug)
+
+
+def _note(p: config.Paths, code: str, slug: str) -> None:
+    from awb import devnote
+
+    devnote.write(p, code, "Pattern cards for %s" % slug, BRIEF % {"slug": slug})
+
+
+def _side(folder: Path, slug: str) -> None:
+    from awb import side
+
+    rel = Path("notes") / ("contrib-%s.md" % slug)
+    (folder / "notes").mkdir(exist_ok=True)
+    (folder / rel).write_text(BRIEF % {"slug": slug}, encoding="utf-8")
+    side.start("contrib-%s" % slug, str(rel), cwd=folder)
+
+
+def sweep(slug: str, *, project: Path | None = None, p: config.Paths | None = None, dry_run: bool = False,
+          noter: Callable | None = None, starter: Callable | None = None) -> list[dict]:
+    """Scan every live project but the solutions project for the package's terms (the manifest's terms, else its
+    tags), codes and counts only. A project with hits and a change since its last sweep mark gets a note when a
+    session holds it now, else a side session with the fixed brief. Returns one row per project with hits."""
+    from awb import projects, sessions
+
+    p = p or config.paths()
+    proj = _solutions_of(slug, project, p)
+    m = read_manifest(package_dir(proj, slug))
+    terms = m.terms or m.tags
+    marks = _sweep_marks(slug, p)
+    noter = noter or (lambda code, folder: _note(p, code, slug))
+    starter = starter or (lambda code, folder: _side(folder, slug))
+    out = []
+    for pr in projects.load(p):
+        if pr.state not in projects.LIVE_STATES or pr.code == proj.name:
+            continue
+        folder = Path(pr.path)
+        if not folder.is_dir():
+            continue
+        hits, newest = scan(folder, terms)
+        if not hits:
+            continue
+        row = {"code": pr.code, "files": hits, "action": "no change since the last sweep"}
+        if newest > marks.get(pr.code, 0.0):
+            live = sessions.owner(p, pr.code) is not None
+            row["action"] = "note" if live else "side session contrib-%s" % slug
+            if dry_run:
+                row["action"] += " (dry run)"
+            else:
+                try:
+                    (noter if live else starter)(pr.code, folder)
+                    marks[pr.code] = newest
+                except Exception as err:   # one project that cannot take it does not stop the sweep
+                    row["action"] = "%s failed (%s)" % (row["action"], type(err).__name__)
+        out.append(row)
+    if not dry_run:
+        _write(sweep_marks_file(slug, p), render_tsv(("code", "mtime"), [{"code": c, "mtime": "%.3f" % t}
+                                                                        for c, t in sorted(marks.items())]))
+    return out
 
 # --------------------------------------------------------------------------- commands
 
@@ -670,6 +838,14 @@ def _cmd_screen(args) -> int:
     return 0
 
 
+def _cmd_sweep(args) -> int:
+    found = sweep(args.slug, project=args.project, dry_run=args.dry_run)
+    for r in found:
+        print("%s  %d file(s)  %s" % (r["code"], r["files"], r["action"]))
+    print("sweep %s: %d project(s) with hits" % (args.slug, len(found)))
+    return 0
+
+
 def _cmd_release(args) -> int:
     version, found = release(args.slug, project=args.project)
     if found:
@@ -701,6 +877,12 @@ def _parser():
     s.add_argument("--selftest", action="store_true", help="prove the screen finds planted cases")
     s.add_argument("--project", type=Path, default=None)
     s.set_defaults(func=_cmd_screen)
+    s = sub.add_parser("sweep", help="scan every project for the package's terms (codes and counts) and ask the "
+                                     "ones with changes for cards: a note or a side session")
+    s.add_argument("slug")
+    s.add_argument("--dry-run", action="store_true", help="print what would be asked, ask nothing")
+    s.add_argument("--project", type=Path, default=None, help="the solutions project (default: the register row)")
+    s.set_defaults(func=_cmd_sweep)
     s = sub.add_parser("release", help="screen, record, commit and tag the newest built version")
     s.add_argument("slug")
     s.add_argument("--project", type=Path, default=None)

@@ -26830,8 +26830,64 @@
    "name": "solution packages: the selftest passes and fails when the screen is blind",
    "run": ".venv/bin/pytest tests/test_solutions.py::test_the_selftest_passes_and_fails_when_the_screen_is_blind",
    "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-01",
+   "phase": "Q-0019",
+   "name": "package register and sweep: the register keeps one row per package and feeds the board",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_the_register_keeps_one_row_per_package_and_feeds_the_board",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-02",
+   "phase": "Q-0019",
+   "name": "package register and sweep: build status and release write the register",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_build_status_and_release_write_the_register",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-03",
+   "phase": "Q-0019",
+   "name": "package register and sweep: the stop hook asks once per batch of changed deliverables",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_the_stop_hook_asks_once_per_batch_of_changed_deliverables",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-04",
+   "phase": "Q-0019",
+   "name": "package register and sweep: the stop hook skips other tags a retired package and the solutions project",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_the_stop_hook_skips_other_tags_a_retired_package_and_the_solutions_project",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-05",
+   "phase": "Q-0019",
+   "name": "package register and sweep: the stop hook carries the question",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_the_stop_hook_carries_the_question",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-06",
+   "phase": "Q-0019",
+   "name": "package register and sweep: the sweep counts projects and asks only the changed ones",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_the_sweep_counts_projects_and_asks_only_the_changed_ones",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-07",
+   "phase": "Q-0019",
+   "name": "package register and sweep: the sweep finds its solutions project by the register",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_the_sweep_finds_its_solutions_project_by_the_register",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PKG-08",
+   "phase": "Q-0019",
+   "name": "package register and sweep: the refresh part runs the status of every package",
+   "run": ".venv/bin/pytest tests/test_packages.py::test_the_refresh_part_runs_the_status_of_every_package",
+   "status": "passing"
   }
  ],
- "total_tests": 3833,
+ "total_tests": 3841,
  "checked": "2026-11-19"
 }

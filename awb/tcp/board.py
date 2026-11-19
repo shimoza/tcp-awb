@@ -110,7 +110,7 @@ def markdown(board: dict) -> str:
                                   s["without_status"]), ""]
     if board.get("wipe"):
         out += [board["wipe"], ""]
-    for k in ("build", "recheck"):
+    for k in ("build", "recheck", "packages"):
         if board.get(k):
             out += [board[k], ""]
     if board.get("platform"):
@@ -219,7 +219,7 @@ def page(board: dict) -> str:
                 e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"],
                 len(board.get("parked") or []), s["current"],
                 s["lagging"], s["without_status"],
-                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck") if board.get(k)), platform, rows,
+                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck", "packages") if board.get(k)), platform, rows,
                 "".join(sections), parked))
 
 
@@ -388,6 +388,17 @@ def build_state(p) -> dict | None:
             if m_unit and m and cells[2] in UNIT_RESULTS:
                 out["failed"].append({"unit": m_unit.group(1), "result": cells[2], "time": m.group(1)})
     return out
+
+
+def packages_line(p) -> str:
+    """The board's packages line from <shared>/packages.tsv (awb/packages.py): slug, version, state and the
+    staleness reasons that count, as the last status of each package wrote them."""
+    from awb import packages
+
+    try:
+        return packages.line(p)
+    except OSError:
+        return "packages: the register cannot be read"
 
 
 def build_line(p) -> str:
@@ -684,6 +695,7 @@ def main(argv: list[str] | None = None) -> int:
     board["wipe"] = wipe_line(p)
     board["build"] = build_line(p)
     board["recheck"] = recheck_line(p)
+    board["packages"] = packages_line(p)
     if args.command == "show":
         from awb import hooks
 
