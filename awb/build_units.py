@@ -61,7 +61,7 @@ TOKEN_HOST = "platform.claude.com"
 
 POLL = 30.0
 TICK = 1.0
-SUITE_SECONDS = 1800        # D-S6
+SUITE_SECONDS = 2700        # D-S6; 45 min since 2026-11-19 (stopgap of Q-0013): the suite took 26 to 29 of 30 min and hung under the load of parallel build sessions
 RETRY_WAIT = 600            # D-S4: the one retry of an API error before the first tool call, after ten minutes
 SMALL_MAX = 1 << 20
 CPU_QUOTA = "200%"
