@@ -29,6 +29,14 @@ closure holds it; the fixed rules of RULES cover the files outside the package; 
 PACKAGE_DATA (awb/winlab/*.ps1) ships with the release and restarts nothing; a file under awb/ in no closure and
 not in COMMAND_ONLY restarts every unit and prints as unmapped.
 
+A service whose closure did not change still restarts when it runs an older release (Q-0002, `older_release_units`):
+it is active, its main process started before the switch of the last deploy (the `flip` of the journal, same boot)
+and the journal does not record it on the live release. Its release is neither the target nor the live one, so the
+retention would prune it under the running process (the gateway of the web side, socket activated, kept a pruned
+release and the host monitor saw the portal down). It restarts with the same mechanics, waits and results as any
+other unit, `runs an older release` in the plan and the dry run; the build runner keeps its deferral, a timer's
+oneshot its next run, the vault and the key service their own rules.
+
 The build runner (`awb build serve`, presentations/self-build) is never started by a deploy: when it is not running
 it takes the new code at its next start. While an awb-task-* unit is active its restart is deferred and root leaves
 <build_root>/runs/restart-wanted; the runner exits between two tasks and systemd starts it with the new code.
@@ -1193,6 +1201,38 @@ def _commit_known(run: Callable, repo: Path, commit) -> bool:
         ["git", "-C", str(repo), "cat-file", "-e", "%s^{commit}" % commit], capture_output=True).returncode == 0
 
 
+def older_release_units(journal: dict | None, live, first: bool, units: dict[str, dict], show: dict[str, dict],
+                        argvs: dict[str, list[str] | None], changed_units: set[str]) -> set[str]:
+    """The active services that run a release older than the live one (Q-0002): the main process started before
+    the switch of the last deploy (ExecMainStartTimestampMonotonic before its `flip`, same boot) and the journal
+    does not record the unit on the live release. Their closure did not change, so no other rule restarts them,
+    and their release is neither the target nor the live one, so the retention would remove it under them
+    (the gateway kept the code of a pruned release; needrestart flagged it and the monitor saw the portal down).
+    A socket has no code, a daemon of DAEMON_ORDER has its reload and its own line (`daemon_code`)."""
+    if first or journal is None or not isinstance(live, str) or journal.get("boot") != boot_id():
+        return set()
+    flip_at = journal.get("flip")
+    if isinstance(flip_at, bool) or not isinstance(flip_at, int) or flip_at <= 0:
+        return set()
+    ran = journal.get("running") if isinstance(journal.get("running"), dict) else {}
+    out = set()
+    for u, info in units.items():
+        if u.endswith(".socket") or info["kind"] not in ("service", "web") or u in changed_units:
+            continue
+        if daemon_kind(argvs.get(u)) is not None:
+            continue
+        s = show.get(u) or {}
+        if not is_installed(s) or s.get("ActiveState") != "active":
+            continue
+        try:
+            started = int(s.get("ExecMainStartTimestampMonotonic") or 0)
+        except ValueError:
+            continue
+        if 0 < started < flip_at and ran.get(u) != live:
+            out.add(u)
+    return out
+
+
 def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
     """The plan of a deploy, computed as the owner from the repository, the journal, systemd and the daemons. One
     JSON object; root validates it before use."""
@@ -1292,6 +1332,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
                 if is_installed(show[u]) and not u.endswith(".socket") and 0 < started < journal["flip"] \
                         and u not in eff.units:
                     stale.add(u)
+    older = older_release_units(journal, live, first, units, show, argvs, set(eff.units))
     daemons = (host.daemons or owner_daemon_states)()
     timed = oneshot_units(tree, units)
     held = held_sockets(tree, units)
@@ -1318,6 +1359,8 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
             action, reason = "restart", "pending from the last run"
         elif u in stale:
             action, reason = "restart", "started before the last flip"
+        elif u in older:
+            action, reason = "restart", "runs an older release (started before the switch to %s)" % short(live)
         if opts.only:
             if u in opts.only and installed and action != "not installed":
                 if action == "unchanged":

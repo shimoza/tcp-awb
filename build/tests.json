@@ -27481,8 +27481,57 @@
    "name": "Q-0028 suite unit: wallclock tests run alone before the queue, the rest of their file in the queue, one junit",
    "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_the_wallclock_tests_of_a_file_run_alone_before_the_queue_and_the_rest_of_the_file_in_the_queue",
    "status": "passing"
+  },
+  {
+   "id": "Q02-1",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: a service started before the last switch restarts with its closure unchanged, runs an older release",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_a_service_that_started_before_the_last_switch_restarts_with_its_closure_unchanged",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-2",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: sockets, the two daemons, inactive units and units on the live release are left alone",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_sockets_daemons_inactive_units_and_units_on_the_live_release_are_left_alone",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-3",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: no flip in the journal, a boolean flip or another boot restarts nothing by the older release rule",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_no_journal_flip_or_another_boot_restarts_nothing_by_this_rule",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-4",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: a change of its closure keeps the reason of the change",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_a_change_of_its_closure_keeps_the_reason_of_the_change",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-5",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: --only still limits the restart to the named units",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_only_still_limits_the_restart_to_the_named_units",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-6",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: the build runner on an older release keeps its deferral while a task runs",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_the_build_runner_on_an_older_release_keeps_its_deferral",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-7",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: the dry run names the restart, the run restarts it through install.sh, waits and records it",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_the_dry_run_names_the_restart_and_the_run_restarts_waits_and_records_it",
+   "status": "passing"
   }
  ],
- "total_tests": 3926,
+ "total_tests": 3933,
  "checked": "2026-11-19"
 }
