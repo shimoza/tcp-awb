@@ -45,6 +45,27 @@ _SIGNED_ACCESS_RE = re.compile(r"(?P<key>\bAccess=)(?P<q>)(?P<value>[A-Za-z0-9]{
 _PASSWORD_RE = re.compile(
     r"(?i)(?<![\w-])(?P<key>[\"']?(?:[\w.-]*[_.-])?(?:pass(?:word|wd|wort|phrase)?|pwd|kennwort)" + _SEP + r")"
     + _VALUE)
+PS_PASSWORD_RE = re.compile(
+    r"""(?i)(?<![\w-])(?P<key>(?:-[A-Za-z]*(?:password|passwort|pwd)|convertto-securestring(?:[ \t]+-string)?)"""
+    r"""[ \t]+)(?P<q>["'])?(?P<value>(?(q)[^"'\n]+|[^\s"'`,;<>(){}\[\]]+))""")
+"""A PowerShell password parameter or the text of ConvertTo-SecureString with its literal value
+(`-Password 'x'`, `ConvertTo-SecureString "x" -AsPlainText`)."""
+_PS_CODE_RE = re.compile(r"\$(?:env:)?[\w:]+|" + r"(?:New|Get|Set|Read|ConvertTo|ConvertFrom|Import|Export|Invoke)-"
+                         r"[A-Z][A-Za-z]+")
+
+
+def ps_password_sub(text: str, counts: Counter) -> str:
+    """`text` with the literal of every PowerShell password parameter replaced by [secret]; a variable, an
+    environment value or a cmdlet as the value is code and stays (tcp-renz)."""
+    def sub(m):
+        value = m.group("value")
+        if _kept(value) or _PS_CODE_RE.fullmatch(value) or (not m.group("q") and value.startswith("$")):
+            return m.group(0)
+        counts["secret"] += 1
+        return m.group("key") + (m.group("q") or "") + SECRET
+    return PS_PASSWORD_RE.sub(sub, text)
+
+
 _LOGIN_RE = re.compile(
     r"(?i)(?<![\w-])(?P<key>[\"']?(?:login(?:[_-]?name)?|user[_-]?name|username)" + _SEP + r")" + _VALUE)
 _AUTH_USER_RE = re.compile(r"""(?P<key>"user"\s*:\s*\{[^{}]*?"name"\s*:\s*")(?P<q>)(?P<value>[^"\n]+)(?=")""")
@@ -150,6 +171,7 @@ def _shorten(text: str, counts: Counter) -> tuple[str, Counter]:
         return sub
 
     text = _PASSWORD_RE.sub(field("secret"), text)
+    text = ps_password_sub(text, counts)
     text = _LOGIN_RE.sub(field("login"), text)
     text = _AUTH_USER_RE.sub(field("login"), text)
     text = _KEY_RE.sub(field("shortened" if temporary else "secret"), text)

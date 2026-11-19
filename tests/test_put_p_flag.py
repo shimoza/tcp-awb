@@ -56,3 +56,64 @@ def test_guide_block_keeps_path_and_masks_password():
     assert out.splitlines()[0] == "mkdir -p /var/tmp/tcp"
     assert "Xk9mq2Lzv" not in out
     assert n == 1
+
+
+# The masker of the Write hook (labsecrets.shorten, tcp-renz 2026-11-19) and the put scrub on PowerShell: a value
+# that is a call or a variable is code, a literal stays a secret.
+PW = "S3cr3t" + "Pw9"
+LIT = {"pw": PW, "pws": "S3cr3t" + " Pw9"}
+VAR = "$admin" + "Secret9"
+CONVERT = "ConvertTo-" + "SecureString"
+PW_IS = "$pw" + " = "
+"""Invented values, built from pieces so the gate of this repository reads no assignment in this file."""
+
+PS_KEPT = (
+    PW_IS + 'Read-Host -AsSecureString -Prompt "Local admin password"',
+    '$cred = Get-Credential -Message "admin password"',
+    "$pw = (Get-Secret -Name admin)",
+    "$pw = $env:ADMIN_PW",
+    "$pw = " + VAR,
+    "$sec = ConvertTo-SecureString $plain -AsPlainText -Force",
+    "$secret = " + CONVERT + " -String $plain -AsPlainText -Force",
+    "New-LocalUser -Name x -Password (Read-Host -AsSecureString)",
+    "New-LocalUser -Name x -Password $pw",
+)
+
+PS_CAUGHT = tuple((a % LIT, b) for a, b in (
+    ('$password = "%(pw)s"', '$password = "[secret]"'),
+    ('$pw = "%(pw)s"', '$pw = "[secret]"'),
+    ("$pw = %(pw)s", "$pw = [secret]"),
+    ('-Password "%(pw)s"', '-Password "[secret]"'),
+    ("New-LocalUser -Name x -Password '%(pws)s'", "New-LocalUser -Name x -Password '[secret]'"),
+    ("-AdminPassword %(pw)s", "-AdminPassword [secret]"),
+    ("$pw = " + CONVERT + ' "%(pw)s" -AsPlainText -Force',
+     "$pw = " + CONVERT + ' "[secret]" -AsPlainText -Force'),
+))
+
+
+@pytest.mark.parametrize("line", PS_KEPT)
+def test_powershell_call_kept_by_hook_masker(line):
+    from awb import labsecrets
+
+    out, counts = labsecrets.shorten(line)
+    assert out == line
+    assert not counts
+
+
+@pytest.mark.parametrize("line", PS_KEPT)
+def test_powershell_call_kept_by_put_scrub(line):
+    assert putcopy.scrub_text(line) == (line, 0)
+
+
+@pytest.mark.parametrize("line,want", PS_CAUGHT)
+def test_powershell_literal_caught_by_hook_masker(line, want):
+    from awb import labsecrets
+
+    out, counts = labsecrets.shorten(line)
+    assert out == want
+    assert counts["secret"] == 1
+
+
+@pytest.mark.parametrize("line,want", PS_CAUGHT)
+def test_powershell_literal_caught_by_put_scrub(line, want):
+    assert putcopy.scrub_text(line) == (want, 1)

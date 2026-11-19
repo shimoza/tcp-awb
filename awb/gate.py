@@ -223,6 +223,10 @@ _PROSE_EXPRESSION_RE = re.compile(r"[ \t]*(?:[+%*]|\.[A-Za-z_]|\[)")
 """After a quoted text: an operator, a method or an index of code."""
 _PROSE_CODE_RE = re.compile(r"[\[\](){}|<>]")
 """Brackets, a pipe or an angle bracket in an unquoted token: code, a table or a placeholder, not a password."""
+_PROSE_PS_CALL_RE = re.compile(r"(?:Read|Get|New|Set|ConvertTo|ConvertFrom|Import|Export|Invoke|Protect|Unprotect|"
+                               r"Select|Join|Test|Start|Out|Format|Resolve|Split|Find|Copy|Add|Remove)-[A-Z][A-Za-z]+"
+                               r"|\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*")
+"""A PowerShell cmdlet call (Read-Host, ConvertTo-SecureString) or a variable (an env variable): code, not a value."""
 _PROSE_PLAIN: list = []
 
 
@@ -252,6 +256,8 @@ def _prose_value(raw: str, after: str) -> tuple[int, int] | None:
     v = raw.rstrip(_PROSE_TRAIL)
     if len(v) < _PROSE_MIN_LENGTH or _PROSE_NOT_A_PASSWORD_RE.fullmatch(v) or _PROSE_CODE_RE.search(v):
         return None
+    if _PROSE_PS_CALL_RE.fullmatch(v) and after[:1] in ("", " ", "\t", "\r", "\n"):
+        return None            # a PowerShell call or variable, its arguments after it (tcp-renz)
     core = re.sub(r"^\W+|\W+$", "", v)          # "store>" is a word with a mark, not a password
     alnum = sum(c.isalnum() for c in core)
     if alnum < _PROSE_MIN_QUOTED or 2 * alnum < len(v):
@@ -624,6 +630,8 @@ def _detect_secret(text: str) -> list[int]:
 def _detect_secret_all(text: str) -> list[int]:
     out: set[int] = set()
     for key, value, start, quoted in _assignments(text):
+        if not quoted and _PROSE_PS_CALL_RE.fullmatch(value):
+            continue           # a PowerShell call or variable as the value (tcp-renz)
         if _key_is_secret(key) and _keyed_secret_value(value, quoted):
             out.add(start)
     for rx, min_len, min_ent in _SECRET_SHAPES:

@@ -261,6 +261,8 @@ def wipe_secrets(text: str, counts: Counter) -> str:
             return m.group(0)
         if m.re is _SECRET_FLAG_RE and _p_flag_no_secret(m):
             return m.group(0)      # mkdir -p /var/tmp/x, ssh -p 22, docker run -p 8080:80: parents or port
+        if not m.group("q") and re.match(r"\(|\$(?:env:)?[A-Za-z_]\w*$", value):
+            return m.group(0)      # $pw = $env:ADMIN_PW, $pw = (Get-Secret ...): a variable or a call (tcp-renz)
         if labsecrets.code_value(m.group("sep"), bool(m.group("q")), value, m.string[m.end():m.end() + 1],
                                   variables=False):
             return m.group(0)      # code: getpass.getpass(...), os.environ["X"], password=args.password (T7)
@@ -279,6 +281,7 @@ def wipe_secrets(text: str, counts: Counter) -> str:
     text = _GLUED_PASSWORD_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + SECRET)[1], text)
     text = _GLUED_QUOTED_PASSWORD_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + m.group("q") + SECRET
                                                     + m.group("q"))[1], text)
+    text = labsecrets.ps_password_sub(text, counts)
     text = _TOKEN_RE.sub(lambda m: (counts.update(["secret"]), SECRET)[1], text)
     return wipe_prose_passwords(text, counts)
 

@@ -27033,8 +27033,36 @@
    "name": "put scrub -p flag: a guide block keeps mkdir -p PATH and masks the sshpass password",
    "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_guide_block_keeps_path_and_masks_password",
    "status": "passing"
+  },
+  {
+   "id": "PPF-4",
+   "phase": "PPF",
+   "name": "secret masker PowerShell: the Write hook masker keeps a PowerShell call or variable as the value (Read-Host, Get-Credential, $env:, a cmdlet in parentheses)",
+   "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_powershell_call_kept_by_hook_masker",
+   "status": "passing"
+  },
+  {
+   "id": "PPF-5",
+   "phase": "PPF",
+   "name": "secret masker PowerShell: the put scrub keeps a PowerShell call or variable as the value",
+   "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_powershell_call_kept_by_put_scrub",
+   "status": "passing"
+  },
+  {
+   "id": "PPF-6",
+   "phase": "PPF",
+   "name": "secret masker PowerShell: the Write hook masker catches a PowerShell literal ($password = \"...\", -Password '...', ConvertTo-SecureString \"...\")",
+   "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_powershell_literal_caught_by_hook_masker",
+   "status": "passing"
+  },
+  {
+   "id": "PPF-7",
+   "phase": "PPF",
+   "name": "secret masker PowerShell: the put scrub catches a PowerShell literal",
+   "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_powershell_literal_caught_by_put_scrub",
+   "status": "passing"
   }
  ],
- "total_tests": 3862,
+ "total_tests": 3866,
  "checked": "2026-11-19"
 }
