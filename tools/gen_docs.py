@@ -76,7 +76,7 @@ def _parsers() -> list[tuple[str, str, argparse.ArgumentParser]]:
                 if name not in cli.DELEGATED:
                     found.append((name, helps.get(name, ""), sub))
     for name in cli.DELEGATED:
-        extras = {"kb": [[], ["recheck-run"], ["recheck-watch"]],
+        extras = {"kb": [[], ["recheck-run"], ["recheck-watch"], ["pattern"]],
                   "lab": [[], ["run", "start"], ["run", "keep"], ["run", "end"], ["run", "status"], ["obs", "put"], ["obs", "get"],
                           ["obs", "status"], ["obs", "abort"]]}
         for extra in extras.get(name, [[]]):

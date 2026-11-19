@@ -26571,8 +26571,267 @@
    "name": "refresh hardening: structured secret is screened before snapshot write[source]",
    "run": ".venv/bin/pytest tests/test_refresh.py::test_hardening_structured_secret_is_screened_before_snapshot_write[source]",
    "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-01",
+   "phase": "Q-0019",
+   "name": "pattern cards: add a card find it and show it",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_add_a_card_find_it_and_show_it",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-02",
+   "phase": "Q-0019",
+   "name": "pattern cards: add on the command line from the project folder",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_add_on_the_command_line_from_the_project_folder",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-03",
+   "phase": "Q-0019",
+   "name": "pattern cards: outside a project the card is refused",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_outside_a_project_the_card_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-04",
+   "phase": "Q-0019",
+   "name": "pattern cards: the screens of kb add refuse without the value[price]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_screens_of_kb_add_refuse_without_the_value[price]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-05",
+   "phase": "Q-0019",
+   "name": "pattern cards: the screens of kb add refuse without the value[name]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_screens_of_kb_add_refuse_without_the_value[name]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-06",
+   "phase": "Q-0019",
+   "name": "pattern cards: the screens of kb add refuse without the value[code]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_screens_of_kb_add_refuse_without_the_value[code]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-07",
+   "phase": "Q-0019",
+   "name": "pattern cards: the screens of kb add refuse without the value[language]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_screens_of_kb_add_refuse_without_the_value[language]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-08",
+   "phase": "Q-0019",
+   "name": "pattern cards: unknown kind tag and fact are refused",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_unknown_kind_tag_and_fact_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-09",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[resource]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[resource]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-10",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[resource-inside]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[resource-inside]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-11",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[scope-word]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[scope-word]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-12",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[total]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[total]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-13",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[total-decimal-comma]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[total-decimal-comma]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-14",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[date-iso]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[date-iso]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-15",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[date-dotted]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[date-dotted]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-16",
+   "phase": "Q-0019",
+   "name": "pattern cards: the fingerprint check refuses the projects own strings[intake-token]",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_the_fingerprint_check_refuses_the_projects_own_strings[intake-token]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-17",
+   "phase": "Q-0019",
+   "name": "pattern cards: a word a kb fact names is no fingerprint",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_a_word_a_kb_fact_names_is_no_fingerprint",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-18",
+   "phase": "Q-0019",
+   "name": "pattern cards: fingerprints are written hashed and never as strings",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_fingerprints_are_written_hashed_and_never_as_strings",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-19",
+   "phase": "Q-0019",
+   "name": "pattern cards: a near duplicate is refused and support counts projects not runs",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_a_near_duplicate_is_refused_and_support_counts_projects_not_runs",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-20",
+   "phase": "Q-0019",
+   "name": "pattern cards: a script card carries its checked file",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_a_script_card_carries_its_checked_file",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-21",
+   "phase": "Q-0019",
+   "name": "pattern cards: retire keeps the file and find skips it",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_retire_keeps_the_file_and_find_skips_it",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-PAT-22",
+   "phase": "Q-0019",
+   "name": "pattern cards: cards never reach the dataset export",
+   "run": ".venv/bin/pytest tests/test_kbpattern.py::test_cards_never_reach_the_dataset_export",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-01",
+   "phase": "Q-0019",
+   "name": "solution packages: build fills prices live and writes sources and out",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_build_fills_prices_live_and_writes_sources_and_out",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-02",
+   "phase": "Q-0019",
+   "name": "solution packages: build refuses a missing source and an unclear price[unknown-id]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_build_refuses_a_missing_source_and_an_unclear_price[unknown-id]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-03",
+   "phase": "Q-0019",
+   "name": "solution packages: build refuses a missing source and an unclear price[two-records]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_build_refuses_a_missing_source_and_an_unclear_price[two-records]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-04",
+   "phase": "Q-0019",
+   "name": "solution packages: build refuses a missing source and an unclear price[no-record]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_build_refuses_a_missing_source_and_an_unclear_price[no-record]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-05",
+   "phase": "Q-0019",
+   "name": "solution packages: build refuses a service that is not offered and risks as a part",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_build_refuses_a_service_that_is_not_offered_and_risks_as_a_part",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-06",
+   "phase": "Q-0019",
+   "name": "solution packages: release screens commits tags and the next build is a minor",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_release_screens_commits_tags_and_the_next_build_is_a_minor",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-07",
+   "phase": "Q-0019",
+   "name": "solution packages: status counts each staleness reason",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_status_counts_each_staleness_reason",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-08",
+   "phase": "Q-0019",
+   "name": "solution packages: the release screen finds fingerprints and codes without the value[resource]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_release_screen_finds_fingerprints_and_codes_without_the_value[resource]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-09",
+   "phase": "Q-0019",
+   "name": "solution packages: the release screen finds fingerprints and codes without the value[total]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_release_screen_finds_fingerprints_and_codes_without_the_value[total]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-10",
+   "phase": "Q-0019",
+   "name": "solution packages: the release screen finds fingerprints and codes without the value[date]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_release_screen_finds_fingerprints_and_codes_without_the_value[date]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-11",
+   "phase": "Q-0019",
+   "name": "solution packages: the release screen finds fingerprints and codes without the value[project-code]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_release_screen_finds_fingerprints_and_codes_without_the_value[project-code]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-12",
+   "phase": "Q-0019",
+   "name": "solution packages: the release screen finds fingerprints and codes without the value[k-number]",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_release_screen_finds_fingerprints_and_codes_without_the_value[k-number]",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-13",
+   "phase": "Q-0019",
+   "name": "solution packages: the release screen holds a customer card until support two",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_release_screen_holds_a_customer_card_until_support_two",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-14",
+   "phase": "Q-0019",
+   "name": "solution packages: the release screen runs the export check",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_release_screen_runs_the_export_check",
+   "status": "passing"
+  },
+  {
+   "id": "Q19-SOL-15",
+   "phase": "Q-0019",
+   "name": "solution packages: the selftest passes and fails when the screen is blind",
+   "run": ".venv/bin/pytest tests/test_solutions.py::test_the_selftest_passes_and_fails_when_the_screen_is_blind",
+   "status": "passing"
   }
  ],
- "total_tests": 3796,
+ "total_tests": 3833,
  "checked": "2026-11-19"
 }

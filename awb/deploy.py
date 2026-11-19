@@ -204,6 +204,9 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",
     "awb/labclient.py": "awb lab run start|keep|end|status and the scripts of a project session (task LR)",
     "awb/winlabsession.py": "awb winlab run|start|status|log|stop|put|get, run in a project session (task WL part 3)",
+    "awb/kbpattern.py": "awb kb pattern add|support|find|list|show|retire, run in a project session (Q-0019)",
+    "awb/solutions.py": ("awb solutions build|status|screen|release, run in the solutions project or as the work user "
+                         "(Q-0019)"),
     "awb/tcp/recheck.py": "awb kb recheck-run, run in a working session or by the steering session",
     "awb/tcp/recheckwatch.py": "awb kb recheck-watch, run by the owner's timer awb-kb-recheck-watch every 15 minutes",
     "awb/tcp/platformstatus.py": ("awb platform-status pull|show, run in a working session or by the work user's "

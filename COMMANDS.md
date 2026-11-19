@@ -688,6 +688,13 @@ The same for forms, derived, office, pdf, mail_archive and nontext. `tests/test_
 | `awb kb index` | write INDEX.md again |
 | `awb kb verify [--staged] [FILE...]` | the checks of `add` over entry files; `--staged` over what a commit carries (the commit hook runs it) |
 | `awb kb bench [--top N] FILE` | how well `find` answers questions whose answering entries are known: first place and first N (default 5). `~/tcp-kb/bench/` holds the question sets; every refresh runs them |
+| `awb kb pattern add --package SLUG --kind KIND --tag T [--fact KB-XXXX]... [--file PATH] [--project DIR] [--force-new] "statement"` | a pattern card for solution packages (`<kb>/patterns/PAT-XXXX.md`), written in the session of its source project (the project folder of the cwd or `--project`). Kinds signal, sizing-rule, step, lesson, question, objection, script (with one `--file`, checked like the statement) and risk. Refused as `kb add` refuses (not English, a name, a code, an identifier, a home path, a secret, a price), an unknown tag or KB id, a retired fact, a card above 0.6 word overlap with a standing one (count it with `support` instead, or `--force-new`) and the fingerprint check: an intake token or one of the project's own distinctive strings (the tags and goal words of SCOPE.md, the names and addresses of RESOURCES.md, the results of `calc/calc.tsv` with three or more significant digits, the dates of SCOPE, STATE and OPEN) that is no plain English or TCP word. A refusal names class and count, never the string. The salted hashes of these strings go to `<shared>/patterns/fingerprints/` for the release screen, the project as a salted hash to `<shared>/patterns/support.tsv`. Cards never go into the dataset |
+| `awb kb pattern support PAT-XXXX [--project DIR]` | count the project of this session for a card: support is the number of distinct projects, never which |
+| `awb kb pattern find [--package SLUG] [--kind KIND] WORDS...`, `list [--package SLUG]`, `show PAT-XXXX`, `retire --why "..." PAT-XXXX` | the cards ranked by word overlap, the standing ones, one card, a withdrawn card (the file and the id stay) |
+| `awb solutions build SLUG [--major] [--project DIR]` | in the solutions project: the parts of `packages/SLUG/PACKAGE.md` in order (never risks.md), every KB and PAT id checked (in the knowledge base, not retired), every service of the manifest checked against the latest service description, each `{{price SERVICE FLAVOR [os=..] [term=..] [region=..]}}` filled live with term, region and date, then `out/VERSION/` with SLUG.md, .html, .pdf, SOURCES.tsv and PRICES.tsv. v1 first, then vN.M+1, `--major` vN+1; a released version is never written again |
+| `awb solutions status [SLUG] [--offline]` | one line per package: version, state (draft, released, stale, retired) and the counts of changed, retired and expired sources, new entries or cards of its tags, moved prices (left out with `--offline`), services no longer offered and age past best-before |
+| `awb solutions screen SLUG [--version V]`, `awb solutions screen --selftest` | the release screen of a built version, a work-side command that prints file, line and class only: the export check (names, secrets, candidates), codes (register, customer, project, lab run, K number), the hashed fingerprints of every project and support 2 for every card about customers. `--selftest` plants a fingerprint, a code and a weak card and proves the screen finds them |
+| `awb solutions release SLUG` | the release screen over the newest built version; when clean a row in RELEASES.tsv, a commit of the package folder and the tag `SLUG/VERSION`. Exit 1 with the findings and nothing recorded |
 
 The name check of `awb kb` (add, amend, recheck, retire, verify, what `find`, `show`, `scope` and `expired` print
 and the export that `awb dataset build` reads) lets a registered form pass in one place only: inside the full name
@@ -1200,6 +1207,48 @@ check entry files with the checks of add (the commit hook runs --staged)
 ### `awb kb recheck-watch [--project PROJECT] [--tenant ALIAS]`
 - `--project PROJECT`
 - `--tenant ALIAS`
+
+### `awb kb pattern add STATEMENT... --package PACKAGE --kind KIND --tag TAG [--fact FACT] [--file FILE] [--project PROJECT] [--checked CHECKED] [--force-new]`
+
+check a card and add it, in the session of its source project
+- `STATEMENT...`: the statement, or - to read it from standard input
+- `--package PACKAGE`: a package slug (repeat or comma list)
+- `--kind KIND`: signal, sizing-rule, step, lesson, question, objection, script, risk
+- `--tag TAG`: a tag of rules/tags.txt (repeat or comma list)
+- `--fact FACT`: a KB id the card rests on (repeat)
+- `--file FILE`: the file of a script card
+- `--project PROJECT`: the project folder (default: the one of the cwd)
+- `--checked CHECKED`: ISO date (default: today)
+- `--force-new`: add even when a similar card exists
+
+### `awb kb pattern support ID [--project PROJECT]`
+
+count the project of this session for a card
+- `ID`
+- `--project PROJECT`
+
+### `awb kb pattern find WORDS... [--package PACKAGE] [--kind KIND]`
+
+cards ranked by word overlap
+- `WORDS...`
+- `--package PACKAGE`
+- `--kind KIND`
+
+### `awb kb pattern list [--package PACKAGE]`
+
+the standing cards, of one package with --package
+- `--package PACKAGE`
+
+### `awb kb pattern show ID`
+
+one card
+- `ID`
+
+### `awb kb pattern retire ID --why WHY`
+
+withdraw a card; the file stays and the id is never reused
+- `ID`
+- `--why WHY`
 
 ### `awb ledger add --kind KIND --done DONE [--project PROJECT] [--customer CUSTOMER] [--partner PARTNER] [--tag TAG] [--outcome OUTCOME] [--deliverable P] [--open TEXT] [--date D]`
 
@@ -2046,6 +2095,34 @@ every service of the current revision
 ### `awb service update`
 
 rebuild rules/services.tsv from the mirror (owner side, after a new revision)
+
+### `awb solutions build SLUG [--major] [--project PROJECT]`
+
+fill the price lines live, check the sources and services, write out/vN/
+- `SLUG`
+- `--major`: vN+1 instead of vN.M+1 (a claim, a tier or a step changed)
+- `--project PROJECT`
+
+### `awb solutions status [SLUG] [--offline] [--project PROJECT]`
+
+one line per package: version, state, staleness counts
+- `[SLUG]`
+- `--offline`: leave the live price comparison out
+- `--project PROJECT`
+
+### `awb solutions screen [SLUG] [--version VERSION] [--selftest] [--project PROJECT]`
+
+the release screen of a built version: file, line and class only
+- `[SLUG]`
+- `--version VERSION`
+- `--selftest`: prove the screen finds planted cases
+- `--project PROJECT`
+
+### `awb solutions release SLUG [--project PROJECT]`
+
+screen, record, commit and tag the newest built version
+- `SLUG`
+- `--project PROJECT`
 
 ### `awb board write [--out OUT]`
 

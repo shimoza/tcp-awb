@@ -12,7 +12,7 @@ awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, 
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
 awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue, awb open, awb side, awb dev,
-awb handover, awb cost.
+awb handover, awb cost, awb solutions.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -854,7 +854,7 @@ DELEGATED = {
     "gate": ("gate", "the commit gate"),
     "vault": ("vault", "the vault: serve, unlock, lock, status, encrypt"),
     "kb": ("kb", "the knowledge base: add, amend, how, bench, recheck, retire, find, show, scope, expired, export, "
-           "import, review, index, verify, recheck-run, recheck-watch"),
+           "import, review, index, verify, recheck-run, recheck-watch, pattern"),
     "ledger": ("ledger", "the activity ledger: add, list"),
     "report": ("ledger", "reports from the ledger by customer, technology, kind or project"),
     "career": ("career", "the career log: add, update, due"),
@@ -896,6 +896,7 @@ DELEGATED = {
     "tenant": ("tcp.tenants", "test tenants: setup, password, add, snapshot, list, now, history, at, project"),
     "api": ("tcp.web.contract", "the contract of the web API: write docs/api/openapi.yaml, check it"),
     "service": ("tcp.services", "offered services: the latest service description and nothing else (check, list, update)"),
+    "solutions": ("solutions", "customer-free solution packages: build, status, screen (the release screen), release"),
     "board": ("tcp.board", "the status of every active project for management, as Markdown and HTML"),
     "platform-status": ("tcp.platformstatus", "the TCP platform on the board: pull the public status page, show the "
                                               "open incidents and the next maintenances"),
@@ -929,6 +930,9 @@ def _delegate(name: str, argv: list[str]) -> int:
         mod, argv = importlib.import_module("awb.tcp.recheck"), list(argv[1:])
     if name == "kb" and argv[:1] == ["recheck-watch"]:
         mod, argv = importlib.import_module("awb.tcp.recheckwatch"), list(argv[1:])
+    if name == "kb" and argv[:1] == ["pattern"]:
+        # pattern cards of the solution packages: their own module, the core kb never imports it
+        mod, argv = importlib.import_module("awb.kbpattern"), list(argv[1:])
     try:
         return int(mod.main(argv))
     except SystemExit as exc:
