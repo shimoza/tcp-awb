@@ -918,10 +918,49 @@ def _scan_decoded(label: str, data: bytes, matcher, path: Path | str | None = No
     found: set[Finding] = set()
     for text in _decodings(data):
         text = prepare(text)
-        for first, piece in _pieces(text):
-            found.update(Finding(f.file, f.line + first if f.line > 0 else 0, f.cls)
-                         for f in _scan_text(label, piece, matcher, path))
+        pieces = list(_pieces(text))
+        for first, findings in _scan_pieces(label, pieces, matcher, path):
+            found.update(Finding(f.file, f.line + first if f.line > 0 else 0, f.cls) for f in findings)
     return sorted(found, key=_order)
+
+
+PARALLEL_FROM = 4
+"""Pieces from which the scan runs in worker processes, one per core up to PARALLEL_MAX: a 105 MB lab log of
+tcp-bytg (2026-11-18) took more than 25 minutes on one core, at about 8 s per MB. The workers are forked, so they
+share the matcher and the pieces of the parent and send back only the findings; every check is the same."""
+PARALLEL_MAX = 4
+
+_FORK_JOB: tuple = ()
+
+
+def _scan_piece(index: int) -> tuple[int, list[Finding]]:
+    label, pieces, matcher, path = _FORK_JOB
+    first, piece = pieces[index]
+    return first, _scan_text(label, piece, matcher, path)
+
+
+def _scan_pieces(label: str, pieces: list[tuple[int, str]], matcher,
+                 path: Path | str | None) -> Iterable[tuple[int, list[Finding]]]:
+    """(lines before the piece, findings) for every piece, in worker processes when there are many pieces and more
+    than one core, else here. A pool that cannot start (no fork, no process limit left) falls back to this process."""
+    workers = min(PARALLEL_MAX, os.cpu_count() or 1, len(pieces))
+    import threading
+
+    # a fork copies only the calling thread: a process with other threads (the web console) scans here
+    if len(pieces) >= PARALLEL_FROM and workers > 1 and threading.active_count() == 1:
+        import multiprocessing
+
+        global _FORK_JOB
+        _FORK_JOB = (label, pieces, matcher, path)
+        try:
+            ctx = multiprocessing.get_context("fork")
+            with ctx.Pool(workers) as pool:
+                return pool.map(_scan_piece, range(len(pieces)), chunksize=1)
+        except (OSError, ValueError, ImportError):
+            pass
+        finally:
+            _FORK_JOB = ()
+    return [(first, _scan_text(label, piece, matcher, path)) for first, piece in pieces]
 
 
 PIECE_FROM = 4 * 1024 * 1024

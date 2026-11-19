@@ -25941,8 +25941,36 @@
    "name": "kb hardening: nul paths are refused without echoing the path",
    "run": ".venv/bin/pytest tests/test_kb.py::test_nul_paths_are_refused_without_echoing_the_path",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-001",
+   "phase": "T",
+   "name": "bytg: parallel scan finds what the serial scan finds",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_parallel_scan_finds_what_the_serial_scan_finds",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-002",
+   "phase": "T",
+   "name": "bytg: parallel scan runs in worker processes",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_parallel_scan_runs_in_worker_processes",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-003",
+   "phase": "T",
+   "name": "bytg: a pool that cannot start falls back to this process",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_a_pool_that_cannot_start_falls_back_to_this_process",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-004",
+   "phase": "T",
+   "name": "bytg: a process with other threads scans here",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_a_process_with_other_threads_scans_here",
+   "status": "passing"
   }
  ],
- "total_tests": 3706,
+ "total_tests": 3710,
  "checked": "2026-11-18"
 }
