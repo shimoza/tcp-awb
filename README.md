@@ -1657,6 +1657,8 @@ awb build retry B-012        # a new run from main
 awb build widen B-012 awb/tcp/keys.py
 awb build widen B-012 --tests-replaced SB1-20   # into the run's task.md, which the checks read
 awb build stop               # the runner ends after the current task
+awb build stop C-321         # a queued check never starts; a running one ends, its suite unit stopped
+awb build wait C-321 B-012   # blocks until the first ends (--all: each), one line each; exit 0 when each passed
 awb build nudge              # a mail with your next commands for a task asked, red or held for 15 minutes
 awb build quick              # before the full run: import rules, gate selftest, the test files of the changed modules
 awb build check pr-12        # a branch from outside: the gate and the suite as awb-build, nothing merged
@@ -1749,6 +1751,13 @@ first failure, as `red: gate name` or `red: tests lost`) and the check lines, ex
 `seal/`, `plugin/hooks/`, `rules/`, `.claude/`, `CLAUDE.md` or `CLAUDE.local.md` is `red: protected path` before
 any code runs, with a line that names the paths: read their diff, then `awb build check REF --allow-protected` lets
 them through and the check line names them. Merging stays your step.
+A check records the branch name REF in `ref` beside `head`. A new `awb build check` of the same branch replaces a
+check of an older head that is still queued: that one ends `stopped: replaced by C-MMM` and never runs. `awb build
+stop C-NNN` ends a queued check with `stopped: by_owner`; a running one gets the same state and its suite unit
+`awb-task-C-NNN-suite.service` stopped with the runner's own `sudo -n systemctl stop`. `awb build wait ID...` reads
+the state files every 5 seconds until the first given check or task ends, or each with `--all`, and prints one line
+per ended one: id, state, time and the path of `result.md`. It exits 0 when each printed one passed (a check
+`passed`, a task `done`), 1 when not and 2 after `--timeout SECONDS`.
 `awb pr take N` does it in one command: it asks gh whose pull request it is and refuses one from a fork or by an
 account other than the repository's owner (and refuses without gh), fetches pull request N, rebases it onto your
 `main` in a temporary worktree (a conflict in `build/tests.json` merged by id, one in `CHANGELOG.md` by week, any

@@ -712,6 +712,8 @@ class Runner:
         finally:
             with contextlib.suppress(Exception):
                 clean(h, ctx, "all")
+        if os.path.lexists(ctx.folder / "stop-wanted"):
+            state = "stopped: by_owner"     # awb build stop C-NNN stopped its suite unit (Q-0027)
         self.finish(ctx, state)
 
     def judge_check(self, ctx: Ctx) -> str:
@@ -725,6 +727,8 @@ class Runner:
             if not check_outdir(h, ctx):
                 ctx.lines.append("- the out folder of the suite unit could not be made")
                 raise Stop("held: prepare")
+            if os.path.lexists(ctx.folder / "stop-wanted"):
+                raise Stop("stopped: by_owner")
             after = check_suite(h, ctx)
             check_hollow(h, ctx, after)
         except Stop as s:
@@ -1319,6 +1323,9 @@ def check_main(ref: str, host: Host | None = None, allow_protected: bool = False
         print("awb build: the check cannot start (%s)" % type(err).__name__, file=sys.stderr)
         return 2
     _write(run.folder / "head", commit + "\n")
+    branch = build.check_ref(ref, commit)
+    if branch:
+        _write(run.folder / build.CHECK_REF, branch + "\n")
     if allow_protected:
         _write(run.folder / ALLOW_PROTECTED, "yes\n")
     runner = Runner(h)
@@ -1327,6 +1334,9 @@ def check_main(ref: str, host: Host | None = None, allow_protected: bool = False
         _fail(ctx, 4, "red: no commit")
         runner._checks_log(ctx)
         runner.finish(ctx, "red: no commit")
+    elif branch:
+        for old in build.replace_older_checks(run, branch, commit, h.runs):
+            print("check %s of an older head of %s: stopped: replaced by %s" % (old, branch, run.id))
     told = False
     while True:
         r = build.latest(run.id, h.runs)

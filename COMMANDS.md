@@ -2343,8 +2343,15 @@ more paths or replaced test ids for a red task; the checks run again on its bran
 
 ### `awb build stop [ID]`
 
-the runner ends after the current task, or stops the task ID
+the runner ends after the current task, or stops the task ID or the queued or running check C-NNN
 - `[ID]`
+
+### `awb build wait ID... [--all] [--timeout SECONDS]`
+
+block until the first given task or check ends (--all: each), one line per ended one; exit 0 when each passed, 1 if not, 2 on --timeout
+- `ID...`
+- `--all`: wait until every given id has ended
+- `--timeout SECONDS`: give up after SECONDS (exit 2)
 
 ### `awb build nudge`
 

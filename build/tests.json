@@ -27530,8 +27530,134 @@
    "name": "Q-0002 deploy: the dry run names the restart, the run restarts it through install.sh, waits and records it",
    "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_the_dry_run_names_the_restart_and_the_run_restarts_waits_and_records_it",
    "status": "passing"
+  },
+  {
+   "id": "Q27-1",
+   "phase": "T",
+   "name": "Q-0027 stop of a queued check writes stopped by owner and stops no unit",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_stop_of_a_queued_check_writes_stopped_by_owner_and_stops_no_unit",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-2",
+   "phase": "T",
+   "name": "Q-0027 stop of a running check stops its suite unit with the runner stop form",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_stop_of_a_running_check_stops_its_suite_unit_with_the_runner_stop_form",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-3",
+   "phase": "T",
+   "name": "Q-0027 stop of an ended check is refused and writes nothing",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_stop_of_an_ended_check_is_refused_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-4",
+   "phase": "T",
+   "name": "Q-0027 stop of an unknown check is refused",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_stop_of_an_unknown_check_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-5",
+   "phase": "T",
+   "name": "Q-0027 stop of a task id keeps its old form",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_stop_of_a_task_id_keeps_its_old_form",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-6",
+   "phase": "T",
+   "name": "Q-0027 the states of a stop and a replace are states",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_the_states_of_a_stop_and_a_replace_are_states",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-7",
+   "phase": "T",
+   "name": "Q-0027 a newer head of the same branch replaces only the queued check of an older head",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_a_newer_head_of_the_same_branch_replaces_only_the_queued_check_of_an_older_head",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-8",
+   "phase": "T",
+   "name": "Q-0027 only a branch name is recorded as the ref of a check",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_only_a_branch_name_is_recorded_as_the_ref_of_a_check",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-9",
+   "phase": "T",
+   "name": "Q-0027 check main records the ref and replaces the queued check of the older head",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_check_main_records_the_ref_and_replaces_the_queued_check_of_the_older_head",
+   "status": "passing"
+  },
+  {
+   "id": "Q27-10",
+   "phase": "T",
+   "name": "Q-0027 the runner ends a check stopped while it ran as stopped by owner and starts no suite",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_the_runner_ends_a_check_stopped_while_it_ran_as_stopped_by_owner_and_starts_no_suite",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-1",
+   "phase": "T",
+   "name": "Q-0008 wait returns at the first ended id with one line and its result path",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_wait_returns_at_the_first_ended_id_with_one_line_and_its_result_path",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-2",
+   "phase": "T",
+   "name": "Q-0008 wait all waits for each and exits one when one did not pass",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_wait_all_waits_for_each_and_exits_one_when_one_did_not_pass",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-3",
+   "phase": "T",
+   "name": "Q-0008 wait all exits zero when every one passed and a task not yet run is waited for",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_wait_all_exits_zero_when_every_one_passed_and_a_task_not_yet_run_is_waited_for",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-4",
+   "phase": "T",
+   "name": "Q-0008 a task end that is not done exits one",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_a_task_end_that_is_not_done_exits_one",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-5",
+   "phase": "T",
+   "name": "Q-0008 a replaced check has ended and did not pass",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_a_replaced_check_has_ended_and_did_not_pass",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-6",
+   "phase": "T",
+   "name": "Q-0008 wait times out with exit two and never sleeps past the timeout",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_wait_times_out_with_exit_two_and_never_sleeps_past_the_timeout",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-7",
+   "phase": "T",
+   "name": "Q-0008 wait refuses an unknown check or a bad id at once",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_wait_refuses_an_unknown_check_or_a_bad_id_at_once",
+   "status": "passing"
+  },
+  {
+   "id": "Q8-8",
+   "phase": "T",
+   "name": "Q-0008 wait through the cli takes all and timeout",
+   "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_wait_through_the_cli_takes_all_and_timeout",
+   "status": "passing"
   }
  ],
- "total_tests": 3933,
+ "total_tests": 3951,
  "checked": "2026-11-19"
 }

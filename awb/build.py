@@ -40,7 +40,9 @@ import os
 import re
 import secrets
 import stat
+import subprocess
 import sys
+import time
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -462,11 +464,20 @@ STATES = ("queued", "running", "green", "done", "asked", "answered", "widened", 
 OPEN_STATES = ("queued", "running", "green", "answered", "widened")
 """The runner still owes the next move: the run has not ended."""
 STATE_RE = re.compile(r"(queued|running|green|done|asked|answered|widened|interrupted|stale|passed|hung(?:: suite)?"
-                      r"|red: [a-z0-9][a-z0-9 ._-]{0,59}|stopped: [a-z0-9_]{1,40}|held: [a-z0-9][a-z0-9 ._-]{0,59})")
+                      r"|red: [a-z0-9][a-z0-9 ._-]{0,59}|stopped: [a-z0-9_]{1,40}|stopped: replaced by C-[0-9]{3,4}|held: [a-z0-9][a-z0-9 ._-]{0,59})")
 """Every state a run can be in. A reason is a short fixed phrase of the runner, matched before it is used. `passed`
 is the end of a check of a branch (awb build check) that met every check; a task never ends `passed`."""
 CHECK_ID_RE = re.compile(r"C-[0-9]{3,4}")
 """The id of a check of a branch from outside (`awb build check`): `runs/C-001/1/`, one run per check."""
+CHECK_REF = "ref"
+"""The file of a check's run folder with the branch name REF of `awb build check` (Q-0027): a newer check of the same
+branch replaces a queued check of an older head (`stopped: replaced by C-MMM`). A REF that is a commit hash or HEAD is
+not recorded, it names no branch."""
+CHECK_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
+CHECK_UNIT = "awb-task-%s-suite"
+"""The suite unit of a check (awb/build_checks.py run_suite): `awb build stop C-NNN` stops it while the check runs."""
+WAIT_POLL = 5.0
+"""How often `awb build wait` reads the state files (seconds)."""
 CHECKS_SHOWN = 3
 UNKNOWN = "unknown"
 _STAMP = "%Y-%m-%dT%H:%M:%S"
@@ -1122,6 +1133,8 @@ def cmd_stop(tid: str | None, runs: Path | None = None) -> int:
         _write_atomic(runs / STOP_FILE, b"stop\n")
         _out("the runner ends after the current task")
         return 0
+    if CHECK_ID_RE.fullmatch(tid):
+        return cmd_stop_check(tid, runs)
     r = _known(tid, runs)
     if isinstance(r, str):
         return _err(r)
@@ -1132,6 +1145,125 @@ def cmd_stop(tid: str | None, runs: Path | None = None) -> int:
         _write_atomic(r.folder / "stop-wanted", b"stop\n")
     _out("%s: the runner stops awb-task-%s.service" % (tid, tid))
     return 0
+
+
+def _stop_unit(name: str) -> None:
+    """Stop a task unit with the runner's one stop form (`sudo -n systemctl stop awb-task-...service`)."""
+    from awb import buildrun
+
+    buildrun.SystemdUnits("", run=subprocess.run).stop(name)
+
+
+def cmd_stop_check(cid: str, runs: Path | None = None) -> int:
+    """`awb build stop C-NNN` (Q-0027): a queued check is `stopped: by_owner` and the runner never takes it; a
+    running one also gets `stop-wanted` and its suite unit stopped, and the runner ends it `stopped: by_owner`."""
+    runs = Path(runs or runs_dir())
+    if latest(cid, runs) is None:
+        return _err("%s is unknown or has not run" % cid)
+    with task_lock(cid, runs):
+        r = latest(cid, runs)
+        if r.word not in ("queued", "running"):
+            return _err("%s is not queued or running (%s)" % (cid, r.state))
+        running = r.word == "running"
+        if running:
+            _write_atomic(r.folder / "stop-wanted", b"stop\n")
+        write_state(r.folder, "stopped: by_owner")
+    if not running:
+        _out("%s stopped: by_owner; the runner never takes it (%s)" % (cid, r.rel))
+        return 0
+    unit = CHECK_UNIT % cid
+    _stop_unit(unit)
+    _out("%s stopped: by_owner; %s.service stopped (%s)" % (cid, unit, r.rel))
+    return 0
+
+
+def check_ref(ref: str, commit: str) -> str | None:
+    """The branch name a check records, or None for a REF that names no branch (a hash, HEAD, an odd form)."""
+    if not CHECK_REF_RE.fullmatch(ref) or ref in ("HEAD", "FETCH_HEAD", "ORIG_HEAD") or ".." in ref:
+        return None
+    if re.fullmatch(r"[0-9a-f]{7,64}", ref) and commit.startswith(ref):
+        return None
+    return ref
+
+
+def _text_of(path: Path) -> str:
+    try:
+        return _read_regular(path, 512).decode("utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def replace_older_checks(new: Run, ref: str, commit: str, runs: Path | None = None) -> list[str]:
+    """Replace on queue (Q-0027): every other check of the same branch REF that is still queued (not running) and
+    holds an older head gets `stopped: replaced by <new id>`. The ids replaced, oldest first."""
+    runs = Path(runs or runs_dir())
+    out: list[str] = []
+    for cid in check_ids(runs):
+        if cid == new.id:
+            continue
+        r = latest(cid, runs)
+        if r is None or r.word != "queued" or _text_of(r.folder / CHECK_REF) != ref:
+            continue
+        with task_lock(cid, runs):
+            r = latest(cid, runs)
+            if r is None or r.word != "queued" or _text_of(r.folder / CHECK_REF) != ref:
+                continue
+            if _text_of(r.folder / "head") == commit:
+                continue
+            write_state(r.folder, "stopped: replaced by %s" % new.id)
+        out.append(cid)
+    return out
+
+
+def _wait_id(i: str) -> bool:
+    return bool(ID_RE.fullmatch(i) or CHECK_ID_RE.fullmatch(i))
+
+
+def wait_line(r: Run) -> str:
+    """One line of `awb build wait`: id, state, the time it ended and the path of its result."""
+    result = r.folder / "result.md"
+    where = result if os.path.lexists(result) else r.folder
+    return "%s  %s  %s  %s" % (r.id, r.state, r.since.strftime("%Y-%m-%d %H:%M") if r.since else "?", where)
+
+
+def _passed(r: Run) -> bool:
+    return r.state == ("passed" if CHECK_ID_RE.fullmatch(r.id) else "done")
+
+
+def cmd_wait(ids: list[str], every: bool = False, timeout: float | None = None, runs: Path | None = None,
+             sleep=time.sleep, clock=time.monotonic, poll: float = WAIT_POLL) -> int:
+    """`awb build wait ID...` (Q-0008): read the state files every `poll` seconds until the first given check or
+    task ends (with `every`: each of them), one line per ended one. A task that has not run yet is waited for. Exit
+    0 when every printed one passed (a check `passed`, a task `done`), 1 otherwise, 2 on the timeout."""
+    runs = Path(runs or runs_dir())
+    ids = list(dict.fromkeys(ids))
+    bad = [i for i in ids if not _wait_id(i)]
+    if not ids or bad:
+        return _err("wait takes task ids B-NNN and check ids C-NNN%s" % (" (not: %s)" % bad[0] if bad else ""))
+    for i in ids:
+        if CHECK_ID_RE.fullmatch(i) and latest(i, runs) is None:
+            return _err("%s is unknown or has not run" % i)
+    if timeout is not None and timeout < 0:
+        return _err("--timeout takes seconds, 0 or more")
+    end = None if timeout is None else clock() + timeout
+    left = list(ids)
+    ok = True
+    printed = 0
+    while True:
+        for i in list(left):
+            r = latest(i, runs)
+            if r is None or r.open or r.state == UNKNOWN:
+                continue
+            _out(wait_line(r))
+            ok = ok and _passed(r)
+            printed += 1
+            left.remove(i)
+        if printed and (not every or not left):
+            return 0 if ok else 1
+        if end is not None and clock() >= end:
+            _err("timeout: %s still open" % " ".join(left))
+            return 2
+        sleep(poll if end is None else max(0.0, min(poll, end - clock())))
 
 
 def cmd_add(path: str, qdir: Path | None = None, runs: Path | None = None, register: Path | None = None) -> int:
@@ -1184,8 +1316,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("paths", nargs="*")
     s.add_argument("--tests-replaced", nargs="+", default=[], metavar="ID",
                    help="test ids or node ids the task may drop or replace, written into the run's task.md")
-    s = sub.add_parser("stop", help="the runner ends after the current task, or stops the task ID")
+    s = sub.add_parser("stop", help="the runner ends after the current task, or stops the task ID or the queued "
+                                    "or running check C-NNN")
     s.add_argument("id", nargs="?")
+    s = sub.add_parser("wait", help="block until the first given task or check ends (--all: each), one line per "
+                                    "ended one; exit 0 when each passed, 1 if not, 2 on --timeout")
+    s.add_argument("ids", nargs="+", metavar="ID")
+    s.add_argument("--all", dest="every", action="store_true", help="wait until every given id has ended")
+    s.add_argument("--timeout", type=float, default=None, metavar="SECONDS", help="give up after SECONDS (exit 2)")
     sub.add_parser("nudge", help="one mail with your next commands for each task asked, red or held for 15 minutes, "
                                  "once per state")
     s = sub.add_parser("check", help="the gate and the whole suite of a branch from outside as the build user in a "
@@ -1268,6 +1406,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_widen(args.id, args.paths, tests_replaced=args.tests_replaced)
         if args.command == "stop":
             return cmd_stop(args.id)
+        if args.command == "wait":
+            return cmd_wait(args.ids, args.every, args.timeout)
     except OSError as err:
         return _err("the queue or the records cannot be read (%s)" % (err.strerror or "error").lower())
     return 2
