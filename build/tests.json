@@ -27138,8 +27138,64 @@
    "name": "x7k2: pre-tool: a call outside every project still refuses on a sealed host",
    "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_a_call_outside_every_project_still_refuses_on_a_sealed_host",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-001",
+   "phase": "T",
+   "name": "bytg ledger draft: a link and a bare host are taken out of the draft",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_a_link_and_a_bare_host_are_taken_out_of_the_draft",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-002",
+   "phase": "T",
+   "name": "bytg ledger draft: planted the raw subject is refused so the cleaning is what lets it in",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_planted_the_raw_subject_is_refused_so_the_cleaning_is_what_lets_it_in",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-003",
+   "phase": "T",
+   "name": "bytg ledger draft: entries by hand after a refusal cover the refused commits",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_entries_by_hand_after_a_refusal_cover_the_refused_commits",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-004",
+   "phase": "T",
+   "name": "bytg ledger draft: without an entry by hand the refused commit is tried again with the next",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_without_an_entry_by_hand_the_refused_commit_is_tried_again_with_the_next",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-005",
+   "phase": "T",
+   "name": "bytg ledger draft: entries by hand since the last draft cover the new commits",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_entries_by_hand_since_the_last_draft_cover_the_new_commits",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-006",
+   "phase": "T",
+   "name": "bytg ledger draft: an entry of the tooling covers nothing",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_an_entry_of_the_tooling_covers_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-007",
+   "phase": "T",
+   "name": "bytg ledger draft: an old refusal note with the head alone is still read",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_an_old_refusal_note_with_the_head_alone_is_still_read",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LU-008",
+   "phase": "T",
+   "name": "bytg ledger draft: the stop message names the command and is said once",
+   "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_the_stop_message_names_the_command_and_is_said_once",
+   "status": "passing"
   }
  ],
- "total_tests": 3877,
+ "total_tests": 3885,
  "checked": "2026-11-19"
 }

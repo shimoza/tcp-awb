@@ -1083,11 +1083,59 @@ def _git_lines(root: Path, *args: str) -> list[str] | None:
     return r.stdout.splitlines() if r.returncode == 0 else None
 
 
+DRAFT_OUTCOME = "drafted at session end from the commits; correct it with awb ledger add when needed"
+_TOOL_ENTRY_RE = re.compile(r"^(?:(?:Started|Closed|Parked|Unparked|Switched|Deleted) tcp-|material added: "
+                            r"|closed owner items |tcp-[a-z0-9]{4}: \d+ commit\(s\): )")
+"""Ledger entries the tooling writes itself (spawn, close, park, material, the open sweep, this draft): never
+an entry by hand that covers commits."""
+
+
+def _hand_entries(p: config.Paths, code: str, since: str) -> int:
+    """The number of entries of the project from `since` on that a session or he wrote by hand (awb ledger add),
+    not the tooling. -1 when the ledger cannot be read: then no commit counts as covered."""
+    from awb import ledger
+    try:
+        rows = ledger.load(p, start=since)
+    except (ledger.LedgerError, ValueError):
+        return -1
+    return sum(1 for e in rows if e.project == code and e.outcome != DRAFT_OUTCOME
+               and not _TOOL_ENTRY_RE.match(e.done))
+
+
+def _clean_subject(subject: str) -> str:
+    """A commit subject with every structured value (a URL or a bare domain, an address, a number of a kind the
+    ledger refuses) replaced by its class in brackets, so a file name like `notes/run.md` or a link does not
+    refuse the whole draft. The ledger still checks the result."""
+    try:
+        from awb import patterns
+        spans = patterns.find_structured(subject)
+    except Exception:
+        return subject
+    for sp in sorted(spans, key=lambda x: x.start, reverse=True):
+        subject = subject[:sp.start] + "(%s)" % sp.cls + subject[sp.end:]
+    return subject
+
+
+def _read_refused(path: Path) -> dict:
+    """The note of a refused draft: {"head", "hand", "since"}; an old note holds the head alone."""
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return {}
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return {"head": text} if text else {}
+    return obj if isinstance(obj, dict) else {}
+
+
 def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = None) -> bool:
     """T-41: a ledger entry drafted from the commits of the project since the last draft, at most every
-    DRAFT_HOURS. Commit subjects passed the commit gate; the ledger checks them again. True when written. The
-    marker moves only after the entry is in: a draft the ledger refuses raises ledger.Refused, is noted in
-    <code>.refused beside the marker and is tried again with the next commit."""
+    DRAFT_HOURS. Commit subjects passed the commit gate; the ledger checks them again, after `_clean_subject`
+    took out links and other structured values. True when written. The marker moves only after the entry is in:
+    a draft the ledger refuses raises ledger.Refused, is noted in <code>.refused beside the marker and is tried
+    again with the next commit. Entries by hand (awb ledger add) of the project written after the last draft or
+    after the refusal cover the commits up to then: those commits are not drafted again."""
     from awb import ledger, projects
     now = now or datetime.datetime.now(datetime.timezone.utc)
     code = root.name
@@ -1099,6 +1147,8 @@ def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = No
         state = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         state = {}
+    if not isinstance(state, dict):
+        state = {}
     if state.get("head") == head[0]:
         return False
     try:
@@ -1106,37 +1156,54 @@ def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = No
             return False
     except (KeyError, TypeError, ValueError):
         pass
-    # a bare date means "since this time of day" to git: the first draft starts at midnight UTC of the day
-    span = (["%s..HEAD" % state["head"]] if state.get("head")
-            else ["--since=%s 00:00:00 +0000" % now.date().isoformat()])
-    subjects = [s for s in (_git_lines(root, "log", "--format=%s", *span) or []) if not s.startswith("Spawn tcp-")]
     refused = marker.with_suffix(".refused")
-    try:
-        if refused.read_text(encoding="utf-8").strip() == head[0]:
-            return False                    # this draft was refused and said once; the next commit tries again
-    except OSError:
-        pass
+    note = _read_refused(refused)
+    if note.get("head") == head[0] and not _covered(p, code, note):
+        return False                        # this draft was refused and said once; the next commit tries again
+    base = state.get("head")
+    if note.get("head") and _covered(p, code, note):
+        base = note["head"]                 # the refused commits got entries by hand
+    elif base and _covered(p, code, state):
+        base = head[0]                      # entries by hand since the last draft cover every commit up to now
+    # a bare date means "since this time of day" to git: the first draft starts at midnight UTC of the day
+    span = (["%s..HEAD" % base] if base else ["--since=%s 00:00:00 +0000" % now.date().isoformat()])
+    subjects = [] if base == head[0] else \
+        [s for s in (_git_lines(root, "log", "--format=%s", *span) or []) if not s.startswith("Spawn tcp-")]
+    if not base and subjects and _covered(p, code, {"hand": 0, "since": now.date().isoformat()}):
+        subjects = []                       # the first draft of the day: entries by hand of today cover it
+    today = now.date().isoformat()
     written = False
     if subjects:
         row = next((r for r in projects.load(p) if r.code == code), None)
-        done = "%s: %d commit(s): %s" % (code, len(subjects), "; ".join(reversed(subjects)))
+        done = "%s: %d commit(s): %s" % (code, len(subjects), "; ".join(_clean_subject(s) for s in reversed(subjects)))
         try:
             ledger.add("other", done[:ledger.MAX_TEXT], project=code,
                        customer=None if row is None or row.customer == projects.NO_CUSTOMER else row.customer,
-                       outcome="drafted at session end from the commits; correct it with awb ledger add when "
-                               "needed", p=p)
+                       outcome=DRAFT_OUTCOME, p=p)
         except ledger.Refused:
             marker.parent.mkdir(parents=True, exist_ok=True)
-            refused.write_text(head[0] + "\n", encoding="utf-8")
+            refused.write_text(json.dumps({"head": head[0], "since": today,
+                                           "hand": max(_hand_entries(p, code, today), 0)}) + "\n",
+                               encoding="utf-8")
             raise
         written = True
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(json.dumps({"head": head[0], "at": now.isoformat()}) + "\n", encoding="utf-8")
+    marker.write_text(json.dumps({"head": head[0], "at": now.isoformat(), "since": today,
+                                  "hand": max(_hand_entries(p, code, today), 0)}) + "\n", encoding="utf-8")
     try:
         refused.unlink()
     except OSError:
         pass
     return written
+
+
+def _covered(p: config.Paths, code: str, note: dict) -> bool:
+    """Whether entries by hand of the project were added since `note` was written (its "hand" count of entries
+    from its "since" day on). A note without the count covers nothing."""
+    since, before = note.get("since"), note.get("hand")
+    if not isinstance(since, str) or not isinstance(before, int) or isinstance(before, bool):
+        return False
+    return _hand_entries(p, code, since) > before
 
 
 def _quietly(fn, *args) -> None:
@@ -1404,8 +1471,10 @@ def hook_stop(data: dict) -> int:
         from awb import ledger
         if isinstance(exc, ledger.Refused):
             # the refusal names the field and the counts, never a value
-            draft_msg = ("the ledger refused the draft of this session's commits (%s): add the entry yourself with "
-                         "awb ledger add, in plain words" % exc)
+            draft_msg = ("the ledger refused the draft of this session's commits (%s): add one entry for them "
+                         "yourself with awb ledger add --project %s, in plain words without links, host names or "
+                         "file names; the stop hook then counts these commits as covered and does not draft them "
+                         "again" % (exc, root.name))
     try:
         from awb import projects
         projects.mail_owner_commands(config.paths(), root)

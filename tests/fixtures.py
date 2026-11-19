@@ -147,3 +147,8 @@ LOG_HOST = "qvx-db01"
 LOG_INTERNAL_HOST = "app02.qvelnet.local"
 LOG_PUBLIC_IP = "203.0.113.45"
 LOG_PRIVATE_IP = "10.20.30.40"
+
+# an invented outside host and link of a commit subject (the ledger url refusal of the stop hook draft): the host is
+# no allowed domain, so the name check classes it as url
+LEDGER_LINK_HOST = "qvelmarbau.de"
+LEDGER_LINK = "https://" + LEDGER_LINK_HOST + "/docs/run?x=1"
