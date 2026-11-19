@@ -1,4 +1,4 @@
-"""Tests of awb/solutions.py: build, status, the release screen and the release of a package, with invented
+"""Tests of awb/tcp/solutions.py: build, status, the release screen and the release of a package, with invented
 projects, a stand-in price API and a temporary knowledge base."""
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from awb import cli, kb, kbpattern, solutions
+from awb import cli, kb, kbpattern
+from awb.tcp import solutions
 from tests import test_kbpattern as tk
 
 SOLUTIONS = "tcp-r2nz"
@@ -105,12 +106,12 @@ def test_build_refuses_a_missing_source_and_an_unclear_price(home, monkeypatch, 
 
 
 def test_build_refuses_a_service_that_is_not_offered_and_risks_as_a_part(home, monkeypatch):
-    d, pkg, _, _ = solutions_project(home, monkeypatch, services="Elastic Cloud Server, Quantum Annealer Service")
+    d, pkg, _, _ = solutions_project(home, monkeypatch, services="Elastic Cloud Server, quantum annealer")
     with pytest.raises(solutions.SolutionsError) as ex:
         solutions.build("cad-on-tcp", project=d, fetcher=fetcher(), pdf=False)
     assert "service 2" in str(ex.value)
     (pkg / "PACKAGE.md").write_text((pkg / "PACKAGE.md").read_text().replace(
-        ", Quantum Annealer Service", "").replace("parts: offer.md", "parts: risks.md, offer.md"))
+        ", quantum annealer", "").replace("parts: offer.md", "parts: risks.md, offer.md"))
     with pytest.raises(solutions.SolutionsError) as ex:
         solutions.build("cad-on-tcp", project=d, fetcher=fetcher(), pdf=False)
     assert "risks.md" in str(ex.value)

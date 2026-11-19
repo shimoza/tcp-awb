@@ -30,7 +30,7 @@ is rules/common-words.txt. A rare tool named in one project is a fingerprint; th
 not. A refusal names the class and the count, never the string.
 
 Every `add` and `support` also writes the salted hashes of these strings to the fingerprint file of the project,
-so the release screen of a package (awb/solutions.py) can find them without ever holding a string. A script card
+so the release screen of a package (awb/tcp/solutions.py) can find them without ever holding a string. A script card
 carries its file, checked like a deliverable: the same screens and the same fingerprint check.
 
 Cards never go into the TCP Facts dataset: `kb.load`, `kb.export` and the dataset build read `entries/` only.

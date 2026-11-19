@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from awb import cli, packages, projects, sessions, solutions
+from awb import cli, packages, projects, sessions
+from awb.tcp import solutions
 from awb.tcp import board, refresh
 from tests import test_kbpattern as tk
 from tests import test_solutions as ts

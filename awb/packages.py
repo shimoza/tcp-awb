@@ -2,9 +2,10 @@
 
     <shared>/packages.tsv   slug, kind, tags, state, version, released, project, counts, checked
 
-One row per package of the solutions project, written by `awb solutions build|status|release|sweep` (awb/solutions.py),
-codes, slugs, tags, dates and counts only. The board reads it for its packages line and the refresh writes it again
-with the live status. It is never a list of customers: the project column is the solutions project.
+One row per package of the solutions project, written by `awb solutions build|status|release`
+(awb/tcp/solutions.py), codes, slugs, tags, dates and counts only. The board reads it for its packages line and
+the refresh writes it again with the live status. It is never a list of customers: the project column is the
+solutions project.
 
 The stop hook asks a source session once per batch: when the session wrote or changed a file under deliverables/
 since the last check, the project's tags (SCOPE.md) meet the tags of a standing package and the session ran no

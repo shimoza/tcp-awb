@@ -785,7 +785,7 @@ def sweep(slug: str, *, project: Path | None = None, p: config.Paths | None = No
                     row["action"] = "%s failed (%s)" % (row["action"], type(err).__name__)
         out.append(row)
     if not dry_run:
-        _write(sweep_marks_file(slug, p), render_tsv(("code", "mtime"), [{"code": c, "mtime": "%.3f" % t}
+        _write(sweep_marks_file(slug, p), render_tsv(("code", "mtime"), [{"code": c, "mtime": repr(t)}
                                                                         for c, t in sorted(marks.items())]))
     return out
 

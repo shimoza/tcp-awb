@@ -834,7 +834,8 @@ def part_projects(p: config.Paths, *, today: datetime.date, max_age: int) -> Par
 def part_packages(p: config.Paths, *, today: datetime.date) -> Part:
     """The status of every registered solution package (awb solutions status, live prices included), one line each;
     a stale package is overdue. Codes, slugs and counts only."""
-    from awb import packages, solutions
+    from awb import packages
+    from awb.tcp import solutions
 
     part = Part("packages")
     rows = packages.rows(p)

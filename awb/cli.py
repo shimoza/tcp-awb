@@ -896,7 +896,7 @@ DELEGATED = {
     "tenant": ("tcp.tenants", "test tenants: setup, password, add, snapshot, list, now, history, at, project"),
     "api": ("tcp.web.contract", "the contract of the web API: write docs/api/openapi.yaml, check it"),
     "service": ("tcp.services", "offered services: the latest service description and nothing else (check, list, update)"),
-    "solutions": ("solutions", "customer-free solution packages: build, status, screen (the release screen), release"),
+    "solutions": ("tcp.solutions", "customer-free solution packages: build, status, screen (the release screen), release"),
     "board": ("tcp.board", "the status of every active project for management, as Markdown and HTML"),
     "platform-status": ("tcp.platformstatus", "the TCP platform on the board: pull the public status page, show the "
                                               "open incidents and the next maintenances"),
