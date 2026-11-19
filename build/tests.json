@@ -26930,6 +26930,62 @@
    "status": "passing"
   },
   {
+   "id": "BYTG-WG-003",
+   "phase": "T",
+   "name": "bytg: a disk image over the read limit skips the whole check and is published",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_a_disk_image_over_the_read_limit_skips_the_whole_check_and_is_published",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-004",
+   "phase": "T",
+   "name": "bytg: an unavailable name check keeps the part and recheck resumes without a transfer",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_an_unavailable_name_check_keeps_the_part_and_recheck_resumes_without_a_transfer",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-005",
+   "phase": "T",
+   "name": "bytg: a small image whose whole check cannot run is kept, not deleted",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_a_small_image_whose_whole_check_cannot_run_is_kept_not_deleted",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-006",
+   "phase": "T",
+   "name": "bytg: the same get again resumes the checks without a transfer",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_the_same_get_again_resumes_the_checks_without_a_transfer",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-007",
+   "phase": "T",
+   "name": "bytg: a registered name in a kept part still deletes it on recheck",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_a_registered_name_in_a_kept_part_still_deletes_it_on_recheck",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-008",
+   "phase": "T",
+   "name": "bytg: a kept part changed since the get is deleted on recheck",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_a_kept_part_changed_since_the_get_is_deleted_on_recheck",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-009",
+   "phase": "T",
+   "name": "bytg: recheck without a kept part is refused",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_recheck_without_a_kept_part_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-010",
+   "phase": "T",
+   "name": "bytg: recheck needs no open window",
+   "run": ".venv/bin/pytest tests/test_winlab_get_large_image.py::test_lg_recheck_needs_no_open_window",
+   "status": "passing"
+  },
+  {
    "id": "Q13-1",
    "phase": "Q13",
    "name": "suite under its limit: the whole suite runs one pytest per file with a home and tmpdir per worker and one junit",
@@ -27392,6 +27448,6 @@
    "status": "passing"
   }
  ],
- "total_tests": 3913,
+ "total_tests": 3921,
  "checked": "2026-11-19"
 }

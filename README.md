@@ -1198,6 +1198,7 @@ awb winlab log JOB                                # the new part of its log
 awb winlab stop JOB
 awb winlab put winlab-out/setup-lab.ps1 C:\lab\setup-lab.ps1
 awb winlab get C:\lab\export.csv results/export.csv
+awb winlab get C:\lab\disk.vhdx results/disk.vhdx --recheck   # the checks again over a kept part, no transfer
 ```
 
 A refusal sends nothing. A command goes out only after four checks: no `{{secret:NAME}}` reference (nothing is
@@ -1218,6 +1219,11 @@ at its entry with `awb intake`. The log line of each put names the check that ra
 vhdx" or "name and secret check"). Both go in chunks, resume when you run the same command again after a break,
 compare the SHA-256 of both sides at the end and never overwrite a file. They are built for 12 GB; a large file
 belongs in a folder git ignores.
+A received file is checked in place: a name or a secret deletes it. When the name check cannot run (the vault is
+locked, the rate limit wait ran out) the get keeps the file unpublished as `FILE.awb-part` with its SHA-256 and how
+far the checks got; the same get with `--recheck` checks it again from there, without a transfer and without an open
+window, and a part changed since the get is deleted. A disk image over 2 GB is too large for the whole name check,
+which reads the file into memory: it gets the name check per piece of its bytes, which resumes the same way.
 
 Part 4 is the lab broker (`awb winlab serve`, `awb/tcp/winbroker.py`), the same pattern as the key service: a
 project session never holds a key. Root runs it under its unit (the seal part of the steering session: the system

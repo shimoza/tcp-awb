@@ -87,6 +87,9 @@ RETRIES = 3
 RUN_TIMEOUT = 300
 CHECK_WHOLE_MAX = 64 * 1024 * 1024
 """The largest file the name check reads whole (it opens office files and archives); a larger one goes in pieces."""
+CHECK_READ_MAX = 2 * 1024 ** 3
+"""The largest disk image the whole name check reads: it reads the file into memory, and a 21.9 GB image of tcp-bytg
+(2026-11-19) ended in Unavailable. A larger image gets the name check per piece of its bytes, which resumes."""
 PIECE = 4 * 1024 * 1024
 OVERLAP = 512
 DISK_IMAGES = {".vhdx": "vhdx", ".vhd": "vhd", ".vmdk": "vmdk", ".qcow2": "qcow2", ".iso": "iso", ".img": "img"}
@@ -1500,7 +1503,7 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         size = st["size"]
         same = (record.get("winpath") == winpath and record.get("file") == rel and record.get("size") == size
                 and record.get("mtime") == st.get("mtime"))
-        _write_json(rpath, {"winpath": winpath, "file": rel, "size": size, "mtime": st.get("mtime")})
+        _write_json(rpath, {"winpath": winpath, "file": rel, "size": size, "mtime": st.get("mtime"), "machine": name})
         fd = winlab._regular(folder, part, os.O_RDWR | os.O_CREAT)
         with os.fdopen(fd, "r+b") as fh:
             have = os.fstat(fh.fileno()).st_size
@@ -1517,6 +1520,35 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         raise
     finally:
         transport.close()
+    expected = str(final.get("sha256", "")).lower() if final and final.get("size") == size else None
+    public_window = machine.get("public_image") is True or (machine.get("window") or {}).get("public_image") is True
+    rec = dict(record if same else {}, winpath=winpath, file=rel, size=size, mtime=st.get("mtime"), machine=name)
+    sha, public = _check_and_publish(rpath, rec, folder, part, dst, size, expected, public_window,
+                                      "the SHA-256 of the copy does not match %s on %s" % (winpath, name))
+    _unlink(rpath)
+    path = log(root, name, title, ["from %s" % winpath, "%s, sha256 %s, %s" % (
+        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")]
+               + (["secret check skipped: a public image window of the owner"] if public else []))
+    return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "file": rel,
+            "log": path.relative_to(root)}
+
+
+def _piece_names(text: str) -> int:
+    """The registered names in a piece of a received file; raises hooks.Unavailable when the check cannot run."""
+    from awb import hooks
+
+    return len([h for h in hooks.name_hits(text) if h.get("cls") in NAME_CLASSES])
+
+
+def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path, size: int, expected: str | None,
+                       public_window: bool, mismatch: str) -> tuple[str, bool]:
+    """Check the received part in place and publish it as `dst`. Returns (sha256, whether the secret check was
+    skipped for a public image). A name or a secret hit and a SHA-256 other than `expected` delete the part and the
+    record `rpath`. When the name check cannot run (hooks.Unavailable) the part stays under its private part name
+    and the record keeps the SHA-256 and how far the checks got: `awb winlab get WINPATH FILE --recheck` goes on
+    from there without a transfer (tcp-bytg 2026-11-19: a 21.9 GB image was deleted after 1 h 45 of transfer)."""
+    from awb import hooks
+
     # The part is renamed to a private name for the checks, so nothing can replace it while they run. A copy did
     # the same at twice the disk: a 21.9 GB image of tcp-bytg (2026-11-19) filled the host and ended in OSError.
     staged = ".winlab-" + secrets.token_hex(16) + dst.suffix
@@ -1526,38 +1558,55 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
     back = True                                             # an unexpected failure gives the part back for a resume
     try:
         sha = _sha256(snapshot)
-        if not final or str(final.get("sha256", "")).lower() != sha or final.get("size") != size:
+        if expected is None or expected != sha:
             back = False
             _unlink(rpath)
-            raise WinlabError("the SHA-256 of the copy does not match %s on %s: the part was deleted, nothing kept"
-                              % (winpath, name))
+            raise WinlabError("%s: the part was deleted, nothing kept" % mismatch)
+        done = rec.get("checked")
+        start = done if rec.get("sha256") == sha and type(done) is int and 0 < done <= size else 0
+        rec.update(sha256=sha, public=public_window, checked=start)
+        _write_json(rpath, rec)
         try:
             # A compressed file or a disk image shows no name in the pieces of its bytes, and a piece costs some
             # hundred calls of the rate limited name check (hours for a chunk of an image): it gets the whole
-            # check alone, which opens the archive, at any size (B-040; tcp-bytg 2026-11-17).
+            # check alone, which opens the archive (B-040; tcp-bytg 2026-11-17). A disk image over CHECK_READ_MAX
+            # cannot be read whole: it gets the name check per piece, which resumes where it stopped.
             with open(snapshot, "rb") as fh:
-                packed = fh.read(8).startswith(_COMPRESSED) or disk_image(snapshot, size) is not None
+                compressed = fh.read(8).startswith(_COMPRESSED)
+            image = disk_image(snapshot, size) is not None
+            packed = compressed or image
             # the owner's statement on the window (awb winlab open --public-image): public images built in the lab
-            public = packed and (machine.get("public_image") is True
-                                 or (machine.get("window") or {}).get("public_image") is True)
-            if size <= CHECK_WHOLE_MAX or packed:
+            public = packed and public_window
+            whole = size <= CHECK_WHOLE_MAX or compressed or (image and size <= CHECK_READ_MAX)
+            piece_names = not packed or not whole
+            if whole and not start:
                 names = [h for h in hooks.file_hits(snapshot) if h.get("cls") in NAME_CLASSES]
                 if names:
                     raise WinlabError("the file carries %d registered name(s): the copy was deleted" % len(names))
             with open(snapshot, "rb") as fh:
+                at = max(0, start - OVERLAP)
+                fh.seek(at)
                 tail = ""
                 while data := fh.read(PIECE):
                     text = tail + _piece_text(data)
-                    if not packed and _name_count(text):
+                    if piece_names and _piece_names(text):
                         raise WinlabError("the file carries registered name(s): the copy was deleted")
                     if not public and (_image_secret_count(text) if packed else _secret_count(text)):
                         raise WinlabError("the file carries secret(s): the copy was deleted")
                     tail = text[-OVERLAP:]
-        except (WinlabError, hooks.Unavailable) as exc:
+                    at += len(data)
+                    if size > CHECK_WHOLE_MAX:
+                        rec["checked"] = at
+                        _write_json(rpath, rec)
+        except hooks.Unavailable as exc:
+            # back stays True: the part keeps its private name, the record its SHA-256 and the progress
+            raise WinlabError("the name check did not run (%s): the received file is kept unpublished as %s "
+                              "(checked to %s of %s); the same get with --recheck checks it again without a "
+                              "transfer" % (exc, rec["file"] + PART, _size(rec.get("checked") or 0), _size(size))
+                              ) from None
+        except WinlabError:
             back = False
             _unlink(rpath)
-            if isinstance(exc, hooks.Unavailable):
-                raise WinlabError("the name check did not run: the copy was deleted") from None
             raise
         # Hard-link publication cannot replace a destination another writer created.
         os.link(staged, dst.name, src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
@@ -1570,12 +1619,70 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
                 os.unlink(staged, dir_fd=folder)
         except FileNotFoundError:
             pass
+    return sha, public
+
+
+@_serial
+def recheck(winpath: str, file: str, machine: str | None = None, root: Path | None = None) -> dict:
+    """The checks of a get again over the part a get kept when the name check could not run, without a transfer
+    and without the machine. Returns {"machine", "size", "sha256", "file", "log"}. Raises WinlabError."""
+    root = root or _root()
+    title = "get --recheck %s" % file
+    name = machine
+    try:
+        check_winpath(winpath)
+        dst = target(root, file)
+        rel = dst.relative_to(os.path.realpath(root)).as_posix()
+        name, rpath, rec = _kept(root, winpath, rel, machine)
+    except WinlabError as err:
+        _refused(root, name or NO_WINDOW, title, err)
+        raise
+    try:
+        with winlab._parent(dst, create=False) as folder:
+            part = dst.name + PART
+            try:
+                fd = winlab._regular(folder, part)
+            except FileNotFoundError:
+                raise WinlabError("there is no kept part of %s: run the get again" % rel) from None
+            have = os.fstat(fd).st_size
+            os.close(fd)
+            if have != rec["size"]:
+                raise WinlabError("the kept part of %s is %s, the get received %s: run the get again"
+                                  % (rel, _size(have), _size(rec["size"])))
+            sha, public = _check_and_publish(rpath, rec, folder, part, dst, rec["size"], rec["sha256"],
+                                              rec.get("public") is True,
+                                              "the kept part of %s changed since the get" % rel)
+    except WinlabError as err:
+        log(root, name, "get %s from %s" % (rel, name), ["from %s" % winpath, "recheck failed: %s" % err])
+        raise
     _unlink(rpath)
-    path = log(root, name, title, ["from %s" % winpath, "%s, sha256 %s, %s" % (
-        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")]
+    path = log(root, name, "get %s from %s" % (rel, name), ["from %s" % winpath, "%s, sha256 %s, checked again "
+                                                             "without a transfer" % (_size(rec["size"]), sha)]
                + (["secret check skipped: a public image window of the owner"] if public else []))
-    return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "file": rel,
-            "log": path.relative_to(root)}
+    return {"machine": name, "size": rec["size"], "sha256": sha, "file": rel, "log": path.relative_to(root)}
+
+
+def _kept(root: Path, winpath: str, rel: str, machine: str | None) -> tuple[str, Path, dict]:
+    """(machine, record path, record) of the part a get kept for `winpath` and `rel`."""
+    folder = root / LOG_FOLDER / "transfers"
+    found = []
+    for path in sorted(folder.glob("get-*.json")) if folder.is_dir() else []:
+        rec = _read_json(path)
+        if not rec or rec.get("winpath") != winpath or rec.get("file") != rel:
+            continue
+        name = rec.get("machine")
+        if not isinstance(name, str) or (machine is not None and name != machine):
+            continue
+        if not winlab.NAME_RE.fullmatch(name) or _record_path(root, "get", name, winpath) != path:
+            continue
+        if not isinstance(rec.get("sha256"), str) or type(rec.get("size")) is not int:
+            continue
+        found.append((name, path, rec))
+    if not found:
+        raise WinlabError("no get kept a part of %s from %s: nothing to check again" % (rel, winpath))
+    if len(found) > 1:
+        raise WinlabError("gets from %s machines kept a part of %s: name one with --machine" % (len(found), rel))
+    return found[0]
 
 
 def _receive(transport: Transport, fh, winpath: str, offset: int, size: int) -> None:
@@ -1645,6 +1752,11 @@ def main(args: argparse.Namespace, tail: list[str] | None) -> int:
             print("awb winlab: put %s to %s on %s, sha256 matches%s" % (
                 _size(result["size"]), args.winpath, result["machine"],
                 ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))
+            return EXIT_OK
+        if command == "get" and getattr(args, "recheck", False):
+            result = recheck(args.winpath, args.file, machine=args.machine)
+            print("awb winlab: checked %s of %s from %s again, sha256 %s, published as %s" % (
+                _size(result["size"]), args.winpath, result["machine"], result["sha256"][:12], result["file"]))
             return EXIT_OK
         if command == "get":
             result = get(args.winpath, args.file, machine=args.machine)
