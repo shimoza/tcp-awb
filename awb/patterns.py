@@ -379,7 +379,7 @@ def _rate_column(text: str, start: int, end: int, table: _Table) -> bool:
     return all(c in table.rate_columns for c in range(first, first + len(parts)))
 
 
-_CALENDAR_DATE_RE = re.compile(r"(?<![\d.-])(?:(?:19|20)\d\d-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+_CALENDAR_DATE_RE = re.compile(r"(?<![\d.-])(?:(?:19|20)\d\d-(?:0[1-9]|1[012])-(?:0[1-9]|[12]\d|3[01])"
                                r"|(?:0?[1-9]|[12]\d|3[01])\.(?:0?[1-9]|1[0-2])\.(?:19|20)\d\d)(?![\d.-]?\d)")
 """An ISO date (2026-11-19) or a German date (19.11.2026): never a number to call, nor a part of one, also when
 two stand side by side in table cells."""
