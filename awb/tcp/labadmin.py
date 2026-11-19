@@ -31,8 +31,9 @@ an open run with the recorded number or id. Only on a lab tenant and only for a 
 live row naming the tenant, or when the create names a resource listed live there (a rule of a listed security
 group). A kept create keeps its record in the state kept with its reason; `end` skips it and reports it as kept,
 and `awb owner status` shows it for labruns.KEPT_DAYS days. A delete of a resource listed live in RESOURCES.md (DELETE of
-its id, or its id in a batch delete) is refused unless the call says `delete_listed`. A PUT, PATCH or tag action on
-an existing resource records nothing, so the end never undoes it.
+its id, or its id in a batch delete) is refused unless the call says `delete_listed`; when it answers 2xx or 404 the
+run records it in `listed_removed`, the end reports it as removed and a kept create with that id is set to removed.
+A PUT, PATCH or tag action on an existing resource records nothing, so the end never undoes it.
 `end` runs the deletes that are left in reverse order (at most END_PASSES passes with a pause while some fail and
 the time allows), reports created, removed and failed and closes the run; a second `end` tries the failed ones
 again. A run open for more than OLD_AFTER seconds or ended with failed deletes shows in `awb owner status` (and the
@@ -779,21 +780,56 @@ def tenant_listed(rows: list[dict], alias: str) -> bool:
     return any(alias.lower() in " ".join(str(v) for v in r.values()) for r in rows)
 
 
-def listed_target(rows: list[dict], method: str, path: str, body) -> str | None:
-    """The handle of a listed live resource a delete call removes: DELETE PATH/ID by its last segment, a batch delete
-    (POST .../delete) by the ids in its body. None for any other call."""
+def listed_targets(rows: list[dict], method: str, path: str, body) -> list[dict]:
+    """The listed live resources a delete call removes, each as {handle, id, label}: DELETE PATH/ID by its last
+    segment, a batch delete (POST .../delete) by the ids in its body. [] for any other call."""
     segs = [s for s in path.strip("/").split("/") if s]
     if method == "DELETE" and segs:
         targets = {segs[-1].lower()}
     elif method == "POST" and segs and segs[-1].lower() == "delete":
         targets = set(re.findall(r"[0-9a-z][0-9a-z-]{7,63}", json.dumps(body).lower())) if body is not None else set()
     else:
-        return None
+        return []
+    out = []
     for r in rows:
         rid = _row_id(r)
         if rid and rid in targets:
-            return r.get("handle") or rid[:8]
-    return None
+            out.append({"handle": r.get("handle") or rid[:8], "id": rid,
+                        "label": re.sub(r"[^a-z0-9 ._-]+", " ", r.get("type") or "").strip() or "listed resource"})
+    return out
+
+
+def listed_target(rows: list[dict], method: str, path: str, body) -> str | None:
+    """The handle of the first listed live resource a delete call removes, None for any other call."""
+    found = listed_targets(rows, method, path, body)
+    return found[0]["handle"] if found else None
+
+
+def mark_listed_removed(p, run: dict, gone: list[dict]) -> None:
+    """A delete of listed resources answered 2xx or 404 (task LK, tcp-6edq 2026-11-19): each goes into the run as
+    removed (`listed_removed`, so the end counts it), and a kept create of an earlier run of the project on the
+    tenant with the same id is set to removed, so `awb owner status` stops showing it as kept."""
+    ids = {g["id"] for g in gone}
+    own = set()
+    for c in run.get("created", []):
+        if c.get("state") == "kept" and entry_id(c).lower() in ids:
+            c.update(state="removed", removed_in=run.get("id"))         # the end counts it among the creates
+            own.add(entry_id(c).lower())
+    have = {str(g.get("id")) for g in run.get("listed_removed", [])} | own
+    for g in gone:
+        if g["id"] not in have:
+            run.setdefault("listed_removed", []).append(dict(g, state="removed", at=_now()))
+    for other in load_runs(p):
+        if other.get("id") == run.get("id") or other.get("project") != run.get("project") or \
+                other.get("tenant") != run.get("tenant"):
+            continue
+        hit = False
+        for c in other.get("created", []):
+            if c.get("state") == "kept" and entry_id(c).lower() in ids:
+                c.update(state="removed", removed_in=run.get("id"))
+                hit = True
+        if hit:
+            save(p, other)
 
 
 def keep_reason(value) -> str:
@@ -887,9 +923,9 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         if held_cred is None:
             raise _refused("refused: credential takes only the shortened access key of a temporary key this run got")
     rows = listed_rows(svc, project) if method not in ("GET", "HEAD") else []
-    gone = listed_target(rows, method, path, body)
-    if gone and req.get("delete_listed") is not True:
-        raise _refused(LISTED_DELETE_LINE % (gone, project))
+    listed = listed_targets(rows, method, path, body)
+    if listed and req.get("delete_listed") is not True:
+        raise _refused(LISTED_DELETE_LINE % (listed[0]["handle"], project))
     anchored = anchor(rows, path, body) if method in ("POST", "PUT", "PATCH") else None
     reason = None
     if req.get("keep") is not None:
@@ -938,6 +974,9 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
             for c in run.get("created", []):
                 if c.get("state") in ("live", "failed") and matches_delete(c, method, service, expanded, query, body):
                     c["state"] = "removed"
+        removed_listed = listed if listed and (200 <= status < 300 or status == 404) else []
+        if removed_listed:
+            mark_listed_removed(p, run, removed_listed)
         run["calls"] = int(run.get("calls") or 0) + 1
         save(p, run)
     svc._log(uid, alias, "admin", method, service, region, status, project)
@@ -947,6 +986,9 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         answer["tagged"] = tagged
     if kept:
         answer["kept"] = kept
+    if removed_listed:
+        answer["listed_removed"] = [{"handle": g["handle"], "id": g["id"], "label": g["label"]}
+                                    for g in removed_listed]
     shown, hidden = masks(login)
     return shorten_answer(answer, shown, svc.lab.values() + [v for c in creds for v in c] + tokens, drawn + hidden)
 
@@ -1068,7 +1110,8 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
     svc._log(uid, alias, "admin", "END", "lab-run", "-", "%d/%d" % (
         sum(1 for c in created if c["state"] == "removed"), len(created)), project)
     answer = {"ok": True, "run": run["id"], "tenant": alias, "project": project, "created": len(created),
-              "removed": [{"label": c["label"], "name": c.get("name")} for c in created if c["state"] == "removed"],
+              "removed": [{"label": c["label"], "name": c.get("name")} for c in created if c["state"] == "removed"]
+              + [{"label": g["label"], "name": g["handle"]} for g in run.get("listed_removed", [])],
               "failed": [{"label": c["label"], "name": c.get("name"), "error": c.get("error"),
                           "delete": "%s %s %s" % (c["delete"]["method"], c["delete"]["service"], c["delete"]["path"])}
                          for c in created if c["state"] == "failed"],

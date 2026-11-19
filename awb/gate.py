@@ -1072,8 +1072,10 @@ gets the secret check only, no name or structured check (his rule of 2026-10-27,
 name check of the vault daemon took about 17 s per MB on one thread, so a 105 MB log of tcp-bytg did not pass in
 20 minutes even with four workers (2026-11-19)."""
 
-OWN_OUTPUT_CLASSES = frozenset({"secret", "private-key", "token", "homepath"})
-"""The classes the gate keeps on own output: awb/check.py SECRET_CLASSES, the screen of `awb paste --own`."""
+OWN_OUTPUT_CLASSES = frozenset({"secret", "private-key", "token"})
+"""The classes the gate keeps on own output: awb/hooks.py SECRET_CLASSES, the screen of `awb paste --own`. A home
+path is no secret, so a lab log that carries one (the user_data of a server, a path in an answer) passes (his rule
+"checked once at entry"; tcp-s5i3 and tcp-bytg, 2026-11-19)."""
 
 
 def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:

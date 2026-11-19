@@ -26886,8 +26886,36 @@
    "name": "package register and sweep: the refresh part runs the status of every package",
    "run": ".venv/bin/pytest tests/test_packages.py::test_the_refresh_part_runs_the_status_of_every_package",
    "status": "passing"
+  },
+  {
+   "id": "LF-001",
+   "phase": "T",
+   "name": "lab fix: listed deletes of each kind count as removed and set the rows deleted",
+   "run": ".venv/bin/pytest tests/test_lab_run_fixes_2026_11_19.py::test_lab_fix_listed_deletes_of_each_kind_count_as_removed_and_set_the_rows_deleted",
+   "status": "passing"
+  },
+  {
+   "id": "LF-002",
+   "phase": "T",
+   "name": "lab fix: a listed delete ends a kept create and a refused one is not counted",
+   "run": ".venv/bin/pytest tests/test_lab_run_fixes_2026_11_19.py::test_lab_fix_a_listed_delete_ends_a_kept_create_and_a_refused_one_is_not_counted",
+   "status": "passing"
+  },
+  {
+   "id": "LF-003",
+   "phase": "T",
+   "name": "lab fix: user_data of every server stays out of the run log",
+   "run": ".venv/bin/pytest tests/test_lab_run_fixes_2026_11_19.py::test_lab_fix_user_data_of_every_server_stays_out_of_the_run_log",
+   "status": "passing"
+  },
+  {
+   "id": "LF-004",
+   "phase": "T",
+   "name": "lab fix: a home path in a lab log passes the gate and a secret does not",
+   "run": ".venv/bin/pytest tests/test_lab_run_fixes_2026_11_19.py::test_lab_fix_a_home_path_in_a_lab_log_passes_the_gate_and_a_secret_does_not",
+   "status": "passing"
   }
  ],
- "total_tests": 3841,
+ "total_tests": 3845,
  "checked": "2026-11-19"
 }

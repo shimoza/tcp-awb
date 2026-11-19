@@ -238,7 +238,8 @@ for obs), answers in full and never hands over the password, the login or a whol
 security tokens come shortened to 8 characters, "..." and the length, and such a shortened value of the run works
 again as `X-Auth-Token` or `credential=`. Every create is recorded with its delete (a POST whose answer names a new
 id or name, a PUT or PATCH of a path a read before did not find). The call log is
-`notes/lab-runs/<run>.log` of the project. A run open for more than two hours or ended with failed deletes shows in
+`notes/lab-runs/<run>.log` of the project; a boot script (user_data) is written there only as a placeholder with its
+length, and the commit gate checks the log for secrets only. A run open for more than two hours or ended with failed deletes shows in
 `awb owner status` and the 08:00 mail. The module docs are in `awb/tcp/labadmin.py` and `awb/labclient.py`.
 
 A project that holds a stand (a taken-over or long-lived one, listed live in its RESOURCES.md) changes it in a run
@@ -248,7 +249,8 @@ project whose RESOURCES.md lists a live row naming that tenant or a live resourc
 group of a new rule). The end skips a kept create and reports it as kept, the client writes its row in RESOURCES.md
 as live and `awb owner status` shows it for seven days. A PUT, PATCH or tag action on an existing resource records
 nothing, so the end never undoes it. A delete of a resource listed live in RESOURCES.md is refused unless the call
-says `delete_listed=True`. `awb lab run start` prints the python that runs a lab script.
+says `delete_listed=True`; when it succeeds (2xx or 404) the run records it as removed, the end lists it and the
+client sets its row to deleted. `awb lab run start` prints the python that runs a lab script.
 
 A large file (an IMS image of 10 to 128 GB and more) does not fit a lab call, which takes 256 KB of JSON or text, and
 the egress filter keeps the session away from OBS. Inside the open run the key service moves it itself, as a

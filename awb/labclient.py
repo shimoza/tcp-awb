@@ -10,7 +10,8 @@ a listed security group), `awb lab run keep` keeps one already recorded. The key
 only, for a project whose RESOURCES.md lists a live row on that tenant or a live parent the create names; the end
 skips it and reports it as kept, `awb owner status` shows it, and this client writes its row in RESOURCES.md as live
 (KEEP_NOTE). A PUT, PATCH or tag action on an existing resource records nothing, so the end never undoes it. A delete
-of a resource listed live in RESOURCES.md needs `call(..., delete_listed=True)`, then its row is marked deleted.
+of a resource listed live in RESOURCES.md needs `call(..., delete_listed=True)`; when it answers 2xx or 404 the key
+service records it as removed in the run and this client sets its row in RESOURCES.md to deleted (mark_deleted).
 
 A script of the project imports this module with the installed Workbench's python:
 
@@ -25,7 +26,8 @@ a token, a temporary AK/SK and a security token in the answer come shortened to 
 and a password or a login never comes. A shortened token of an earlier answer of the run works as the header
 `X-Auth-Token` (and a shortened temporary access key as `credential=`): the service puts the whole value in.
 `{project_id}` and `{domain_id}` in a path are filled in by the service. Every call is appended to
-notes/lab-runs/<run>.log of the project, request and answer, shortened the same way (awb/labsecrets.py).
+notes/lab-runs/<run>.log of the project, request and answer, shortened the same way (awb/labsecrets.py); a boot
+script (user_data) is written there only as a placeholder with its length (BOOT_SCRIPT_KEYS).
 
 A large file goes to or from OBS as a job of the key service (task LO, awb/tcp/labobs.py), not through `call`:
 
@@ -342,10 +344,35 @@ def log(root: Path, run: str, lines: list[str]) -> None:
             fh.write(text)
 
 
+BOOT_SCRIPT_KEYS = frozenset({"userdata", "alphaccepreinstall", "alphaccepostinstall", "preinstall", "postinstall",
+                              "userscript", "customdata", "cloudinit", "bootscript", "startupscript"})
+"""The keys of a boot script, compared without case, separators and a prefix up to the last colon
+(`OS-EXT-SRV-ATTR:user_data`, `user_data`, `alpha.cce/preInstall`). `GET .../cloudservers/detail` answers the
+user_data of every server of the tenant, also of other projects (container cluster nodes), so the run log keeps
+only a placeholder with its length (tcp-s5i3, 2026-11-19). The script still gets the whole answer."""
+BOOT_SCRIPT_NOTE = "[boot script withheld, %d characters]"
+
+
+def _boot_key(key) -> bool:
+    return isinstance(key, str) and re.sub(r"[^a-z0-9]", "", key.rsplit(":", 1)[-1].lower()) in BOOT_SCRIPT_KEYS
+
+
+def _withhold(value, depth: int = 0):
+    """`value` with every boot script (BOOT_SCRIPT_KEYS) replaced by BOOT_SCRIPT_NOTE, base64 or not."""
+    if depth > 64:
+        return value
+    if isinstance(value, dict):
+        return {k: (BOOT_SCRIPT_NOTE % len(v if isinstance(v, str) else json.dumps(v))
+                    if _boot_key(k) and v not in (None, "") else _withhold(v, depth + 1)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_withhold(v, depth + 1) for v in value]
+    return value
+
+
 def _pretty(value) -> str:
     if isinstance(value, str):
         return value
-    return json.dumps(value, indent=1, ensure_ascii=False, sort_keys=True)
+    return json.dumps(_withhold(value), indent=1, ensure_ascii=False, sort_keys=True)
 
 
 def _token(root: Path | None) -> str | None:
@@ -462,8 +489,71 @@ def call(method: str, service: str, path: str, body=None, params=None, region=No
     for k in answer.get("kept") or []:
         lines += ["kept: %s %s (%s), row %s in RESOURCES.md" % (k["label"], k["id"], k["reason"],
                                                                   keep_row(root, run, tenant, k))]
+    gone = [g for g in answer.get("listed_removed") or [] if isinstance(g, dict)]
+    if gone:
+        marked = mark_deleted(root, run, gone)
+        lines += ["removed listed: %s, %s" % (", ".join(_safe_text(str(g.get("handle") or "-")) for g in gone),
+                                              "row %s in RESOURCES.md set to deleted" % ", ".join(marked)
+                                              if marked else "no row in RESOURCES.md matched")]
     log(root, run, lines)
     return answer.get("status"), answer.get("headers") or {}, out
+
+
+DELETED_NOTE = "deleted in lab run %s"
+
+
+@_boundary
+@_locked
+def mark_deleted(root: Path, run: str, gone: list[dict]) -> list[str]:
+    """Set the state of the RESOURCES.md rows of the listed resources a delete of the run removed (the key service
+    names their handle and id) to deleted; the handles of the rows it changed. A row is found by its handle or its
+    id, compared without case; other rows and lines stay as they are."""
+    _identifier(run, "run")
+    want = set()
+    for g in gone:
+        for key in ("handle", "id"):
+            v = str(g.get(key) or "").strip().lower()
+            if re.fullmatch(r"[a-z0-9_.:-]{1,80}", v):
+                want.add(v)
+    if not want:
+        return []
+    with _directory(root) as fd:
+        try:
+            text = _read(fd, "RESOURCES.md")
+        except FileNotFoundError:
+            return []
+        head = None
+        out, marked = [], []
+        for line in text.splitlines(keepends=True):
+            body = line.rstrip("\r\n")
+            if not body.strip().startswith("|"):
+                out.append(line)
+                continue
+            cells = body.strip().strip("|").split("|")
+            plain = [c.strip().strip("`").strip().lower() for c in cells]
+            if head is None:
+                head = plain
+                out.append(line)
+                continue
+            if "state" not in head or len(cells) != len(head) or all(set(c) <= set("-: ") for c in plain):
+                out.append(line)
+                continue
+            st = head.index("state")
+            keys_ = {plain[head.index(k)] for k in ("handle", "id") if k in head}
+            if plain[st] in ("deleted", "not created") or not keys_ & want:
+                out.append(line)
+                continue
+            cells[st] = " deleted "
+            if "note" in head:
+                n = head.index("note")
+                note = cells[n].strip()
+                cells[n] = " %s " % ("; ".join(x for x in (note if note not in ("", "-") else "",
+                                                          DELETED_NOTE % run) if x))
+            out.append("|" + "|".join(cells) + "|" + line[len(body):])
+            marked.append(plain[head.index("handle")] if "handle" in head else plain[0])
+        if marked:
+            _write(fd, "RESOURCES.md", "".join(out))
+    return marked
 
 
 @_boundary
