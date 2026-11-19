@@ -11,7 +11,7 @@ answer per request:
     admin socket  <vault>/admin.sock, mode 600, peer uid must be the daemon's own uid
                   ping, unlock, lock, status, register_load, register_save, seal_file, open_file, reload
     check socket  /run/awb/check.sock, mode 660, the group of the daemon process
-                  ping, check
+                  ping, check, pin, revision (an opaque register mark, so a caller keeps verdicts per mark)
 
 `reload` (T2, `awb vault reload`, what `awb deploy` runs after a code update) hands the daemon to a new process of
 the installed code without a lock: the daemon starts `awb vault serve --takeover FD` itself, passes it the two
@@ -46,6 +46,8 @@ from __future__ import annotations
 import base64
 import fcntl
 import getpass
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -502,6 +504,8 @@ class Daemon:
         self._plain: tuple | None = None
         self._encrypted_seen = False
         self._encrypted_revision: tuple | None = None
+        self._revision_key = secrets.token_bytes(32)
+        """Keys the register revision of `_op_revision`: a new daemon (a deploy, a reload) gives every revision anew."""
         self._rate: dict[int, deque] = {}
         self._servers: list[tuple[socket.socket, Path, tuple[int, int]]] = []
         self._threads: list[threading.Thread] = []
@@ -936,6 +940,28 @@ class Daemon:
                 out["since"] = self._locked_since
             return out
 
+    def _op_revision(self, req: dict, uid: int) -> dict:
+        """Q-0011: an opaque mark of what a check here answers from: the register (the revision of the encrypted file
+        while unlocked, of the plain file else), the learned allow list and this daemon. It changes when any of them
+        changes and tells nothing about the register's content, so a caller can keep a verdict per mark (awb queue)
+        and ask one request per run instead of one check per field."""
+        with self._lock:
+            state = self._state()
+            if state == "locked":
+                return _error("locked", since=self._since())
+            if state == "unlocked":
+                source = ("unlocked", self._encrypted_revision)
+            else:
+                self._plain_register()
+                source = ("plain", self._plain[0])
+        try:
+            st = os.stat(fplearn.folder(self.p.vault) / "allow.tsv")
+            allow = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size)
+        except OSError:
+            allow = None
+        mark = hmac.new(self._revision_key, repr((source, allow)).encode("ascii"), hashlib.sha256).hexdigest()
+        return {"ok": True, "revision": mark}
+
     def _op_check(self, req: dict, uid: int) -> dict:
         text = req.get("text")
         if not isinstance(text, str):
@@ -1191,7 +1217,7 @@ class Daemon:
             if not self.handed_over.is_set():
                 self.handing_over.clear()
 
-    _CHECK_OPS = {"ping": _op_ping, "check": _op_check, "pin": _op_pin}
+    _CHECK_OPS = {"ping": _op_ping, "check": _op_check, "pin": _op_pin, "revision": _op_revision}
     _ADMIN_OPS = {"ping": _op_ping_admin, "unlock": _op_unlock, "lock": _op_lock, "status": _op_status,
                   "register_load": _op_register_load, "register_save": _op_register_save,
                   "seal_file": _op_seal_file, "open_file": _op_open_file, "reload": _op_reload}

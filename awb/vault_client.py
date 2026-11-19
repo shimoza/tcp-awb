@@ -280,6 +280,18 @@ def ping_state(sock: Path, timeout: float = 10.0) -> dict:
     return {"state": state, "since": since_or_none(answer.get("since")) if state == "locked" else None}
 
 
+def register_revision(sock: Path, timeout: float = 10.0) -> str:
+    """The daemon's opaque register revision (`revision` op, Q-0011): 64 hex digits that change whenever the register,
+    the allow list or the daemon changes. "" when the daemon cannot say (an older daemon, locked, any odd answer):
+    a caller then reuses no verdict. Raises nothing."""
+    try:
+        answer = _request(Path(sock), {"op": "revision"}, timeout=timeout)
+    except (VaultError, OSError, ValueError):
+        return ""
+    mark = answer.get("revision") if answer.get("ok") is True and set(answer) == {"ok", "revision"} else None
+    return mark if isinstance(mark, str) and re.fullmatch(r"[0-9a-f]{64}", mark) else ""
+
+
 def locked_line(since: str | None) -> str:
     """"locked since <time>" for the board, the portal and `awb vault status`; "since unknown" without a time."""
     return "locked since %s" % (since_or_none(since) or "unknown")

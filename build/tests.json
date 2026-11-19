@@ -27222,8 +27222,113 @@
    "name": "check versions: a real value in a heading or in prose stays masked",
    "run": ".venv/bin/pytest tests/test_check_versions.py::test_real_value_in_heading_stays_masked",
    "status": "passing"
+  },
+  {
+   "id": "Q11-01",
+   "phase": "Q-0011",
+   "name": "queue check once: a list after add checks no row again",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_a_list_after_add_checks_no_row_again",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-02",
+   "phase": "Q-0011",
+   "name": "queue check once: add and next check only the new or changed row",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_add_and_next_check_only_the_new_or_changed_row",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-03",
+   "phase": "Q-0011",
+   "name": "queue check once: a hand edited row is checked again and a name still refuses",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_a_hand_edited_row_is_checked_again_and_a_name_still_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-04",
+   "phase": "Q-0011",
+   "name": "queue check once: a changed register checks every row again",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_a_changed_register_checks_every_row_again",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-05",
+   "phase": "Q-0011",
+   "name": "queue check once: a planted verdict certifies nothing",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_a_planted_verdict_certifies_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-06",
+   "phase": "Q-0011",
+   "name": "queue check once: the key lives in the owner state folder never beside the queue",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_the_key_lives_in_the_owner_state_folder_never_beside_the_queue",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-07",
+   "phase": "Q-0011",
+   "name": "queue check once: a key others can read keeps verdicts in the process only",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_a_key_others_can_read_keeps_verdicts_in_the_process_only",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-08",
+   "phase": "Q-0011",
+   "name": "queue check once: the verdict file is a reserved queue name",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_the_verdict_file_is_a_reserved_queue_name",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-09",
+   "phase": "Q-0011",
+   "name": "queue check once: verdicts before a refusal are kept",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_verdicts_before_a_refusal_are_kept",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-10",
+   "phase": "Q-0011",
+   "name": "queue check once: with the daemon two calls in a row stay within the rate",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_with_the_daemon_two_calls_in_a_row_stay_within_the_rate",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-11",
+   "phase": "Q-0011",
+   "name": "queue check once: with the daemon a changed register checks again",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_with_the_daemon_a_changed_register_checks_again",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-12",
+   "phase": "Q-0011",
+   "name": "queue check once: without a daemon revision no verdict is reused",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_without_a_daemon_revision_no_verdict_is_reused",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-13",
+   "phase": "Q-0011",
+   "name": "queue check once: the revision is opaque stable and new per daemon",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_the_revision_is_opaque_stable_and_new_per_daemon",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-14",
+   "phase": "Q-0011",
+   "name": "queue check once: only the listed modules call the name check",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_only_the_listed_modules_call_the_name_check",
+   "status": "passing"
+  },
+  {
+   "id": "Q11-15",
+   "phase": "Q-0011",
+   "name": "queue check once: the caller walk can fail",
+   "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_the_caller_walk_can_fail",
+   "status": "passing"
   }
  ],
- "total_tests": 3889,
+ "total_tests": 3904,
  "checked": "2026-11-19"
 }

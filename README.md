@@ -1591,8 +1591,12 @@ The owner-side file is `~/tcp-awb/presentations/work-profile/queue.tsv`, one ope
 an id, creation and update dates, the date the next step changed, what, next, who and optional project.
 `done` moves an item to `queue-done.tsv` beside it. A next step unchanged for 24 hours is marked `stale`;
 reassigning the same step does not reset that clock. `awb owner status` includes owner rows and their next steps.
-Names, secrets and unchecked text are refused on write and rechecked on read. `AWB_WORK_QUEUE` selects
-another queue file, including for temporary tests.
+Names, secrets and unchecked text are refused on write. A row is checked once when it is added or changed;
+its verdict is kept in `queue-verdicts.tsv` beside the queue, signed with a key in the owner's state folder
+(`~/.local/state/awb/queue-verdict.key`) and bound to the register stamp (with the vault daemon: its `revision`,
+one request per run). A later call checks only a row with no verdict, a hand-edited row or every row after the
+register changed; a row with a finding still refuses. `AWB_WORK_QUEUE` selects another queue file, including for
+temporary tests.
 
 Run `awb queue migrate` once on the owner host to import the open rows of the old `QUEUE.md` beside the TSV.
 The old text stays intact with an archive notice prepended. Completed, accepted, cancelled and superseded

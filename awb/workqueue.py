@@ -9,6 +9,7 @@ import csv
 import datetime as dt
 import fcntl
 import hashlib
+import hmac
 import io
 import os
 import re
@@ -74,11 +75,51 @@ def _shape(row: dict[str, str]) -> None:
         _date(row["done"])
 
 
+VERDICTS = "queue-verdicts.tsv"
+"""Beside queue.tsv: one signed verdict per row that passed the check (Q-0011), so the next run checks only a new
+or changed row. A line is `id TAB mac`; the mac is an HMAC over the row's fields and the register stamp under a key
+in the owner's own state folder (`_verdict_key`), never beside the queue: a line planted with the queue's folder
+alone certifies nothing."""
+
+_CODE_MODULES = ("check", "ledger", "gate", "normalize", "intake", "fplearn", "matcher", "register")
+_code_mark: str | None = None
+
+
+def _code_stamp() -> str:
+    """The source of the checks that make a verdict: a new release with other rules checks every row again."""
+    global _code_mark
+    if _code_mark is None:
+        digest = hashlib.sha256()
+        here = Path(__file__).resolve().parent
+        for name in _CODE_MODULES:
+            try:
+                digest.update(name.encode("ascii") + b"\0" + (here / (name + ".py")).read_bytes())
+            except OSError:
+                return ""
+        _code_mark = digest.hexdigest()
+    return _code_mark
+
+
 def _register_stamp(reg) -> str:
+    """A mark of the register state a verdict was earned under, "" when unknown (then no verdict is reused).
+    A readable register: its path, its bytes and the learned allow list. A register only the vault daemon reads:
+    the daemon's opaque revision, one request instead of one check per field (Q-0011)."""
     try:
-        return hashlib.sha256(os.fsencode(reg) + b"\0" + Path(reg).read_bytes()).hexdigest()
+        from awb import fplearn
+
+        allow = repr(sorted(fplearn.load_allow(Path(reg).parent))).encode("utf-8")
+        base = b"local\0" + os.fsencode(reg) + b"\0" + Path(reg).read_bytes() + b"\0" + allow
     except (OSError, TypeError):
+        from awb import check, vault_client
+
+        revision = vault_client.register_revision(check.remote_socket())
+        if not revision:
+            return ""
+        base = b"remote\0" + revision.encode("ascii")
+    code = _code_stamp()
+    if not code:
         return ""
+    return hashlib.sha256(code.encode("ascii") + b"\0" + base).hexdigest()
 
 
 def _row_key(row: dict[str, str], stamp: str) -> str:
@@ -86,33 +127,105 @@ def _row_key(row: dict[str, str], stamp: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _check(rows: list[dict[str, str]], cache: Path | None = None) -> None:
-    """Cache only verdicts earned in this process, with a readable register fingerprint.
+def _verdict_key() -> bytes | None:
+    """The owner's key of the verdict file: 32 random bytes in `$XDG_STATE_HOME/awb/queue-verdict.key` (default
+    ~/.local/state), the folder 0700 and the file 0600, made on first use. None when it cannot be read or made:
+    then verdicts live in this process only."""
+    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "awb"
+    path = base / "queue-verdict.key"
+    try:
+        base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if base.is_symlink() or not base.is_dir():
+            return None
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            except FileExistsError:
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            else:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(os.urandom(32))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_mode & 0o077 or info.st_uid != os.getuid():
+                return None
+            key = stream.read(64)
+        return key if len(key) == 32 else None
+    except OSError:
+        return None
 
-    A disk hash list is editable input, not evidence of a safety check. An unreadable
-    or remote register has no known revision, so its verdicts must not be reused.
-    `cache` identifies the queue without reading or writing the old cache file.
+
+def _mac(key: bytes, row: dict[str, str], stamp: str) -> str:
+    return hmac.new(key, _row_key(row, stamp).encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def _read_verdicts(path: Path) -> dict[str, str]:
+    """id -> mac of the verdict file; empty when it is missing, broken or not a plain file."""
+    try:
+        text = _text(path)
+    except (OSError, UnicodeError, QueueError):
+        return {}
+    out = {}
+    for line in text.splitlines()[:100000]:
+        ident, sep, mac = line.partition("\t")
+        if sep and HANDLE.fullmatch(ident) and re.fullmatch(r"[0-9a-f]{64}", mac):
+            out[ident] = mac
+    return out
+
+
+def _check(rows: list[dict[str, str]], cache: Path | None = None, stamp: str | None = None) -> None:
+    """Check each row once per register stamp (Q-0011).
+
+    A row whose fields and stamp carry a verdict, earned in this process or signed in the verdict file beside
+    `cache`, is not sent again; every other row is screened and, when it passes, its verdict is kept. An unknown
+    stamp (an unreadable register and a daemon that cannot say its revision) reuses nothing. A row with a finding
+    refuses as before and gets no verdict.
     """
     reg = ledger.register_path()
     ledger.ensure_checkable(reg)
-    stamp = _register_stamp(reg)
+    if stamp is None:
+        stamp = _register_stamp(reg)
     passed: set[str] = set()
+    key = None
+    stored: dict[str, str] = {}
     if cache is not None and stamp:
         previous_stamp, previous = _CHECKED.get(cache.absolute(), ("", set()))
         if previous_stamp == stamp:
-            passed = previous
-    fresh = set()
+            passed = set(previous)
+        key = _verdict_key()
+        if key is not None:
+            stored = _read_verdicts(cache.with_name(VERDICTS))
     for row in rows:
         _shape(row)
-        key = _row_key(row, stamp)
-        if key not in passed:
-            # Recheck every printable field, including handles: the register can grow.
-            ledger.screen_fields([(k, row[k]) for k in ("id", "what", "next", "who", "project")], reg)
-        fresh.add(key)
-    if cache is not None:
-        if len(_CHECKED) >= 32:
-            _CHECKED.clear()
-        _CHECKED[cache.absolute()] = (stamp, fresh)
+    fresh = set()
+    macs = {}
+    try:
+        for row in rows:
+            row_key = _row_key(row, stamp)
+            mac = _mac(key, row, stamp) if key is not None else ""
+            known = row_key in passed or bool(mac) and hmac.compare_digest(stored.get(row["id"], ""), mac)
+            if not known:
+                # Recheck every printable field, including handles: the register can grow.
+                ledger.screen_fields([(k, row[k]) for k in ("id", "what", "next", "who", "project")], reg)
+            fresh.add(row_key)
+            if mac:
+                macs[row["id"]] = mac
+    finally:
+        # the verdicts earned before a refusal are kept too: the next run checks the refused row alone
+        if cache is not None:
+            if len(_CHECKED) >= 32:
+                _CHECKED.clear()
+            _CHECKED[cache.absolute()] = (stamp, fresh)
+            if key is not None and macs != stored:
+                try:
+                    _atomic(cache.with_name(VERDICTS), "".join("%s\t%s\n" % kv for kv in sorted(macs.items())))
+                except (OSError, QueueError):
+                    pass
 
 
 def _safe_parent(path: Path) -> None:
@@ -197,7 +310,7 @@ def _write(path: Path, rows: list[dict[str, str]]) -> None:
 @contextmanager
 def _locked(path: Path):
     if "\0" in os.fspath(path) or path.name in (
-            "queue-done.tsv", "QUEUE.md", ".queue.lock", "queue-checked.json", "queue-checked.json.tmp"):
+            "queue-done.tsv", "QUEUE.md", ".queue.lock", "queue-checked.json", "queue-checked.json.tmp", VERDICTS):
         raise QueueError("invalid queue storage path")
     _safe_parent(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -356,7 +469,11 @@ def main(argv: list[str] | None = None) -> int:
                 print("queue: %d open rows migrated" % _migrate(path))
                 return 0
             rows = _open_read(path) if args.command == "list" else _open(path)
-            _check(rows, path.with_name("queue-checked.json"))
+            cache = path.with_name("queue-checked.json")
+            # one register stamp per run: with the vault daemon that is one request, not one per check
+            ledger.ensure_checkable(ledger.register_path())
+            stamp = _register_stamp(ledger.register_path())
+            _check(rows, cache, stamp)
             if args.command == "list":
                 for row in rows:
                     if args.mine and row["who"] != "owner":
@@ -370,7 +487,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "add":
                 ids = [int(r["id"][2:]) for r in rows + archive if re.fullmatch(r"Q-[0-9]+", r["id"])]
                 row = _new("Q-%04d" % (max(ids, default=0) + 1), args.what, args.step, args.who, args.project)
-                _check([row])
+                # checked once here; its verdict is kept, so a list after it sends nothing again
+                _check(rows + [row], cache, stamp)
                 rows.append(row)
             else:
                 if not HANDLE.fullmatch(args.id):
@@ -387,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
                     if row["next"] != step:
                         row["next_changed"] = now().isoformat()
                     row.update(next=step, who=args.who, updated=now().isoformat())
-                    _check([row])
+                    _check(rows, cache, stamp)
                 else:
                     _write(archive_file(path), archive + [dict(row, done=now().isoformat())])
                     rows.remove(row)
