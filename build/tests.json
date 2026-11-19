@@ -27061,8 +27061,36 @@
    "name": "secret masker PowerShell: the put scrub catches a PowerShell literal",
    "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_powershell_literal_caught_by_put_scrub",
    "status": "passing"
+  },
+  {
+   "id": "RTD-1",
+   "phase": "RTD",
+   "name": "rates and dates: live price API rates (4 to 6 decimals) with a price word or in a column of rates are no phone",
+   "run": ".venv/bin/pytest tests/test_patterns_rates_dates.py::test_rates_are_no_phone",
+   "status": "passing"
+  },
+  {
+   "id": "RTD-2",
+   "phase": "RTD",
+   "name": "rates and dates: ISO and German dates, alone or side by side in table cells, are no phone",
+   "run": ".venv/bin/pytest tests/test_patterns_rates_dates.py::test_dates_are_no_phone",
+   "status": "passing"
+  },
+  {
+   "id": "RTD-3",
+   "phase": "RTD",
+   "name": "rates and dates: real phone numbers next to dates and rates are still found",
+   "run": ".venv/bin/pytest tests/test_patterns_rates_dates.py::test_real_phones_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "RTD-4",
+   "phase": "RTD",
+   "name": "rates and dates: a column that holds a phone number is no column of rates",
+   "run": ".venv/bin/pytest tests/test_patterns_rates_dates.py::test_rate_column_with_a_phone_is_no_rate_column",
+   "status": "passing"
   }
  ],
- "total_tests": 3866,
+ "total_tests": 3870,
  "checked": "2026-11-19"
 }

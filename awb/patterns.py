@@ -21,7 +21,7 @@ import functools
 import ipaddress
 import re
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, NamedTuple
 
 from awb.matcher import Span
 
@@ -287,13 +287,20 @@ def _listing_part(text: str, start: int, end: int) -> bool:
         return True
     return text[start:start + 1] in ("+", "-") and bool(_CLOCK_BEFORE.search(text[max(0, start - 24):start]))
 _DECIMAL_RE = re.compile(r"\d{1,3}[.,]\d{3,}")
-_PRICE_WORD_RE = re.compile(r"(?i)[€$£]|(?<![^\W_])(?:eur|euro|usd|chf|gbp|ct|cent|price|prices|pricing|preis"
-                            r"|preise|cost|costs|kosten|tarif)(?![^\W_])")
+_PRICE_WORD_RE = re.compile(r"(?i)[€$£]|/[ \t]?h(?![^\W_])|(?<![^\W_])(?:eur|euro|usd|chf|gbp|ct|cent|price|prices"
+                            r"|pricing|preis|preise|cost|costs|kosten|tarif|rate|rates|hour|hours|hourly|stunde"
+                            r"|stunden)(?![^\W_])")
+_RATE_RE = re.compile(r"(?:0|[1-9]\d{0,2})\.\d{4,6}")
+"""A rate of the live price API: a dot and four to six decimals (`0.123456`)."""
+_RATE_COLUMN_CELL = re.compile(r"(?:0|[1-9]\d{0,5})(?:[.,]\d{1,6})?|[-\u2013\u2014]?|(?i:n/?a)")
+"""What else a column of rates may hold: another price, a whole number, an empty cell, a dash or n/a."""
+_TABLE_RULE = re.compile(r"[ \t]*\|?[ \t:|-]*-[ \t:|-]*$")
 
 
 def _price_shaped(text: str, start: int, end: int) -> bool:
     """True for a phone-shaped span that is a number with a decimal separator (`0.123456`, one per cell of a table
-    row) with a currency or a price word near it: in its line or in the header line of its table."""
+    row) with a currency or a price word near it (in its line or in the header line of its table), or a rate in a
+    column of rates (`_rate_column`)."""
     if not all(_DECIMAL_RE.fullmatch(c.strip()) for c in text[start:end].split("|")):
         return False
     a = text.rfind("\n", 0, start) + 1
@@ -302,10 +309,86 @@ def _price_shaped(text: str, start: int, end: int) -> bool:
         return True
     if not text[a:start].lstrip().startswith("|"):
         return False
-    while a > 0 and text[text.rfind("\n", 0, a - 1) + 1:a].lstrip().startswith("|"):
-        a = text.rfind("\n", 0, a - 1) + 1
-    h = text.find("\n", a)
-    return bool(_PRICE_WORD_RE.search(text[a:h if h >= 0 else len(text)]))
+    table = _table_at(text, start)
+    if table is None:
+        return False
+    if _PRICE_WORD_RE.search(table.header):
+        return True
+    return _rate_column(text, start, end, table)
+
+
+_TABLE_BLOCK = re.compile(r"(?m)^[^\S\n]*\|[^\n]*(?:\n[^\S\n]*\|[^\n]*)*")
+"""A Markdown table: adjacent lines that start with a pipe."""
+
+
+class _Table(NamedTuple):
+    start: int
+    end: int
+    header: str
+    """The first line of the table."""
+    rate_columns: frozenset
+    """The cell indexes (split at "|") whose body cells hold nothing but `_RATE_COLUMN_CELL`."""
+
+
+def _table(text: str, start: int, end: int) -> _Table:
+    lines = text[start:end].split("\n")
+    rule = next((i for i, line in enumerate(lines) if _TABLE_RULE.fullmatch(line)), None)
+    body = lines[rule + 1:] if rule is not None else lines
+    width = max(line.count("|") + 1 for line in lines)
+    bad = set()
+    for row in body:
+        for col, cell in enumerate(row.split("|")):
+            if col not in bad and not _RATE_COLUMN_CELL.fullmatch(cell.strip(_CELL_TRIM)):
+                bad.add(col)
+    return _Table(start, end, lines[0], frozenset(c for c in range(width) if c not in bad))
+
+
+@functools.lru_cache(maxsize=8)
+def _tables(text: str) -> tuple[list[int], list[tuple[int, int]], dict[int, _Table]]:
+    """The spans of the Markdown tables of `text`, found once per text: a check per cell that walked its table cost
+    a table of n rows n squared steps. Each table is read on its first use (`_table_at`) and kept in the dict."""
+    spans = [(m.start(), m.end()) for m in _TABLE_BLOCK.finditer(text)]
+    return [a for a, _ in spans], spans, {}
+
+
+def _table_at(text: str, at: int) -> _Table | None:
+    """The table that holds position `at`, or None."""
+    starts, spans, read = _tables(text)
+    i = bisect.bisect_right(starts, at) - 1
+    if i < 0 or not spans[i][0] <= at < spans[i][1]:
+        return None
+    if i not in read:
+        read[i] = _table(text, *spans[i])
+    return read[i]
+
+
+def _rate_column(text: str, start: int, end: int, table: _Table) -> bool:
+    """True for a span of Markdown table cells that each hold just a rate (`| 0.123456 |`) in columns whose body
+    cells hold nothing but prices, whole numbers, dashes or empty cells: a column of rates, not a number to call."""
+    parts = text[start:end].split("|")
+    if not all(_RATE_RE.fullmatch(c.strip(_CELL_TRIM)) for c in parts):
+        return False
+    a = text.rfind("\n", 0, start) + 1
+    b = text.find("\n", end)
+    before = text[a:start]
+    after = text[end:len(text) if b < 0 else b]
+    if before[before.rfind("|") + 1:].strip(_CELL_TRIM) or "|" not in after \
+            or after[:after.find("|")].strip(_CELL_TRIM):
+        return False      # the rate shares its cell with something else
+    first = before.count("|")
+    return all(c in table.rate_columns for c in range(first, first + len(parts)))
+
+
+_CALENDAR_DATE_RE = re.compile(r"(?<![\d.-])(?:(?:19|20)\d\d-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+                               r"|(?:0?[1-9]|[12]\d|3[01])\.(?:0?[1-9]|1[0-2])\.(?:19|20)\d\d)(?![\d.-]?\d)")
+"""An ISO date (2026-11-19) or a German date (19.11.2026): never a number to call, nor a part of one, also when
+two stand side by side in table cells."""
+
+
+def _without_dates(text: str) -> str:
+    """`text` with every calendar date blanked to spaces of the same length, for the phone search only: a blank run
+    of ten is no separator, so neither the date nor its digits join a number next to it."""
+    return _CALENDAR_DATE_RE.sub(lambda m: " " * len(m.group(0)), text) if "." in text or "-" in text else text
 
 
 _DATE_RE = re.compile(r"0?\d{1,2}[ ./-]0?\d{1,2}[ ./-]\d{2,4}|0\d[ ./-]\d{4}")
@@ -601,9 +684,9 @@ def _find_structured(text: str) -> list[Span]:
         end = positions[s.end - 1] + 1
         if s.cls == "mac" and "|" in text[start:end]:
             continue      # short column names over six cells (| c0 | c1 | ... | c5 |) are no MAC address (T3)
+        if s.cls == "phone" and _price_shaped(text, start, end):
+            continue      # the price cells of a table row under a price column, judged in the text as written
         if s.cls == "phone" and "|" in text[start:end]:
-            if _price_shaped(text, start, end):
-                continue      # the price cells of a table row under a price column
             out.extend(_cell_phones(text, start, end))
             continue
         out.append(Span(start=start, end=end, cls=s.cls))
@@ -660,10 +743,12 @@ def _inside_any(spans: list[tuple[int, int]], start: int, end: int) -> bool:
 
 def _find(text: str) -> list[Span]:
     found: list[tuple[int, int, str]] = []
+    dateless = _without_dates(text)
     for kind, rx, ok, label in PATTERNS:
         pos = 0
+        searched = dateless if kind == "PHONE" else text
         while True:
-            m = rx.search(text, pos)
+            m = rx.search(searched, pos)
             if m is None:
                 break
             pos = m.end() if m.end() > m.start() else m.start() + 1
