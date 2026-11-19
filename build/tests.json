@@ -27012,8 +27012,29 @@
    "name": "suite under its limit: the TMPDIR of a worker is shorter than the suite folder so a Unix socket fits",
    "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_the_tmpdir_of_a_worker_is_shorter_than_the_suite_folder_so_a_unix_socket_fits",
    "status": "passing"
+  },
+  {
+   "id": "PPF-1",
+   "phase": "PPF",
+   "name": "put scrub -p flag: -p as parents, port or a path value is kept (mkdir, install, ssh, docker, podman, psql)",
+   "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_p_flag_no_password_kept",
+   "status": "passing"
+  },
+  {
+   "id": "PPF-2",
+   "phase": "PPF",
+   "name": "put scrub -p flag: -p of mysql and sshpass stays a secret, glued -pVALUE and -p'VALUE' too",
+   "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_p_flag_password_caught",
+   "status": "passing"
+  },
+  {
+   "id": "PPF-3",
+   "phase": "PPF",
+   "name": "put scrub -p flag: a guide block keeps mkdir -p PATH and masks the sshpass password",
+   "run": ".venv/bin/pytest tests/test_put_p_flag.py::test_guide_block_keeps_path_and_masks_password",
+   "status": "passing"
   }
  ],
- "total_tests": 3859,
+ "total_tests": 3862,
  "checked": "2026-11-19"
 }

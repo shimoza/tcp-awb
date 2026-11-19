@@ -87,7 +87,42 @@ _USER_FIELD_RE = re.compile(
     r"""remote_?user|db_?user|os_?user|ssh_?user|admin_?user|iam_?user))"""
     r"""(?P<sep>["']?\s*(?:=|:|=>)\s*)(?P<q>["']?)(?P<value>[^\s,;"'<>\[\]\(\){}|]{1,128})""")
 _USER_FLAG_RE = re.compile(r"(?<![\w-])(?:-u|--user|--username|--login)(?:[ \t]+|=)(?P<value>[A-Za-z][\w.@$-]{0,63})")
-_GLUED_PASSWORD_RE = re.compile(r"(?i)\b(?P<key>(?:mysql|mysqldump|mysqladmin|mariadb)\b[^\n]*?\s-p)(?P<value>[^\s'\"]{4,})")
+_PASSWORD_P_COMMANDS = ("mysql", "mysqldump", "mysqladmin", "mariadb", "mariadb-dump", "sshpass", "mongo", "mongosh",
+                        "mongodump", "mongorestore", "mongoexport", "mongoimport", "useradd", "usermod")
+"""Commands whose -p takes a password: their value is a secret whatever it looks like."""
+_GLUED_PASSWORD_RE = re.compile(r"(?i)\b(?P<key>(?:mysql|mysqldump|mysqladmin|mariadb|sshpass)\b[^\n]*?\s-p)"
+                                r"(?P<value>[^\s'\"]{4,})")
+_GLUED_QUOTED_PASSWORD_RE = re.compile(r"(?i)\b(?P<key>(?:mysql|mysqldump|mysqladmin|mariadb|sshpass)\b[^\n]*?\s-p)"
+                                       r"(?P<q>[\"'])(?P<value>[^\"'\n]{3,})(?P=q)")
+"""The glued forms -pVALUE and -p'VALUE' of the password commands (a flag with no space after it)."""
+_NO_PASSWORD_P_COMMANDS = frozenset((
+    "mkdir", "install", "cp", "scp", "sftp", "rsync", "tar", "ssh", "autossh", "ssh-copy-id", "ssh-keyscan", "mosh",
+    "docker", "podman", "nerdctl", "kubectl", "oc", "nc", "ncat", "netcat", "nmap", "telnet", "iperf", "iperf3",
+    "psql", "pg_dump", "pg_dumpall", "pg_restore", "pg_isready", "redis-cli", "ps", "top", "htop", "kill", "pgrep",
+    "pkill", "pidstat", "strace", "ltrace", "gdb", "lsof", "netstat", "ss", "patch", "read", "chage", "jq"))
+"""Commands where -p means parents, port, pid, preserve or prompt: their -p value is no secret."""
+_SEGMENT_CUT_RE = re.compile(r"(?:\|\||&&|[|;`]|\$\()")
+_PATH_VALUE_RE = re.compile(r"(?:/|\./|\.\./|~/|~$|\$\{?HOME\b)|[A-Za-z_][\w.-]*(?:/[\w.-]*)+$")
+"""A -p value that is a path (/var/tmp/x, ./out, ~/x, logs/app): no password."""
+
+
+def _p_flag_no_secret(m) -> bool:
+    """True when the -p VALUE of a flag match is no password: the command of its line takes -p as parents, port,
+    pid or prompt (mkdir -p, ssh -p 22, docker run -p 8080:80), or the value is a path. The command nearest before
+    the flag decides, so a password command (mysql, sshpass) keeps its value a secret even when it looks like a
+    path."""
+    if m.group("key").lower() != "-p":
+        return False
+    text = m.string
+    start = text.rfind("\n", 0, m.start()) + 1
+    segment = _SEGMENT_CUT_RE.split(text[start:m.start()])[-1]
+    for word in reversed(segment.split()):
+        word = word.rsplit("/", 1)[-1].lower()
+        if word in _PASSWORD_P_COMMANDS:
+            return False
+        if word in _NO_PASSWORD_P_COMMANDS:
+            return True
+    return bool(_PATH_VALUE_RE.match(m.group("value")))
 _NAME_MAIL_RE = re.compile(r"(?P<value>(?<![\w.-])[A-ZÄÖÜ][\w'’.-]+(?:[ \t]+[A-ZÄÖÜ][\w'’.-]+){1,3})(?=[ \t]*<\[mail \d+\]>)")
 _USER_PHRASE_RES = (
     re.compile(r"(?i)\b(?:accepted|failed)\s+(?:password|publickey|keyboard-interactive(?:/pam)?|none|hostbased)"
@@ -224,6 +259,8 @@ def wipe_secrets(text: str, counts: Counter) -> str:
         value = m.group("value")
         if _PLACEHOLDER.match(value.strip()) or len(value.strip()) < 3:
             return m.group(0)
+        if m.re is _SECRET_FLAG_RE and _p_flag_no_secret(m):
+            return m.group(0)      # mkdir -p /var/tmp/x, ssh -p 22, docker run -p 8080:80: parents or port
         if labsecrets.code_value(m.group("sep"), bool(m.group("q")), value, m.string[m.end():m.end() + 1],
                                   variables=False):
             return m.group(0)      # code: getpass.getpass(...), os.environ["X"], password=args.password (T7)
@@ -240,6 +277,8 @@ def wipe_secrets(text: str, counts: Counter) -> str:
     text = _SECRET_FIELD_RE.sub(field, text)
     text = _SECRET_FLAG_RE.sub(field, text)
     text = _GLUED_PASSWORD_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + SECRET)[1], text)
+    text = _GLUED_QUOTED_PASSWORD_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + m.group("q") + SECRET
+                                                    + m.group("q"))[1], text)
     text = _TOKEN_RE.sub(lambda m: (counts.update(["secret"]), SECRET)[1], text)
     return wipe_prose_passwords(text, counts)
 
