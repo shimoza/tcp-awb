@@ -838,3 +838,13 @@ def test_running_sessions_from_before_hardening_remain_protected(proj, tmp_path)
         except ProcessLookupError:
             pass
         proc.wait(timeout=5)
+
+
+
+def test_a_process_reaped_between_the_signal_and_the_stat_read_is_not_alive(monkeypatch):
+    """Q-0013: kill(pid, 0) still found the zombie, the reaper took it before /proc/PID/stat was read; _alive said
+    True and test_stop_kills_a_client_that_ignores_termination failed on a loaded build host."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    monkeypatch.setattr(side.os, "kill", lambda pid, sig: None)
+    assert side._alive(proc.pid) is False

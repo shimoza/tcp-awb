@@ -402,6 +402,8 @@ def _alive(pid: int) -> bool:
     try:
         stat = Path("/proc/%d/stat" % pid).read_text()
         return stat.rsplit(")", 1)[1].split()[0] != "Z"
+    except (FileNotFoundError, ProcessLookupError):
+        return False    # reaped between the signal and the read (Q-0013: a dead client read as alive)
     except (OSError, IndexError):
         return True
 

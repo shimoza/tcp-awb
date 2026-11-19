@@ -20,7 +20,8 @@ from pathlib import Path
 
 from awb import build, mergedriver
 from awb.build_unit_side import LOG_MAX, LOGIN_KEPT, LOGIN_KEPT_LINE, SHA_RE, failed_nodes, outcomes
-from awb.build_units import SMALL_MAX, Ctx, Ended, Host, Spec, _hidden, _read, _take, _text, _write, wait
+from awb.build_units import (SMALL_MAX, SUITE_CPU_QUOTA, Ctx, Ended, Host, Spec, _hidden, _read, _take, _text, _write,
+                             wait)
 
 
 # --------------------------------------------------------------------------- the fixed values
@@ -642,7 +643,8 @@ def run_suite(host: Host, ctx: Ctx, mode: str, tar: Path, tokens: tuple[str, ...
     spec = Spec("awb-task-%s-suite" % ctx.tid,
                 [host.awb, "build", "unit", "suite", str(host.root), ctx.tid, str(ctx.n), mode, host.suite_python,
                  *tokens], host.suite_seconds, "/tmp", "/tmp", rw=[str(out)], hidden=_hidden(host, ctx, clone=False),
-                allow=list(SUITE_ALLOW), netns=True, stdin=tar, stderr=ctx.folder / ("%s.err" % mode))
+                allow=list(SUITE_ALLOW), netns=True, stdin=tar, stderr=ctx.folder / ("%s.err" % mode),
+                cpu=SUITE_CPU_QUOTA)
     t0 = host.wall()
     ended = wait(host, host.units.start(spec), ctx, None)
     return ended, (host.wall() - t0) / 60.0

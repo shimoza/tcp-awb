@@ -272,6 +272,12 @@ The runner (`awb build serve`, step SB3) reads the queue and never writes it but
 `result.md` (fixed fields), `message.txt` (the agent's text, for `awb build show` alone), `commit`, `mail`, `state`,
 `flaky.txt` (the nodes that passed on the rerun), `widen.log`.
 
+The whole suite runs in the suite unit as one pytest per test file, four at a time from one queue (Q-0013), each
+worker with a HOME and a TMPDIR of its own; the junit files become one and a file that leaves no report or runs over 20 minutes is an error
+case. A file that starts a process pool of its own runs alone before the queue. `suite.log` holds the files that passed first, then the output of every file that did not and a summary line
+with one `FAILED` line per file. The suite unit has `CPUQuota=400%` and a clock of 45 minutes; the session and helper
+units keep 200%. The task's own check of named tests and the rerun below keep the one process.
+
 When the whole suite of a task or of `awb build check` has failures, the failed nodes alone run once more in the same
 suite unit on the same tree (at most 20 nodes; more is a broad failure and gets no rerun). When they all pass, check 9
 passes with a line `flaky: NODE...` in `checks.log` and `result.md`; a node that fails again is `red: suite`. The

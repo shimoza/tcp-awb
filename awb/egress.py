@@ -641,6 +641,14 @@ def _now_text(t: float) -> str:
 def _parse_time(text) -> float | None:
     if not isinstance(text, str):
         return None
+    return _parse_time_text(text)
+
+
+@functools.lru_cache(maxsize=8192)
+def _parse_time_text(text: str) -> float | None:
+    """strptime of one stamp, kept: every load reads the whole history again and parsed each of its lines anew (one
+    test of the enforce rules spent 30 of its 43 seconds here, Q-0013). Eight days at one line per five minutes are
+    2304 stamps."""
     try:
         return datetime.strptime(text, _TIME_FMT).replace(tzinfo=timezone.utc).timestamp()
     except ValueError:

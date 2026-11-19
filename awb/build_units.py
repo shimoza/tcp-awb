@@ -65,6 +65,9 @@ SUITE_SECONDS = 2700        # D-S6; 45 min since 2026-11-19 (stopgap of Q-0013):
 RETRY_WAIT = 600            # D-S4: the one retry of an API error before the first tool call, after ten minutes
 SMALL_MAX = 1 << 20
 CPU_QUOTA = "200%"
+SUITE_CPU_QUOTA = "400%"
+"""The suite unit's share (Q-0013): its SUITE_WORKERS test files at a time each get a core of the four. The session
+and helper units keep CPU_QUOTA."""
 MEMORY_MAX = "6G"
 TASKS_MAX = 512
 SHM_FS = "/dev/shm:size=64M,mode=1777,nosuid,nodev"
@@ -288,6 +291,7 @@ class Spec:
     stdin: Path | None = None
     stdout: Path | None = None
     stderr: Path | None = None
+    cpu: str = CPU_QUOTA
 
 
 @dataclass
@@ -338,7 +342,7 @@ class SystemdUnits(Units):
                "--uid=%s" % self.user, "--gid=%s" % self.user, "--working-directory=%s" % spec.cwd,
                "--setenv=HOME=%s" % spec.home]
         out += ["--setenv=%s=%s" % (k, v) for k, v in sorted(spec.env.items())]
-        props = ["RuntimeMaxSec=%d" % max(1, math.ceil(spec.seconds)), "CPUQuota=%s" % CPU_QUOTA,
+        props = ["RuntimeMaxSec=%d" % max(1, math.ceil(spec.seconds)), "CPUQuota=%s" % spec.cpu,
                  "MemoryMax=%s" % MEMORY_MAX, "TasksMax=%d" % TASKS_MAX, "ProtectSystem=strict", "ProtectHome=yes",
                  "PrivateTmp=yes", "PrivateIPC=yes", "TemporaryFileSystem=%s" % SHM_FS, "NoNewPrivileges=yes"]
         if spec.rw:

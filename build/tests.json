@@ -26928,8 +26928,92 @@
    "name": "bytg: an unexpected failure in the checks gives the part back",
    "run": ".venv/bin/pytest tests/test_bytg_winlab_get_space.py::test_bytg_an_unexpected_failure_in_the_checks_gives_the_part_back",
    "status": "passing"
+  },
+  {
+   "id": "Q13-1",
+   "phase": "Q13",
+   "name": "suite under its limit: the whole suite runs one pytest per file with a home and tmpdir per worker and one junit",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_the_whole_suite_runs_one_pytest_per_file_with_a_home_and_tmpdir_per_worker_and_one_junit",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-2",
+   "phase": "Q13",
+   "name": "suite under its limit: a failed file comes last in the log with a FAILED line and its nodes get the one rerun",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_a_failed_file_comes_last_in_the_log_with_a_failed_line_and_its_nodes_get_the_one_rerun",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-3",
+   "phase": "Q13",
+   "name": "suite under its limit: a file that leaves no report is an error case",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_a_file_that_leaves_no_report_is_an_error_case_never_passed_or_gone",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-4",
+   "phase": "Q13",
+   "name": "suite under its limit: the task check with tokens and a tree without test files keep the one process",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_the_task_check_with_tokens_and_a_tree_without_test_files_keep_the_one_process",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-5",
+   "phase": "Q13",
+   "name": "suite under its limit: suite files are the plain test files, largest first",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_suite_files_are_the_plain_test_files_largest_first",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-6",
+   "phase": "Q13",
+   "name": "suite under its limit: merge_junit counts the cases of every file and reads no DOCTYPE",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_merge_junit_counts_the_cases_of_every_file_and_reads_no_doctype",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-7",
+   "phase": "Q13",
+   "name": "suite under its limit: the suite unit has its own CPU share and the longer clock",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_the_suite_unit_has_its_own_cpu_share_and_the_longer_clock_and_the_other_units_keep_theirs",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-8",
+   "phase": "Q13",
+   "name": "suite under its limit: the suite and the baseline run with the suite unit's CPU share",
+   "run": ".venv/bin/pytest tests/test_build_runner.py::test_the_suite_and_the_baseline_run_with_the_suite_units_cpu_share",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-9",
+   "phase": "Q13",
+   "name": "suite under its limit: a process reaped between the signal and the stat read is not alive",
+   "run": ".venv/bin/pytest tests/test_side.py::test_a_process_reaped_between_the_signal_and_the_stat_read_is_not_alive",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-10",
+   "phase": "Q13",
+   "name": "suite under its limit: a file with its own process pool runs alone before the queue",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_a_file_with_its_own_process_pool_runs_alone_before_the_queue",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-11",
+   "phase": "Q13",
+   "name": "suite under its limit: a file over its own clock is a red file and the others still report",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_a_file_over_its_own_clock_is_a_red_file_and_the_others_still_report",
+   "status": "passing"
+  },
+  {
+   "id": "Q13-12",
+   "phase": "Q13",
+   "name": "suite under its limit: the TMPDIR of a worker is shorter than the suite folder so a Unix socket fits",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_the_tmpdir_of_a_worker_is_shorter_than_the_suite_folder_so_a_unix_socket_fits",
+   "status": "passing"
   }
  ],
- "total_tests": 3847,
+ "total_tests": 3859,
  "checked": "2026-11-19"
 }

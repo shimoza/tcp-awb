@@ -2346,3 +2346,14 @@ def test_the_host_file_value_deployed_switches_the_mode_and_unknown_values_push_
         assert (host.push, host.push_deployed) == (push, only), value
     monkeypatch.setattr(config, "host_conf", lambda: {})
     assert buildrun.Host.from_config().push is True            # the default stays yes
+
+
+def test_the_suite_and_the_baseline_run_with_the_suite_units_cpu_share(world, capsys):
+    """Q-0013: the suite unit gets SUITE_CPU_QUOTA for its workers; every other unit of the check keeps CPU_QUOTA."""
+    outside_branch(world)
+    rc, out, run = check(world, "pr-1", capsys)
+    assert rc == 0 and run.state == "passed"
+    specs = suite_specs(world)
+    assert [s.argv[7] for s in specs] == ["suite", "base"]
+    assert {s.cpu for s in specs} == {buildrun.SUITE_CPU_QUOTA}
+    assert {s.cpu for s in world.units.started if s not in specs} <= {buildrun.CPU_QUOTA}

@@ -53,6 +53,17 @@ LOGIN_KEPT_LINE = "- login: the task's login names another account or none and w
 MODELS = ("login", "key")
 FAULT_SECONDS = 600         # every thread's stack when one test takes ten minutes
 RERUN_MAX = 20              # A7: more failed nodes than this get no rerun, a broad failure is no flake
+SUITE_WORKERS = 4
+"""Q-0013: the whole suite (no tokens) runs as one pytest per test file, SUITE_WORKERS at a time from one queue,
+each worker with a HOME and a TMPDIR of its own; the junit files are merged into one. One process for the whole
+suite took 26 to 29 minutes against the clock of 30."""
+SUITE_SOLO = (b"ProcessPoolExecutor", b"multiprocessing")
+"""A test file whose text names one of these starts a pool of its own, sized to the cores: it runs alone before the
+queue (test_self_clean took 88 s alone and more than its 120 s limit next to three other files, then hung in the
+pool's shutdown)."""
+FILE_SECONDS = 1200
+"""The clock of one test file in the whole suite: a file that hangs is an error case after 20 minutes and the other
+files still report."""
 LOG_MAX = 16 << 20
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -359,6 +370,164 @@ def failed_nodes(results: dict[str, str] | None) -> list[str]:
     return nodes
 
 
+def _pytest_run(python: str, tree: Path, env: dict[str, str], junit: Path, log_path: Path, args: list[str],
+                limit: float | None) -> int:
+    """One pytest of the suite's interpreter on the tree: -I -B, the cache provider off, the fault handler, junit of
+    the xunit1 family; 124 when the clock ran out."""
+    cmd = [python, "-I", "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-o",
+           "faulthandler_timeout=%d" % FAULT_SECONDS, "-o", "junit_family=xunit1", "--junitxml", str(junit), *args]
+    with open(log_path, "wb") as log:
+        try:
+            return subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                                  stderr=subprocess.STDOUT, timeout=limit, check=False).returncode
+        except subprocess.TimeoutExpired:
+            return 124
+
+
+def suite_files(tree: Path) -> list[str]:
+    """The test files of the whole suite (tests/test_*.py, plain files only), the largest first: the long ones start
+    early and the short ones fill the gaps at the end."""
+    folder = tree / "tests"
+    found = []
+    for path in folder.glob("test_*.py") if folder.is_dir() and not folder.is_symlink() else ():
+        try:
+            st = path.lstat()
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            found.append((-st.st_size, path.name))
+    return ["tests/%s" % name for _, name in sorted(found)]
+
+
+def _solo(path: Path) -> bool:
+    try:
+        text = path.read_bytes()
+    except OSError:
+        return False
+    return any(word in text for word in SUITE_SOLO)
+
+
+def _missing_case(rel: str, rc: int) -> ET.Element:
+    """A test file that left no readable junit (a crash, the clock): one error case under its own name, so the check
+    is red and the file is never counted as passed or silently gone."""
+    case = ET.Element("testcase", classname=rel[:-3].replace("/", "."), name="(no report, exit %d)" % rc, file=rel)
+    ET.SubElement(case, "error", message="the test file left no junit report (exit %d)" % rc)
+    return case
+
+
+def merge_junit(parts: list[tuple[str, int, Path]], seconds: float) -> bytes:
+    """One junit file of the xunit1 family from the junit file per test file: every testcase in the order of the
+    files; a file without a readable report adds _missing_case."""
+    suite = ET.Element("testsuite", name="pytest")
+    n = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+    for rel, rc, junit in parts:
+        data = None
+        with contextlib.suppress(OSError):
+            if junit.is_file() and junit.stat().st_size <= LOG_MAX:
+                data = junit.read_bytes()
+        cases = None
+        if data is not None and b"<!DOCTYPE" not in data and b"<!ENTITY" not in data:
+            with contextlib.suppress(ET.ParseError):
+                cases = list(ET.fromstring(data).iter("testcase"))
+        if cases is None:
+            cases = [_missing_case(rel, rc)]
+        for case in cases:
+            kinds = {child.tag for child in case}
+            n["tests"] += 1
+            n["failures"] += "failure" in kinds
+            n["errors"] += "error" in kinds and "failure" not in kinds
+            n["skipped"] += "skipped" in kinds and not kinds & {"failure", "error"}
+            suite.append(case)
+    for key, value in n.items():
+        suite.set(key, str(value))
+    suite.set("time", "%.3f" % seconds)
+    root = ET.Element("testsuites")
+    root.append(suite)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def _suite_parallel(python: str, tree: Path, tmp: Path, env: dict[str, str], log_path: Path, junit: Path,
+                    seconds: float | None, workers: int = SUITE_WORKERS) -> int:
+    """The whole suite as one pytest per test file: first the files of SUITE_SOLO one at a time, then the others
+    `workers` at a time from one queue (Q-0013), each with FILE_SECONDS at most. Each worker has a
+    HOME and a TMPDIR of its own (the TMPDIR beside `tmp`, removed at the end), so the pytest temp folders of two files
+    never meet. The junit files become one
+    (merge_junit); the log holds the files that passed first, then the output of every file that did not, then a
+    summary with one FAILED line per file. 0 when every file passed or had no test, 124 when the clock ran out,
+    else 1."""
+    import threading
+
+    files = suite_files(tree)
+    if not files:
+        return _pytest_run(python, tree, env, junit, log_path, [], seconds)
+    deadline = None if seconds is None else time.monotonic() + seconds
+    parts_dir = tmp / "parts"
+    parts_dir.mkdir()
+    solo = [(i, rel) for i, rel in enumerate(files) if _solo(tree / rel)]
+    queue = [(i, rel) for i, rel in enumerate(files) if (i, rel) not in solo]
+    lock = threading.Lock()
+    done: dict[int, tuple[str, int, Path, Path, float]] = {}
+    wtmp: dict[int, str] = {}
+    t0 = time.monotonic()
+
+    def work(w: int, mine: list | None = None) -> None:
+        # the TMPDIR of a worker is a sibling of `tmp` with a shorter name than it, never a folder inside it: a
+        # Unix socket path is at most 107 bytes and a test's socket under tmp/tmp-N went over it (test_bucket_keys)
+        with lock:
+            if w not in wtmp:
+                wtmp[w] = tempfile.mkdtemp(prefix="awb-w%d-" % w, dir=str(tmp.parent))
+        wenv = dict(env, HOME=str(tmp / ("home-%d" % w)), TMPDIR=wtmp[w])
+        os.makedirs(wenv["HOME"], exist_ok=True)
+        todo = queue if mine is None else mine
+        while True:
+            with lock:
+                if not todo:
+                    return
+                i, rel = todo.pop(0)
+            left = FILE_SECONDS if deadline is None else min(FILE_SECONDS, deadline - time.monotonic())
+            part_xml, part_log = parts_dir / ("%d.xml" % i), parts_dir / ("%d.log" % i)
+            start = time.monotonic()
+            if left is not None and left <= 1:
+                rc = 124
+                part_log.write_bytes(b"not started: the clock of the suite ran out\n")
+            else:
+                rc = _pytest_run(python, tree, wenv, part_xml, part_log, [rel], left)
+            with lock:
+                done[i] = (rel, rc, part_xml, part_log, time.monotonic() - start)
+
+    try:
+        work(0, solo)
+        threads = [threading.Thread(target=work, args=(w,), daemon=True) for w in range(max(1, workers))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        for path in wtmp.values():
+            shutil.rmtree(path, ignore_errors=True)
+    rows = [done[i] for i in sorted(done)]
+    junit.write_bytes(merge_junit([(rel, rc, x) for rel, rc, x, _, _ in rows], time.monotonic() - t0))
+    bad = [r for r in rows if r[1] not in (0, 5)]
+    with open(log_path, "wb") as log:
+        for rel, rc, _, part, took in [r for r in rows if r[1] in (0, 5)] + bad:
+            log.write(("=== %s (exit %d, %.1f s)\n" % (rel, rc, took)).encode())
+            with contextlib.suppress(OSError):
+                with open(part, "rb") as f:
+                    shutil.copyfileobj(f, log)
+        got = outcomes(junit.read_bytes()) or {}
+        c = {"passed": 0, "failed": 0, "error": 0, "skipped": 0}
+        for o in got.values():
+            c[o] += 1
+        log.write(("=== the whole suite: %d files on %d workers, %d passed, %d failed, %d errors, %d skipped"
+                   " in %.0f s\n" % (len(rows), max(1, workers), c["passed"], c["failed"], c["error"], c["skipped"],
+                      time.monotonic() - t0)).encode())
+        for rel, rc, _, _, _ in bad:
+            log.write(("FAILED %s (exit %d)\n" % (rel, rc)).encode())
+    if deadline is not None and time.monotonic() >= deadline - 1 and any(r[1] == 124 for r in rows):
+        return 124      # the suite's clock ran out; a file over FILE_SECONDS alone is a red file (1)
+    return 1 if bad else 0
+
+
 def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list[str], fin,
                seconds: float | None = None) -> int:
     """The suite, the baseline or the task's own check on the export given as a tar on stdin, extracted into a fresh
@@ -386,17 +555,12 @@ def unit_suite(root: str, tid: str, n: str, mode: str, python: str, tokens: list
         t0 = time.monotonic()
 
         def pytest(name: str, junit: Path, args: list[str], limit: float | None) -> int:
-            cmd = [python, "-I", "-B", "-m", "pytest", "-p", "no:cacheprovider", "-q", "-o",
-                   "faulthandler_timeout=%d" % FAULT_SECONDS, "-o", "junit_family=xunit1", "--junitxml", str(junit),
-                   *args]
-            with open(out / ("%s.log" % name), "wb") as log:
-                try:
-                    return subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, stdout=log,
-                                          stderr=subprocess.STDOUT, timeout=limit, check=False).returncode
-                except subprocess.TimeoutExpired:
-                    return 124
+            return _pytest_run(python, tree, env, junit, out / ("%s.log" % name), args, limit)
 
-        rc = pytest(mode, xml, list(tokens), seconds)
+        if tokens or mode == "check":
+            rc = pytest(mode, xml, list(tokens), seconds)
+        else:
+            rc = _suite_parallel(python, tree, tmp, env, out / ("%s.log" % mode), xml, seconds)
         if xml.is_file():
             shutil.copyfile(xml, out / ("%s.xml" % mode))
         if mode == "suite" and rc not in (0, 124) and xml.is_file():
