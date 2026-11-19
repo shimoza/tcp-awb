@@ -25969,8 +25969,36 @@
    "name": "bytg: a process with other threads scans here",
    "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_a_process_with_other_threads_scans_here",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-005",
+   "phase": "T",
+   "name": "bytg: a lab run log gets the secret check only",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_a_lab_run_log_gets_the_secret_check_only",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-006",
+   "phase": "T",
+   "name": "bytg: a secret in a lab run log is still refused",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_a_secret_in_a_lab_run_log_is_still_refused",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-007",
+   "phase": "T",
+   "name": "bytg: the same text outside lab runs gets every check",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_the_same_text_outside_lab_runs_gets_every_check",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-008",
+   "phase": "T",
+   "name": "bytg: the lab run log does not ask the name check",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_parallel.py::test_bytg_the_lab_run_log_does_not_ask_the_name_check",
+   "status": "passing"
   }
  ],
- "total_tests": 3710,
- "checked": "2026-11-18"
+ "total_tests": 3714,
+ "checked": "2026-11-19"
 }

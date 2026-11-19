@@ -836,15 +836,18 @@ def _skeleton(text: str) -> str:
     return "".join(out)
 
 
-def _detect_all(text: str, matcher, path: Path | str | None = None) -> list[tuple[str, int]]:
+def _detect_all(text: str, matcher, path: Path | str | None = None,
+                classes: frozenset | None = None) -> list[tuple[str, int]]:
     """(class, offset in `text`) of every hit: the name class over the normalised text, every pattern detector
     over the text as given and, when it differs, over the normalised text with the offsets mapped back. `path`
-    is the file on disk the text comes from, for the allowance of the identifier class."""
+    is the file on disk the text comes from, for the allowance of the identifier class. `classes` keeps only
+    those pattern detectors (own output, OWN_OUTPUT_CLASSES)."""
     out: list[tuple[str, int]] = []
+    detectors = [(c, d) for c, d in DETECTORS.items() if classes is None or c in classes]
     if matcher is not None:
         out.extend(("name", off) for off in _detect_names(text, matcher))
     n = _normalized(text)
-    for cls, detect in list(DETECTORS.items()):
+    for cls, detect in detectors:
         if detect is _detect_identifier:
             detect = (lambda t, _p=path: _detect_identifier(t, _p))
         out.extend((cls, off) for off in detect(text))
@@ -855,7 +858,7 @@ def _detect_all(text: str, matcher, path: Path | str | None = None) -> list[tupl
         # one for one: an offset in the skeleton is the offset in `text`
         if matcher is not None:
             out.extend(("name", off) for off in _detect_names(skeleton, matcher))
-        for cls, detect in list(DETECTORS.items()):
+        for cls, detect in detectors:
             if detect is _detect_identifier:
                 detect = (lambda t, _p=path: _detect_identifier(t, _p))
             out.extend((cls, off) for off in detect(skeleton))
@@ -873,12 +876,13 @@ def _order(f: Finding) -> tuple:
     return (f.line, CLASSES.index(f.cls) if f.cls in CLASSES else len(CLASSES), f.cls)
 
 
-def _scan_text(label: str, text: str, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
+def _scan_text(label: str, text: str, matcher: Matcher | None, path: Path | str | None = None,
+               classes: frozenset | None = None) -> list[Finding]:
     """Findings of one decoded text, one per line and class. What a base64 or hex block of the text decodes to
     is scanned as well (without the allowance of `path`); its findings are on the line of the block."""
     starts = _line_starts(text)
     hits: set[tuple[int, str]] = set()
-    for cls, off in _detect_all(text, matcher, path):
+    for cls, off in _detect_all(text, matcher, path, classes):
         hits.add((bisect.bisect_right(starts, off), cls))
     blocks = extract_text.encoded_blocks(text)
     if blocks:
@@ -888,7 +892,7 @@ def _scan_text(label: str, text: str, matcher: Matcher | None, path: Path | str 
         for _, decoded in blocks:
             block_starts.append(pos)
             pos += len(decoded) + 1
-        for cls, off in _detect_all(joined, matcher):
+        for cls, off in _detect_all(joined, matcher, None, classes):
             block = max(0, bisect.bisect_right(block_starts, off) - 1)
             hits.add((bisect.bisect_right(starts, blocks[block][0]), cls))
     return sorted((Finding(label, line, cls) for line, cls in hits), key=_order)
@@ -912,14 +916,14 @@ def _decodings(data: bytes) -> list[str]:
 
 
 def _scan_decoded(label: str, data: bytes, matcher, path: Path | str | None = None,
-                  prepare: Callable[[str], str] = lambda t: t) -> list[Finding]:
+                  prepare: Callable[[str], str] = lambda t: t, classes: frozenset | None = None) -> list[Finding]:
     """`_scan_text` over every decoding of `data` (after `prepare`), each finding once. A text over PIECE_FROM
     characters is scanned in pieces (_pieces)."""
     found: set[Finding] = set()
     for text in _decodings(data):
         text = prepare(text)
         pieces = list(_pieces(text))
-        for first, findings in _scan_pieces(label, pieces, matcher, path):
+        for first, findings in _scan_pieces(label, pieces, matcher, path, classes):
             found.update(Finding(f.file, f.line + first if f.line > 0 else 0, f.cls) for f in findings)
     return sorted(found, key=_order)
 
@@ -933,14 +937,18 @@ PARALLEL_MAX = 4
 _FORK_JOB: tuple = ()
 
 
+def _only(classes: frozenset | None) -> dict:
+    return {} if classes is None else {"classes": classes}
+
+
 def _scan_piece(index: int) -> tuple[int, list[Finding]]:
-    label, pieces, matcher, path = _FORK_JOB
+    label, pieces, matcher, path, classes = _FORK_JOB
     first, piece = pieces[index]
-    return first, _scan_text(label, piece, matcher, path)
+    return first, _scan_text(label, piece, matcher, path, **_only(classes))
 
 
 def _scan_pieces(label: str, pieces: list[tuple[int, str]], matcher,
-                 path: Path | str | None) -> Iterable[tuple[int, list[Finding]]]:
+                 path: Path | str | None, classes: frozenset | None = None) -> Iterable[tuple[int, list[Finding]]]:
     """(lines before the piece, findings) for every piece, in worker processes when there are many pieces and more
     than one core, else here. A pool that cannot start (no fork, no process limit left) falls back to this process."""
     workers = min(PARALLEL_MAX, os.cpu_count() or 1, len(pieces))
@@ -951,7 +959,7 @@ def _scan_pieces(label: str, pieces: list[tuple[int, str]], matcher,
         import multiprocessing
 
         global _FORK_JOB
-        _FORK_JOB = (label, pieces, matcher, path)
+        _FORK_JOB = (label, pieces, matcher, path, classes)
         try:
             ctx = multiprocessing.get_context("fork")
             with ctx.Pool(workers) as pool:
@@ -960,7 +968,7 @@ def _scan_pieces(label: str, pieces: list[tuple[int, str]], matcher,
             pass
         finally:
             _FORK_JOB = ()
-    return [(first, _scan_text(label, piece, matcher, path)) for first, piece in pieces]
+    return [(first, _scan_text(label, piece, matcher, path, **_only(classes))) for first, piece in pieces]
 
 
 PIECE_FROM = 4 * 1024 * 1024
@@ -1058,7 +1066,19 @@ def _pdf_outside_streams(data: bytes) -> bytes:
     return b"".join(out).replace(b"\x00", b" ")
 
 
+OWN_OUTPUT = re.compile(r"(?:^|/)notes/lab-runs/[^/]+\.log$")
+"""The log of a lab run that awb/labclient.py writes into a project: our own output, not customer material. It
+gets the secret check only, no name or structured check (his rule of 2026-10-27, "we check once at entry"). The
+name check of the vault daemon took about 17 s per MB on one thread, so a 105 MB log of tcp-bytg did not pass in
+20 minutes even with four workers (2026-11-19)."""
+
+OWN_OUTPUT_CLASSES = frozenset({"secret", "private-key", "token", "homepath"})
+"""The classes the gate keeps on own output: awb/check.py SECRET_CLASSES, the screen of `awb paste --own`."""
+
+
 def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
+    if OWN_OUTPUT.search(label.replace("\\", "/")) and not _is_opaque(label, data):
+        return _scan_decoded(label, data, None, path, classes=OWN_OUTPUT_CLASSES)
     if data.startswith(b"%PDF-") and Path(label).suffix.lower() in (".pdf", ""):
         text = pdf_text(data)
         if text is not None:

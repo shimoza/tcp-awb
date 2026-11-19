@@ -68,3 +68,36 @@ def test_bytg_a_process_with_other_threads_scans_here(monkeypatch):
     monkeypatch.setattr(os, "cpu_count", lambda: 4)
     monkeypatch.setattr(threading, "active_count", lambda: 2)
     assert _pids(monkeypatch) == {os.getpid()}
+
+
+def _lab_log(tmp_path, folder: str, text: str):
+    f = tmp_path / folder / "run-20261103-134717-test.log"
+    f.parent.mkdir(parents=True)
+    f.write_text(text, encoding="utf-8")
+    return f
+
+
+def test_bytg_a_lab_run_log_gets_the_secret_check_only(tmp_path, register_path):
+    from tests.fixtures import ORG_FORMS
+    f = _lab_log(tmp_path, "notes/lab-runs", "bucket of %s listed\nphone +49 30 1234567\n" % ORG_FORMS[0])
+    assert gate.scan_files([f], register_path) == []
+
+
+def test_bytg_a_secret_in_a_lab_run_log_is_still_refused(tmp_path, register_path):
+    f = _lab_log(tmp_path, "notes/lab-runs", "run start\n%s\n" % _secret_line())
+    assert [(x.line, x.cls) for x in gate.scan_files([f], register_path)] == [(2, "secret")]
+
+
+def test_bytg_the_same_text_outside_lab_runs_gets_every_check(tmp_path, register_path):
+    from tests.fixtures import ORG_FORMS
+    f = _lab_log(tmp_path, "notes/other", "bucket of %s listed\n" % ORG_FORMS[0])
+    assert [(x.line, x.cls) for x in gate.scan_files([f], register_path)] == [(1, "name")]
+
+
+def test_bytg_the_lab_run_log_does_not_ask_the_name_check(tmp_path, monkeypatch):
+    def no_names(*a, **kw):
+        raise AssertionError("the name check was asked")
+
+    monkeypatch.setattr(gate, "_detect_names", no_names)
+    f = _lab_log(tmp_path, "notes/lab-runs", "line\n" * 50)
+    assert gate._scan_bytes("notes/lab-runs/" + f.name, f.read_bytes(), object(), f) == []
