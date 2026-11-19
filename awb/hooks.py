@@ -1084,22 +1084,23 @@ def _git_lines(root: Path, *args: str) -> list[str] | None:
 
 
 DRAFT_OUTCOME = "drafted at session end from the commits; correct it with awb ledger add when needed"
-_TOOL_ENTRY_RE = re.compile(r"^(?:(?:Started|Closed|Parked|Unparked|Switched|Deleted) tcp-|material added: "
-                            r"|closed owner items |tcp-[a-z0-9]{4}: \d+ commit\(s\): )")
+_TOOL_ENTRY = r"^(?:(?:Started|Closed|Parked|Unparked|Switched|Deleted) (?:tcp|hcs)-|material added: " \
+              r"|closed owner items |%s: \d+ commit\(s\): )"
 """Ledger entries the tooling writes itself (spawn, close, park, material, the open sweep, this draft): never
-an entry by hand that covers commits."""
+an entry by hand that covers commits. %s is the project code pattern of awb.codes."""
 
 
 def _hand_entries(p: config.Paths, code: str, since: str) -> int:
     """The number of entries of the project from `since` on that a session or he wrote by hand (awb ledger add),
     not the tooling. -1 when the ledger cannot be read: then no commit counts as covered."""
-    from awb import ledger
+    from awb import codes, ledger
+    tool = re.compile(_TOOL_ENTRY % codes.PROJECT)
     try:
         rows = ledger.load(p, start=since)
     except (ledger.LedgerError, ValueError):
         return -1
     return sum(1 for e in rows if e.project == code and e.outcome != DRAFT_OUTCOME
-               and not _TOOL_ENTRY_RE.match(e.done))
+               and not tool.match(e.done))
 
 
 def _clean_subject(subject: str) -> str:
