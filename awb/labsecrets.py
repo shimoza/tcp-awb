@@ -110,6 +110,21 @@ def _code_value(m: re.Match) -> bool:
     return code_value(m.group("key"), bool(m.group("q")), m.group("value"), m.string[m.end():m.end() + 1])
 
 
+_HEADING_LINE_RE = re.compile(r"[ \t]{0,3}#{1,6}[ \t]")
+_HEADING_WORD_RE = re.compile(r"[A-Za-z][a-z]+")
+"""A Markdown heading and a plain word in it: lower case letters, the first one maybe a capital."""
+
+
+def heading_word(m: re.Match) -> bool:
+    """A field of a Markdown heading whose value is a plain word with no value shape (`# Password: policy and
+    rotation`, `## Bearer authentication`): a title, no secret (tcp-6ntg). An unquoted value with a digit, a symbol
+    or mixed case stays a value, also in a heading."""
+    if m.group("q") or not _HEADING_WORD_RE.fullmatch(m.group("value")):
+        return False
+    a = m.string.rfind("\n", 0, m.start()) + 1
+    return bool(_HEADING_LINE_RE.match(m.string, a))
+
+
 def short(value: str) -> str:
     """The first 8 characters, "..." and the length."""
     return "%s...(%d chars)" % (value[:KEEP], len(value))
@@ -163,7 +178,7 @@ def _shorten(text: str, counts: Counter) -> tuple[str, Counter]:
     def field(kind: str):
         def sub(m):
             value = m.group("value")
-            if _kept(value) or (kind in ("secret", "login") and _code_value(m)):
+            if _kept(value) or (kind in ("secret", "login") and _code_value(m)) or heading_word(m):
                 return m.group(0)
             counts[kind] += 1
             new = short(value) if kind == "shortened" else (LOGIN if kind == "login" else SECRET)

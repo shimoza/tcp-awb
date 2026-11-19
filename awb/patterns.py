@@ -379,6 +379,48 @@ def _rate_column(text: str, start: int, end: int, table: _Table) -> bool:
     return all(c in table.rate_columns for c in range(first, first + len(parts)))
 
 
+_VERSION_WORD = (r"(?<![^\W_])(?:version|versions|ver|release|releases|build|builds|engine|kernel|firmware|patch"
+                 r"|revision|rev)(?![^\W_])")
+_VERSION_BEFORE_RE = re.compile(
+    r"(?i)(?:%s|(?<![^\W_])v)[ \t:=(|*_`~#-]*(?:(?:is|are|ist|sind|now|jetzt)[ \t:]+)?"
+    r"(?:v?\d+(?:\.\d+)+[ \t,;/|*_`~)]+(?:(?:and|or|und|oder)[ \t]+)?)*v?$"
+    % _VERSION_WORD)
+"""A version word before a dotted number in its line, other versions in a list between them allowed: "cluster
+version is 8.2.1.220", "versions 23.3.2.37 and 22.8.5.29", "| Engine | 8.2.1.220 |", "v8.2.1.220"."""
+_VERSION_HEADER_RE = re.compile(r"(?i)%s" % _VERSION_WORD)
+_VERSION_CELL_RE = re.compile(r"v?\d+(?:\.\d+){1,4}(?:[-+][\w.]+)?|[-–—]?|(?i:n/?a)")
+"""What a column of versions holds: dotted numbers (a suffix such as -lts allowed), an empty cell, a dash or n/a."""
+_VERSION_LOOKBACK = 120
+
+
+def _version_shaped(text: str, start: int, end: int) -> bool:
+    """True for a dotted quad that is a software version, not an address (tcp-6ntg): a version word before it in
+    its line, the header of its table column a version word, or a column of versions (every body cell a dotted
+    number, at least one of them no address: three parts or a part over 255). A network with a prefix stays an
+    address, and so does a dotted quad in prose with no version word before it."""
+    if "/" in text[start:end]:
+        return False
+    a = text.rfind("\n", 0, start) + 1
+    if _VERSION_BEFORE_RE.search(text, max(a, start - _VERSION_LOOKBACK), start):
+        return True
+    if not text[a:start].lstrip().startswith("|"):
+        return False
+    table = _table_at(text, start)
+    if table is None:
+        return False
+    col = text[a:start].count("|")
+    lines = text[table.start:table.end].split("\n")
+    header = lines[0].split("|")
+    if col < len(header) and _VERSION_HEADER_RE.search(header[col]):
+        return True
+    rule = next((i for i, line in enumerate(lines) if _TABLE_RULE.fullmatch(line)), None)
+    body = lines[rule + 1:] if rule is not None else lines
+    cells = [row.split("|")[col].strip(_CELL_TRIM) for row in body if row.count("|") >= col]
+    if not cells or not all(_VERSION_CELL_RE.fullmatch(c) for c in cells):
+        return False
+    return any(c and c[0] in "v0123456789" and _octets(c) is None for c in cells)
+
+
 _CALENDAR_DATE_RE = re.compile(r"(?<![\d.-])(?:(?:19|20)\d\d-(?:0[1-9]|1[012])-(?:0[1-9]|[12]\d|3[01])"
                                r"|(?:0?[1-9]|[12]\d|3[01])\.(?:0?[1-9]|1[0-2])\.(?:19|20)\d\d)(?![\d.-]?\d)")
 """An ISO date (2026-11-19) or a German date (19.11.2026): never a number to call, nor a part of one, also when
@@ -686,6 +728,8 @@ def _find_structured(text: str) -> list[Span]:
             continue      # short column names over six cells (| c0 | c1 | ... | c5 |) are no MAC address (T3)
         if s.cls == "phone" and _price_shaped(text, start, end):
             continue      # the price cells of a table row under a price column, judged in the text as written
+        if s.cls == "ip" and "." in text[start:end] and _version_shaped(text, start, end):
+            continue      # a version in a column of versions, judged in the text as written (tcp-6ntg)
         if s.cls == "phone" and "|" in text[start:end]:
             out.extend(_cell_phones(text, start, end))
             continue
@@ -787,6 +831,8 @@ def _find(text: str) -> list[Span]:
     found = [t for t in found if not (t[2] == "IP" and _SECTION_REF.search(text[max(0, t[0] - 28):t[0]])
                                        and not (_WEAK_SECTION_RE.search(text[max(0, t[0] - 28):t[0]])
                                                 and max(_octets(text[t[0]:t[1]]) or [0]) >= 100))]
+    # a dotted number announced as a version (a cluster version, a build of an engine) is a version (tcp-6ntg)
+    found = [t for t in found if not (t[2] == "IP" and "." in text[t[0]:t[1]] and _version_shaped(text, t[0], t[1]))]
     # a bare host that a dot and a label with a digit (or two more labels) follow is the head of a flavor id,
     # not a host: rds.pg.c6.large.4 is no address under .pg (pptx-table-services of the red team of 2026-10-07)
     found = [t for t in found if not (t[2] == "URL" and _FLAVOR_TAIL.match(text, t[1])

@@ -27194,8 +27194,36 @@
    "name": "bytg ledger draft: the stop message names the command and is said once",
    "run": ".venv/bin/pytest tests/test_ledger_url_refuse.py::test_the_stop_message_names_the_command_and_is_said_once",
    "status": "passing"
+  },
+  {
+   "id": "CVS-1",
+   "phase": "CVS",
+   "name": "check versions: a dotted four-part number after a version word or in a version column is no ip",
+   "run": ".venv/bin/pytest tests/test_check_versions.py::test_versions_are_no_ip",
+   "status": "passing"
+  },
+  {
+   "id": "CVS-2",
+   "phase": "CVS",
+   "name": "check versions: real addresses in prose, address columns and networks are still found",
+   "run": ".venv/bin/pytest tests/test_check_versions.py::test_real_addresses_still_found",
+   "status": "passing"
+  },
+  {
+   "id": "CVS-3",
+   "phase": "CVS",
+   "name": "check versions: a plain word in a Markdown heading after a secret field is no secret",
+   "run": ".venv/bin/pytest tests/test_check_versions.py::test_heading_word_is_no_secret",
+   "status": "passing"
+  },
+  {
+   "id": "CVS-4",
+   "phase": "CVS",
+   "name": "check versions: a real value in a heading or in prose stays masked",
+   "run": ".venv/bin/pytest tests/test_check_versions.py::test_real_value_in_heading_stays_masked",
+   "status": "passing"
   }
  ],
- "total_tests": 3885,
+ "total_tests": 3889,
  "checked": "2026-11-19"
 }
