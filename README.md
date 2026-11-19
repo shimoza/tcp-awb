@@ -1153,6 +1153,7 @@ the lab broker, which holds the key and is the one way to the laptop.
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
 awb winlab open lab-1 --minutes 60 --project tcp-xxxx
 awb winlab open lab-1 --minutes 240 --project tcp-xxxx --public-image   # disk images of the window are public lab images: no secret check on their get
+awb winlab open lab-1 --until 18:30 --project tcp-xxxx   # the same project again: extends its open window to 18:30 local time
 awb winlab close lab-1                       # before its end
 awb winlab remove lab-1
 awb winlab list                              # machines, their window, its end (in a project session: the windows open for it, from the broker)
@@ -1161,7 +1162,12 @@ awb winlab list                              # machines, their window, its end (
 A machine has a name, a loopback port (1024 to 65535), the pinned fingerprint of its host key (`SHA256:` and 43
 base64 characters, as `ssh-keygen -l` prints it), the day of its registration and your statement that it holds no
 customer data; add refuses a machine without `--no-customer-data`. A window gives one project one machine for 1 to
-1440 minutes and ends by itself at its end. A machine has at most one open window. The registry is `winlab.json`
+1440 minutes and ends by itself at its end. A machine has at most one open window. `open` for the project that
+holds it extends that window: the new end is now plus `--minutes`, or `--until HH:MM` (local host time, today, or
+tomorrow when that time has passed), never earlier than the end it had; `--public-image` is added when given and
+never taken away. The window of another project is still refused until you close it. An hour before the end the
+project session is told once at its next prompt, with the open command to ask you for, and `awb owner status`
+shows the window as "ends in N min" with `awb winlab open NAME --minutes 60 --project CODE`. The registry is `winlab.json`
 beside keys.conf, mode 600. add, open, close and remove are refused for the work user and in an assistant session;
 list is for anyone. The later parts ask `winlab.allowed(NAME, CODE)`, which returns the machine or refuses with one
 line: an unregistered machine, no window, an expired window or another project. `awb owner status` lists every open

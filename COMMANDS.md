@@ -2409,11 +2409,12 @@ register a lab machine (owner side, his own terminal)
 - `--no-customer-data`: your statement that the machine holds no customer data (required)
 - `--account ACCOUNT`: the local account on the laptop, as bootstrap --account made it (default awblab)
 
-### `awb winlab open NAME --minutes MINUTES --project PROJECT [--public-image]`
+### `awb winlab open NAME [--minutes MINUTES] [--until HH:MM] --project PROJECT [--public-image]`
 
-a window in which one project may use the machine; it ends by itself (owner side, his own terminal)
+a window in which one project may use the machine; it ends by itself; for the project that holds the open window it extends that window (owner side, his own terminal)
 - `NAME`
-- `--minutes MINUTES`: 1 to 1440
+- `--minutes MINUTES`: 1 to 1440 from now
+- `--until HH:MM`: the end in local host time, today or tomorrow when it has passed (at most 1440 minutes from now)
 - `--project PROJECT`: the project code, tcp-xxxx
 - `--public-image`: your statement that the disk images of this window are public images built in the lab: a get of a disk image or a compressed file skips the secret check (the name check of a compressed file stays)
 

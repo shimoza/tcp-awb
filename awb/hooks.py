@@ -559,6 +559,8 @@ def _rules_text(data: dict) -> str | None:
         p, sid, root = config.paths(), data.get("session_id"), project_root(_session_folder(data))
         lines = [rulesync.notice(p, sid, root) or ""]
         lines += projects.held_note_notices(p, sid, root)
+        from awb import winlab
+        lines += winlab.window_warnings(p, sid, root)        # a lab window ends within the hour (Q-0009)
         return "\n".join(line for line in lines if line) or None
     except Exception:
         return None

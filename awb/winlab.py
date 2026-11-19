@@ -2,7 +2,8 @@
 
     awb winlab add NAME --port PORT --fingerprint SHA256:... --no-customer-data    owner side: register a machine
         [--account awblab]
-    awb winlab open NAME --minutes N --project tcp-xxxx                            owner side: a window for a project
+    awb winlab open NAME --minutes N|--until HH:MM --project tcp-xxxx              owner side: a window for a project,
+        [--public-image]                                                           or a longer one when it has one
     awb winlab close NAME                                                          owner side: end the window now
     awb winlab remove NAME [--script-only]                                         owner side: forget a machine,
                                                                                    print remove.ps1 for the laptop
@@ -24,6 +25,15 @@ end: nothing has to run for that, every check compares the end with the clock. A
 window; `close` ends it before its end. `allowed(name, project)` is the one check the later parts call: it returns
 the machine or raises WinlabError with one line (unregistered machine, no window, expired window, another project).
 `awb owner status` (awb/ownerwait.py) lists every open window with its end.
+
+`awb winlab open` for the project that holds the open window of the machine extends it (Q-0009, finding 6 of the UX
+review of 2026-11-18): the new end is now plus --minutes, or --until HH:MM (local host time, today, or tomorrow when
+that time has passed), and never earlier than the end it had; the start stays, --public-image is added when given
+and never taken away. The window of another project is still refused until `close`. Every open and extension leaves
+a notice in <shared>/notices/ (winlab-NAME.CODE.json: the machine, the project and the end); the prompt hook of a
+session of that project warns once, in the last WARN_MINUTES minutes, after the window source confirmed that end
+(`window_warnings`), and `awb owner status` lists the window that ends within WARN_MINUTES minutes with the open
+command that extends it (`ending`).
 
 The registry is winlab.json beside keys.conf, the file of the read-only tenant settings (`AWB_KEYS_CONF`, default
 ~/.config/awb/keys.conf), mode 600, written to a fresh name and renamed. add, open, close and remove are the owner's:
@@ -88,6 +98,14 @@ SERVER_KEY = "/etc/ssh/ssh_host_ed25519_key.pub"
 LOOPBACK = "127.0.0.1"
 ONLINE_TIMEOUT = 1.5
 """Seconds `online` waits for the SSH banner of a machine's tunnel."""
+WARN_MINUTES = 60
+"""Minutes before the end of a window when the project session and the owner status warn."""
+UNTIL_RE = re.compile(r"([01]?[0-9]|2[0-3]):([0-5][0-9])")
+LOCAL_TZ = None
+"""The zone of --until; None is the host's own local time (the tests put a fixed zone here)."""
+NOTICE_RE = re.compile(r"winlab-[a-z][a-z0-9-]{1,30}\.%s\.json" % codes.TCP_PROJECT_WIDE)
+WARNING = ("lab window of %s for %s ends at %s (%d min left): ask him to extend it in his terminal, awb winlab open "
+           "%s --minutes N --project %s (or --until HH:MM)")
 
 
 class WinlabError(Exception):
@@ -336,33 +354,81 @@ def add(name: str, port: int, fingerprint: str, no_customer_data: bool, *, path:
         name, port, fingerprint, "" if account == ACCOUNT else ", account %s" % account)
 
 
+def until_end(text: str, now: datetime.datetime, tz=None) -> datetime.datetime:
+    """The end of --until HH:MM: that local time today, or tomorrow when it has passed at `now` (UTC). `tz` is the
+    zone of HH:MM; None takes LOCAL_TZ, and that None the host's own local time."""
+    found = UNTIL_RE.fullmatch(text) if isinstance(text, str) else None
+    if not found:
+        raise WinlabError("--until takes a local time HH:MM (17:30)")
+    tz = tz if tz is not None else LOCAL_TZ
+    day = (now.astimezone(tz) if tz is not None else now.astimezone()).date()
+    at = datetime.time(int(found.group(1)), int(found.group(2)))
+    for _ in range(3):
+        naive = datetime.datetime.combine(day, at)
+        end = naive.replace(tzinfo=tz) if tz is not None else naive.astimezone()
+        if end > now:
+            return end.astimezone(datetime.timezone.utc)
+        day += datetime.timedelta(days=1)
+    raise WinlabError("--until takes a local time HH:MM (17:30)")
+
+
 @_transaction
-def open_(name: str, minutes: int, project: str, *, path: Path | None = None,
-          now: datetime.datetime | None = None, public_image: bool = False) -> str:
+def open_(name: str, minutes: int | None, project: str, *, path: Path | None = None,
+          now: datetime.datetime | None = None, public_image: bool = False, until: str | None = None,
+          extend: bool = False) -> str:
     """Open a window. `public_image` is the owner's statement that the disk images of this window are public
     images built in the lab (an evaluation image of the vendor): a get of a disk image or of a compressed file then
     skips the secret check, whose patterns hit the noise of image bytes. The name check of a compressed file
-    stays."""
+    stays.
+
+    `until` (HH:MM, local host time) is the end instead of `minutes`; the window still lasts 1 to MINUTES_MAX
+    minutes from now. With `extend` (what `awb winlab open` passes) an open window of the same project gets the new
+    end, never an earlier one than it had; without it, as for another project, an open window is refused."""
     _owner_only()
     if not CODE_RE.fullmatch(project or ""):
         raise WinlabError("a project code reads like tcp-q7m4")
-    if type(minutes) is not int or not 1 <= minutes <= MINUTES_MAX:
-        raise WinlabError("a window lasts 1 to %d minutes" % MINUTES_MAX)
-    now = now or _now()
+    if until is not None:
+        if minutes is not None:
+            raise WinlabError("give --minutes or --until, not both")
+        now = now or _now()
+        end = until_end(until, now)
+        span = end - now
+        if not datetime.timedelta(minutes=1) <= span <= datetime.timedelta(minutes=MINUTES_MAX):
+            raise WinlabError("a window lasts 1 to %d minutes: --until %s is %d min from now"
+                              % (MINUTES_MAX, until, int(span.total_seconds() // 60)))
+        minutes = int(round(span.total_seconds() / 60))
+    else:
+        if type(minutes) is not int or not 1 <= minutes <= MINUTES_MAX:
+            raise WinlabError("a window lasts 1 to %d minutes" % MINUTES_MAX)
+        now = now or _now()
+        end = now + datetime.timedelta(minutes=minutes)
     machines = load(path)
     m = _get(machines, name)
     w = open_window(m, now)
-    if w:
+    if w and (not extend or w["project"] != project):
         raise WinlabError("%s has an open window for %s until %s: awb winlab close %s first"
                           % (name, w["project"], _shown(w["end"]), name))
-    end = now + datetime.timedelta(minutes=minutes)
+    image = ", public images: no secret check on a get of a disk image" if public_image is True else ""
+    if w:
+        before = w["end"]
+        if end > _parse(before):
+            w["end"] = _stamp(end)
+        if public_image is True:
+            w["public_image"] = True
+        save(machines, path)
+        post_notice(name, project, w["end"])
+        if w["end"] == before:
+            return "lab machine %s: window of %s kept until %s, it ended later already%s" % (
+                name, project, _shown(before), image)
+        return "lab machine %s: window of %s extended until %s (was %s)%s" % (
+            name, project, _shown(w["end"]), _shown(before), image)
     m["window"] = {"project": project, "start": _stamp(now), "end": _stamp(end)}
     if public_image is True:
         m["window"]["public_image"] = True
     save(machines, path)
+    post_notice(name, project, m["window"]["end"])
     return "lab machine %s: window open for %s until %s (%d min)%s" % (
-        name, project, _shown(m["window"]["end"]), minutes,
-        ", public images: no secret check on a get of a disk image" if public_image is True else "")
+        name, project, _shown(m["window"]["end"]), minutes, image)
 
 
 @_transaction
@@ -422,6 +488,114 @@ def windows(path: Path | None = None, now: datetime.datetime | None = None) -> l
     except WinlabError:
         return []
     return [(n, w) for n, w in ((n, open_window(m, now)) for n, m in sorted(machines.items())) if w]
+
+
+def ending(path: Path | None = None, now: datetime.datetime | None = None,
+           within: int = WARN_MINUTES) -> list[tuple[str, dict, int]]:
+    """(name, window, minutes left) of every open window that ends within `within` minutes, by name (the owner
+    status); nothing when the registry cannot be read."""
+    now = now or _now()
+    out = []
+    for name, w in windows(path, now):
+        left = _parse(w["end"]) - now
+        if left <= datetime.timedelta(minutes=within):
+            out.append((name, w, max(1, int(-(-left.total_seconds() // 60)))))
+    return out
+
+
+def notice_path(name: str, project: str) -> Path:
+    """The notice of the window of `project` on machine `name`: winlab-NAME.CODE.json in <shared>/notices/."""
+    from awb import rulesync
+
+    return rulesync.notices_dir(config.paths()) / ("winlab-%s.%s.json" % (name, project))
+
+
+def post_notice(name: str, project: str, end: str) -> bool:
+    """Leave or replace the notice of the window of `project` on machine `name` for the sessions of that project
+    (owner side, beside the input notices of awb import): the machine, the project code and the end, nothing else.
+    False when it could not be stored; the window stands all the same."""
+    from awb import rulesync
+
+    if not (_matches(NAME_RE, name) and _matches(CODE_RE, project)):
+        return False
+    try:
+        target = notice_path(name, project)
+        with rulesync._directory(target.parent, create=True) as parent:
+            rulesync._publish(parent, target.name, {"machine": name, "project": project, "end": end}, 0o640)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _window_end(name: str, code: str, root: Path) -> str | None:
+    """The end of the window `code` holds on `name` now, from this user's registry or the lab broker; None when it
+    holds none. A broker that cannot be reached raises."""
+    session = _session_module()
+    try:
+        machine = session._allowed(name, code, root)
+    except WinlabError:
+        return None
+    end = machine.get("end") or (machine.get("window") or {}).get("end")
+    return end if isinstance(end, str) else None
+
+
+def _window_warnings(p, session_id: str, root: Path) -> list[str]:
+    from awb import rulesync
+
+    code = Path(root).name
+    if not _matches(CODE_RE, code):
+        return []
+    now = _now()
+    folder = rulesync.notices_dir(p)
+    try:
+        names = sorted(n for n in os.listdir(folder) if NOTICE_RE.fullmatch(n))
+    except OSError:
+        return []
+    mark_path = rulesync._mark(p, session_id)
+    mark = rulesync._read_mark(mark_path)
+    told = [x for x in (mark.get("winlab") or []) if isinstance(x, str)]
+    out: list[str] = []
+    changed = False
+    for file in names:
+        data = rulesync._read_mark(folder / file)
+        name, project, end = data.get("machine"), data.get("project"), data.get("end")
+        if project != code or not _matches(NAME_RE, name) or not isinstance(end, str):
+            continue
+        try:
+            end_at = _parse(end)
+        except ValueError:
+            continue
+        key = "%s@%s" % (name, end)
+        if key in told or not end_at - datetime.timedelta(minutes=WARN_MINUTES) <= now < end_at:
+            continue
+        try:
+            confirmed = _window_end(name, code, Path(root))
+        except Exception:
+            continue                    # the broker does not answer: ask again at the next prompt
+        told.append(key)
+        changed = True
+        if confirmed != end:
+            continue                    # closed or extended since: an extension leaves its own notice
+        left = max(1, int(-(-(end_at - now).total_seconds() // 60)))
+        out.append(WARNING % (name, code, _shown(end), left, name, code))
+    if changed:
+        mark["winlab"] = told[-50:]
+        mark.setdefault("digest", rulesync.digest(root))
+        rulesync._write_mark(mark_path, mark)
+    return out
+
+
+def window_warnings(p, session_id: str | None, root: Path | None) -> list[str]:
+    """The prompt hook of a project session: one line for each window of its project that ends within WARN_MINUTES
+    minutes, once per window end and session, after the window source confirmed that end. Nothing on any error."""
+    if not session_id or root is None:
+        return []
+    from awb import rulesync
+
+    try:
+        return rulesync._session_locked(_window_warnings)(p, session_id, root) or []
+    except Exception:
+        return []
 
 
 def online(port: int, timeout: float = ONLINE_TIMEOUT) -> bool:
@@ -594,10 +768,15 @@ def main(argv: list[str] | None = None) -> int:
                    help="your statement that the machine holds no customer data (required)")
     a.add_argument("--account", default=ACCOUNT,
                    help="the local account on the laptop, as bootstrap --account made it (default %s)" % ACCOUNT)
-    o = sub.add_parser("open", help="a window in which one project may use the machine; it ends by itself (owner "
-                                    "side, his own terminal)")
+    o = sub.add_parser("open", help="a window in which one project may use the machine; it ends by itself; for the "
+                                    "project that holds the open window it extends that window (owner side, his "
+                                    "own terminal)")
     o.add_argument("name")
-    o.add_argument("--minutes", type=int, required=True, help="1 to %d" % MINUTES_MAX)
+    span = o.add_mutually_exclusive_group(required=True)
+    span.add_argument("--minutes", type=int, help="1 to %d from now" % MINUTES_MAX)
+    span.add_argument("--until", metavar="HH:MM",
+                      help="the end in local host time, today or tomorrow when it has passed (at most %d minutes "
+                           "from now)" % MINUTES_MAX)
     o.add_argument("--project", required=True, help="the project code, tcp-xxxx")
     o.add_argument("--public-image", action="store_true",
                    help="your statement that the disk images of this window are public images built in the lab: a "
@@ -675,7 +854,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "add":
             print(add(args.name, args.port, args.fingerprint, args.no_customer_data, account=args.account))
         elif args.command == "open":
-            print(open_(args.name, args.minutes, args.project, public_image=args.public_image))
+            print(open_(args.name, args.minutes, args.project, public_image=args.public_image,
+                        until=args.until, extend=True))
         elif args.command == "close":
             print(close(args.name))
         elif args.command == "remove":

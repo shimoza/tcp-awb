@@ -412,6 +412,8 @@ def remember(p: config.Paths, session_id: str | None, root: Path | None) -> None
         data["notes"] = [x for x in mark["notes"] if isinstance(x, str)][-200:]     # notes told stay told (DN)
     if isinstance(mark.get("kb"), dict):
         data["kb"] = mark["kb"]          # the facts told and the last prompt stay (task KF, awb/kbfirst.py)
+    if isinstance(mark.get("winlab"), list):
+        data["winlab"] = [x for x in mark["winlab"] if isinstance(x, str)][-50:]   # lab window warnings told (Q-0009)
     _write_mark(path, data)
 
 

@@ -27747,8 +27747,148 @@
    "name": "Q-0002 deploy: the dry run names the release before this one, the run restarts the gateway through install.sh",
    "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_the_dry_run_names_the_release_before_this_one_and_the_run_restarts_the_gateway",
    "status": "passing"
+  },
+  {
+   "id": "Q9-1",
+   "phase": "T",
+   "name": "Q-0009 winlab: open on the project that holds the window extends it from now, the start stays",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_open_for_the_same_project_extends_the_window",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-2",
+   "phase": "T",
+   "name": "Q-0009 winlab: an extension never ends earlier than the window did",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_never_shortens_the_window",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-3",
+   "phase": "T",
+   "name": "Q-0009 winlab: an extension adds --public-image and never takes it away",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_adds_public_image_and_never_takes_it_away",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-4",
+   "phase": "T",
+   "name": "Q-0009 winlab: the window of another project is still refused with close first",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_still_refuses_the_window_of_another_project",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-5",
+   "phase": "T",
+   "name": "Q-0009 winlab: an extension keeps the 1 to 1440 minute limit",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_keeps_the_limit_of_a_window",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-6",
+   "phase": "T",
+   "name": "Q-0009 winlab: open after the end opens a new window",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_after_the_end_opens_a_new_window",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-7",
+   "phase": "T",
+   "name": "Q-0009 winlab: close after an extension ends the window as before",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_leaves_close_as_it_was",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-8",
+   "phase": "T",
+   "name": "Q-0009 winlab: --until HH:MM is local host time today",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_until_takes_local_time_today",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-9",
+   "phase": "T",
+   "name": "Q-0009 winlab: --until takes tomorrow when the time has passed",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_until_takes_tomorrow_when_the_time_has_passed",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-10",
+   "phase": "T",
+   "name": "Q-0009 winlab: --until extends an open window of the same project",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_until_extends_an_open_window",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-11",
+   "phase": "T",
+   "name": "Q-0009 winlab: --until refuses a time that is not HH:MM",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_until_refuses_a_bad_time",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-12",
+   "phase": "T",
+   "name": "Q-0009 winlab: --until keeps the limit and excludes --minutes",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_until_keeps_the_limit_and_excludes_minutes",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-13",
+   "phase": "T",
+   "name": "Q-0009 winlab: open and extension leave one notice per machine and project, mode 640",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_open_and_extension_leave_one_notice",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-14",
+   "phase": "T",
+   "name": "Q-0009 winlab: the project session is warned once in the last hour, again for a new end",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_warns_the_session_once_in_the_last_hour",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-15",
+   "phase": "T",
+   "name": "Q-0009 winlab: the warning reaches only the project of the window",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_warning_is_for_its_own_project_only",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-16",
+   "phase": "T",
+   "name": "Q-0009 winlab: no warning after close",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_no_warning_after_close",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-17",
+   "phase": "T",
+   "name": "Q-0009 winlab: the warning waits while the broker does not answer",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_warning_waits_while_the_broker_is_away",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-18",
+   "phase": "T",
+   "name": "Q-0009 winlab: the prompt hook shows the warning",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_hook_shows_the_warning",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-19",
+   "phase": "T",
+   "name": "Q-0009 winlab: the broker confirms the end for a session of the work user",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_broker_confirms_the_end",
+   "status": "passing"
+  },
+  {
+   "id": "Q9-20",
+   "phase": "T",
+   "name": "Q-0009 winlab: owner status lists a window that ends within the hour with the open command",
+   "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_owner_status_lists_a_window_that_ends_within_the_hour",
+   "status": "passing"
   }
  ],
- "total_tests": 3964,
+ "total_tests": 3984,
  "checked": "2026-11-19"
 }
