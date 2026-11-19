@@ -257,7 +257,12 @@ def _request(part: Part, rows: list[tuple[str, object, str]]) -> None:
         if not codes.KB_RE.fullmatch(kid) or any(c in reason for c in "\r\n\t"):
             raise kb.KBError("invalid recheck request")
         _public_json(reason)
-    written = recheck.request(rows)
+    try:
+        written = recheck.request(rows)
+    except recheck.SharedModeError as exc:
+        # one clear line in the report instead of "the part could not be completed" (the refresh of 2026-11-14)
+        part.error = "recheck requests not written: %s" % exc
+        return
     kinds: dict[str, int] = {}
     for _, _, reason in rows:
         k = recheck.request_kind(reason)

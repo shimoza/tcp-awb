@@ -77,6 +77,7 @@ import datetime
 import json
 import os
 import re
+import stat
 import sys
 import time
 import urllib.parse
@@ -109,6 +110,67 @@ _URL_QUERY_RE = re.compile(r"(https?://[^\s\"'<>?#]+)[?#][^\s\"'<>]*")
 
 class RecheckError(Exception):
     """A refusal before the first call, with one line for the owner."""
+
+
+FOLDER_MODE = 0o2775
+"""`<shared>/recheck` is written by both sides: the work user (state.tsv, refuted.tsv of a run) and the owner, another
+uid in the same group (requested.tsv of the weekly refresh). Group writable with the setgid bit, so that what one side
+creates keeps the group and the other side can write it (a folder of mode 2755 stopped the refresh of 2026-11-14)."""
+FILE_MODE = 0o664
+"""The mode of a file of `<shared>/recheck`: the other side appends to it through the group."""
+
+
+class SharedModeError(RecheckError):
+    """The shared folder recheck or a file in it is too narrow for the other side and this user may not widen it."""
+
+
+def shared_folder(path: Path | None = None) -> Path:
+    """`<shared>/recheck`, created with FOLDER_MODE. An existing folder this process owns is widened to FOLDER_MODE
+    (its wider bits stay); one of another user that is narrower raises SharedModeError with one line for the owner
+    of the folder. A link where the folder should be is refused."""
+    from awb import config
+
+    path = Path(path) if path is not None else config.paths().shared / STATE_TSV[0]
+    if os.path.islink(path):
+        raise SharedModeError("a link stands where the shared folder recheck should be")
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        raise SharedModeError("the shared folder recheck is missing and this user may not create it: the work user "
+                              "creates it with mode %o" % FOLDER_MODE) from None
+    st = os.lstat(path)
+    mode = stat.S_IMODE(st.st_mode)
+    if mode & FOLDER_MODE != FOLDER_MODE:
+        if st.st_uid != os.geteuid():
+            raise SharedModeError("the shared folder recheck has mode %o and another user owns it: its owner runs "
+                                  "chmod %o on it so that both sides can write in it" % (mode, FOLDER_MODE))
+        config.chmod_dir(path, mode | FOLDER_MODE)
+    return path
+
+
+def append_shared(path: Path, text: str) -> None:
+    """Append `text` to a file of `<shared>/recheck` (the folder made by shared_folder), the file group writable
+    (FILE_MODE) and no link followed. A file this process owns is widened to FILE_MODE; one of another user it may
+    not write raises SharedModeError with one line."""
+    path = Path(path)
+    shared_folder(path.parent)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_CLOEXEC, FILE_MODE)
+    except PermissionError:
+        raise SharedModeError("%s in the shared folder recheck cannot be written by this user: its owner runs chmod "
+                              "%o on it so that both sides can write it" % (path.name, FILE_MODE)) from None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise SharedModeError("%s in the shared folder recheck is not a regular file" % path.name)
+        mode = stat.S_IMODE(st.st_mode)
+        if mode & FILE_MODE != FILE_MODE and st.st_uid == os.geteuid():
+            os.fchmod(fd, mode | FILE_MODE)
+        data = text.encode("utf-8")
+        while data:
+            data = data[os.write(fd, data):]
+    finally:
+        os.close(fd)
 
 
 def service_project(project: str | None = None) -> str:
@@ -565,6 +627,8 @@ class Recheck:
                 o.written = "stays expired"
             if o.verdict == "refuted":
                 record_refuted(e.id, self.today)
+        except SharedModeError as exc:
+            self.err("awb kb recheck-run: %s" % exc)
         except kb.Refused as ref:
             o.written = "stays expired: the knowledge base refused the write-back (%s)" % "; ".join(ref.reasons)
         except kb.KBError as exc:
@@ -657,10 +721,11 @@ class Recheck:
         lines += ["", "## Not checked", ""] + ["- %s" % x for x in list_lines(p)]
         (self.dir / "RESULT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         (self.dir / "calls.log").write_text("".join(x + "\n" for x in self.calls_log), encoding="utf-8")
-        tsv = config.paths().shared.joinpath(*STATE_TSV)
-        tsv.parent.mkdir(parents=True, exist_ok=True)
-        with open(tsv, "a", encoding="utf-8") as fh:
-            fh.write(state_line(self.today, self.tier, outcomes, len(p.owner), code, inv_state))
+        try:
+            append_shared(config.paths().shared.joinpath(*STATE_TSV),
+                          state_line(self.today, self.tier, outcomes, len(p.owner), code, inv_state))
+        except SharedModeError as exc:
+            self.err("awb kb recheck-run: %s" % exc)
         n = {v: sum(1 for o in outcomes if o.verdict == v) for v in VERDICTS}
         self.out("recheck: %d confirmed, %d refuted, %d undecided, %d for the owner; evidence %s"
                  % (n["confirmed"], n["refuted"], n["undecided"], len(p.owner), self.rel(self.dir)))
@@ -674,10 +739,7 @@ def refuted_path():
 
 def record_refuted(entry_id: str, day: datetime.date) -> None:
     """One line `ID<TAB>DATE` for a refuted entry; the dataset build reads it (task KS)."""
-    path = refuted_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write("%s\t%s\n" % (entry_id, day.isoformat()))
+    append_shared(refuted_path(), "%s\t%s\n" % (entry_id, day.isoformat()))
 
 
 def refuted(path=None) -> dict[str, str]:
@@ -737,9 +799,7 @@ def request(rows, path=None) -> int:
         seen.add((i, reason))
         new.append("%s\t%s\t%s\n" % (i, day.isoformat() if hasattr(day, "isoformat") else day, reason))
     if new:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write("".join(new))
+        append_shared(path, "".join(new))
     return len(new)
 
 

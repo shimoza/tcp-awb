@@ -27656,8 +27656,71 @@
    "name": "Q-0008 wait through the cli takes all and timeout",
    "run": ".venv/bin/pytest tests/test_build_stop_wait.py::test_wait_through_the_cli_takes_all_and_timeout",
    "status": "passing"
+  },
+  {
+   "id": "Q1-1",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: the work side creates the folder 2775 and the owner can append requested tsv",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_the_work_side_creates_the_folder_2775_and_the_owner_can_append_requested_tsv",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-2",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: a folder of mode 2755 is widened to 2775 by its owner",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_a_folder_of_mode_2755_is_widened_to_2775_by_its_owner",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-3",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: a wider folder keeps its wider bits",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_a_wider_folder_keeps_its_wider_bits",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-4",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: a requested tsv of mode 644 is widened to 664 by its owner",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_a_requested_tsv_of_mode_644_is_widened_to_664_by_its_owner",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-5",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: the state line of a run lands in a group writable file",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_the_state_line_of_a_run_lands_in_a_group_writable_file",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-6",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: a narrow folder of another user is one clear error line",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_a_narrow_folder_of_another_user_is_one_clear_error_line",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-7",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: a link where the folder should be is refused",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_a_link_where_the_folder_should_be_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-8",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: the refresh reports a narrow folder in one line of its part",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_the_refresh_reports_a_narrow_folder_in_one_line_of_its_part",
+   "status": "passing"
+  },
+  {
+   "id": "Q1-9",
+   "phase": "T",
+   "name": "Q-0001 recheck folder: the refresh writes its requests into a 2775 folder",
+   "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_the_refresh_writes_its_requests_into_a_2775_folder",
+   "status": "passing"
   }
  ],
- "total_tests": 3951,
+ "total_tests": 3960,
  "checked": "2026-11-19"
 }
