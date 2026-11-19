@@ -48,6 +48,7 @@ Exit codes: 0 ok, 1 refused, 2 usage or error.
 from __future__ import annotations
 
 import fcntl
+import functools
 import hashlib
 import hmac
 import os
@@ -254,47 +255,44 @@ def candidates(text: str) -> dict[str, set[int]]:
     return out
 
 
-_VOCAB: dict[tuple, frozenset[str]] = {}
-
-
-def _rule_words(name: str, column: int = 0) -> set[str]:
-    path = patterns.RULES_DIR / name
-    out: set[str] = set()
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return out
-    for line in text.splitlines():
-        if not line.strip() or line.startswith("#"):
+@functools.lru_cache(maxsize=4)
+def _rules_vocabulary(stamp: tuple) -> frozenset[str]:
+    """The words of the rules lists, read once per state of the files (`stamp`). A word list holds plain words,
+    so lower case and NFKC are its whole normalisation."""
+    words: set[str] = set(GENERIC_TERMS)
+    for name in ("common-words.txt", "known-words.txt", "tech-terms.txt", "tags.txt", "allowed-terms.txt",
+                 "services.tsv"):
+        try:
+            text = (patterns.RULES_DIR / name).read_text(encoding="utf-8")
+        except OSError:
             continue
-        cells = line.split("\t")
-        cell = cells[column] if column < len(cells) else ""
-        out.update(_TOKEN_RE.findall(_norm(cell)))
-    return out
+        for line in text.splitlines():
+            if line.strip() and not line.startswith("#"):
+                cell = line if name == "services.tsv" else line.split("\t")[0]
+                words.update(_TOKEN_RE.findall(unicodedata.normalize("NFKC", cell).lower()))
+    return frozenset(words)
+
+
+def _rules_stamp() -> tuple:
+    out = []
+    for name in ("common-words.txt", "known-words.txt", "tech-terms.txt", "tags.txt", "allowed-terms.txt",
+                 "services.tsv"):
+        try:
+            st = (patterns.RULES_DIR / name).stat()
+            out.append((name, st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append((name, 0, 0))
+    return tuple(out)
 
 
 def vocabulary(where=None) -> frozenset[str]:
     """Words that identify no project: plain English, the words of the rules lists of the platform and every word
-    the knowledge base already states."""
-    stamp = tuple(sorted((e.id, e.checked, e.retired) for e in kb.load(where)))
-    key = (str(kb.root(where)), stamp)
-    if key in _VOCAB:
-        return _VOCAB[key]
-    words: set[str] = set()
-    for name in ("common-words.txt", "known-words.txt", "tech-terms.txt", "tags.txt", "allowed-terms.txt"):
-        words |= _rule_words(name)
-    words.update(GENERIC_TERMS)
-    path = patterns.RULES_DIR / "services.tsv"
-    try:
-        words.update(_TOKEN_RE.findall(_norm(path.read_text(encoding="utf-8"))))
-    except OSError:
-        pass
+    the knowledge base already states (retired entries too: a word once stated as a fact is public)."""
+    words = set(_rules_vocabulary(_rules_stamp()))
     for e in kb.load(where):
         for tok in _TOKEN_RE.findall(_norm(e.statement)):
             words.update(_runs(tok))
-    _VOCAB.clear()
-    _VOCAB[key] = frozenset(words)
-    return _VOCAB[key]
+    return frozenset(words)
 
 
 def _read_project(folder: Path, name: str) -> str:
