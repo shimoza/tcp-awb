@@ -2473,12 +2473,13 @@ a file of the project's winlab-out/ to the machine, in chunks that resume, the S
 - `WINPATH`: the whole path on the machine, C:\lab\file.txt
 - `--machine MACHINE`: the machine, when the project holds windows on two
 
-### `awb winlab get WINPATH FILE [--machine MACHINE]`
+### `awb winlab get WINPATH FILE [--machine MACHINE] [--recheck]`
 
 a file of the machine into the project, in chunks that resume, the SHA-256 compared (project session)
 - `WINPATH`: the whole path on the machine, C:\lab\file.txt
 - `FILE`
 - `--machine MACHINE`: the machine, when the project holds windows on two
+- `--recheck`: check the part a get kept when the name check could not run again, without a transfer
 
 ### `awb winlab serve [--socket SOCKET] [--key KEY]`
 
