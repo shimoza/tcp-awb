@@ -27089,8 +27089,57 @@
    "name": "rates and dates: a column that holds a phone number is no column of rates",
    "run": ".venv/bin/pytest tests/test_patterns_rates_dates.py::test_rate_column_with_a_phone_is_no_rate_column",
    "status": "passing"
+  },
+  {
+   "id": "X7K2-PF-001",
+   "phase": "T",
+   "name": "x7k2: pre-tool: a long awb kb add with quotes and newlines after a cd into the project passes",
+   "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_a_long_kb_add_after_a_cd_into_the_project_passes",
+   "status": "passing"
+  },
+  {
+   "id": "X7K2-PF-002",
+   "phase": "T",
+   "name": "x7k2: pre-tool: the long statement passes from a subfolder, in single quotes, after a newline",
+   "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_the_long_statement_passes_from_a_subfolder_and_in_single_quotes",
+   "status": "passing"
+  },
+  {
+   "id": "X7K2-PF-003",
+   "phase": "T",
+   "name": "x7k2: pre-tool: a long word without a cd passes from the hook cwd",
+   "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_a_long_word_without_a_cd_passes_from_the_hook_cwd",
+   "status": "passing"
+  },
+  {
+   "id": "X7K2-PF-004",
+   "phase": "T",
+   "name": "x7k2: pre-tool: a short call after a cd into the project passes",
+   "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_a_short_call_after_a_cd_passes",
+   "status": "passing"
+  },
+  {
+   "id": "X7K2-PF-005",
+   "phase": "T",
+   "name": "x7k2: pre-tool: a long quoted word under another project still refuses as another project",
+   "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_a_long_word_naming_another_project_still_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "X7K2-PF-006",
+   "phase": "T",
+   "name": "x7k2: pre-tool: a long plain path under another project still refuses as another project",
+   "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_a_long_plain_path_naming_another_project_still_refuses",
+   "status": "passing"
+  },
+  {
+   "id": "X7K2-PF-007",
+   "phase": "T",
+   "name": "x7k2: pre-tool: a call outside every project still refuses on a sealed host",
+   "run": ".venv/bin/pytest tests/test_pretool_folder.py::test_a_call_outside_every_project_still_refuses_on_a_sealed_host",
+   "status": "passing"
   }
  ],
- "total_tests": 3870,
+ "total_tests": 3877,
  "checked": "2026-11-19"
 }

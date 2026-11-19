@@ -44,6 +44,18 @@ def _valid_text(value: str) -> bool:
     return "\x00" not in value and not any(0xD800 <= ord(c) <= 0xDFFF for c in value)
 
 
+_NAME_MAX = 255
+"""The longest name of one file or folder in bytes (Linux NAME_MAX). A longer part of a path (a quoted sentence
+read as a path, see _shell_checks) names nothing, and the kernel answers ENAMETOOLONG, not ENOENT."""
+
+
+def _too_long(part: str) -> bool:
+    try:
+        return len(os.fsencode(part)) > _NAME_MAX
+    except UnicodeError:
+        return False
+
+
 def _realpath(path: str | os.PathLike) -> Path:
     """Resolve links before .., permitting missing targets but never hiding other lookup errors."""
     raw = os.fspath(path)
@@ -57,6 +69,9 @@ def _realpath(path: str | os.PathLike) -> Path:
             here = here.parent
             continue
         candidate = here / part
+        if any(_too_long(x) for x in candidate.parts):
+            here = candidate        # no file has a name that long, nor anything under it: missing, read as written
+            continue
         try:
             info = os.lstat(candidate)
         except FileNotFoundError:
@@ -158,6 +173,8 @@ def project_root(start: str | os.PathLike | None) -> Path | None:
     if not start:
         return None
     here = _realpath(start)
+    while any(_too_long(part) for part in here.parts):
+        here = here.parent                      # a name too long is no folder, nor anything under it
     if not here.is_dir():
         here = here.parent
     root = config.scope_root(here, depth=_SCOPE_MAX_DEPTH)
