@@ -26914,8 +26914,22 @@
    "name": "lab fix: a home path in a lab log passes the gate and a secret does not",
    "run": ".venv/bin/pytest tests/test_lab_run_fixes_2026_11_19.py::test_lab_fix_a_home_path_in_a_lab_log_passes_the_gate_and_a_secret_does_not",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-001",
+   "phase": "T",
+   "name": "bytg: get checks the part in place without a second copy",
+   "run": ".venv/bin/pytest tests/test_bytg_winlab_get_space.py::test_bytg_get_checks_the_part_in_place_without_a_second_copy",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WG-002",
+   "phase": "T",
+   "name": "bytg: an unexpected failure in the checks gives the part back",
+   "run": ".venv/bin/pytest tests/test_bytg_winlab_get_space.py::test_bytg_an_unexpected_failure_in_the_checks_gives_the_part_back",
+   "status": "passing"
   }
  ],
- "total_tests": 3845,
+ "total_tests": 3847,
  "checked": "2026-11-19"
 }

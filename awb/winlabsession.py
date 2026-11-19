@@ -1517,18 +1517,17 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         raise
     finally:
         transport.close()
-    # A private checked copy also prevents replacement of the resumable part during checks.
+    # The part is renamed to a private name for the checks, so nothing can replace it while they run. A copy did
+    # the same at twice the disk: a 21.9 GB image of tcp-bytg (2026-11-19) filled the host and ended in OSError.
     staged = ".winlab-" + secrets.token_hex(16) + dst.suffix
     snapshot = Path("/proc/self/fd/%d" % folder) / staged
+    winlab._regular(folder, part)                           # a regular file, no link, before it is moved
+    os.rename(part, staged, src_dir_fd=folder, dst_dir_fd=folder)
+    back = True                                             # an unexpected failure gives the part back for a resume
     try:
-        read_fd = winlab._regular(folder, part)
-        with os.fdopen(read_fd, "rb") as source_file:
-            write_fd = winlab._regular(folder, staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
-            with os.fdopen(write_fd, "wb") as copy:
-                shutil.copyfileobj(source_file, copy, CHUNK)
         sha = _sha256(snapshot)
         if not final or str(final.get("sha256", "")).lower() != sha or final.get("size") != size:
-            os.unlink(part, dir_fd=folder)
+            back = False
             _unlink(rpath)
             raise WinlabError("the SHA-256 of the copy does not match %s on %s: the part was deleted, nothing kept"
                               % (winpath, name))
@@ -1555,17 +1554,20 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
                         raise WinlabError("the file carries secret(s): the copy was deleted")
                     tail = text[-OVERLAP:]
         except (WinlabError, hooks.Unavailable) as exc:
-            os.unlink(part, dir_fd=folder)
+            back = False
             _unlink(rpath)
             if isinstance(exc, hooks.Unavailable):
                 raise WinlabError("the name check did not run: the copy was deleted") from None
             raise
         # Hard-link publication cannot replace a destination another writer created.
         os.link(staged, dst.name, src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
-        os.unlink(part, dir_fd=folder)
+        back = False
     finally:
         try:
-            os.unlink(staged, dir_fd=folder)
+            if back:
+                os.rename(staged, part, src_dir_fd=folder, dst_dir_fd=folder)
+            else:
+                os.unlink(staged, dir_fd=folder)
         except FileNotFoundError:
             pass
     _unlink(rpath)
