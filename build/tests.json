@@ -27327,8 +27327,71 @@
    "name": "queue check once: the caller walk can fail",
    "run": ".venv/bin/pytest tests/test_queue_check_once.py::test_the_caller_walk_can_fail",
    "status": "passing"
+  },
+  {
+   "id": "Q15-DE-001",
+   "phase": "T",
+   "name": "drafting edit mode: both shipped copies of the drafting skill are the same",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_both_shipped_copies_of_the_drafting_skill_are_the_same",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-002",
+   "phase": "T",
+   "name": "drafting edit mode: each round shows the whole russian text and no change list",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_each_round_shows_the_whole_russian_text_and_no_change_list",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-003",
+   "phase": "T",
+   "name": "drafting edit mode: the master in the target language is updated in the same pass",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_the_master_in_the_target_language_is_updated_in_the_same_pass",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-004",
+   "phase": "T",
+   "name": "drafting edit mode: several fixes in one message are one pass",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_several_fixes_in_one_message_are_one_pass",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-005",
+   "phase": "T",
+   "name": "drafting edit mode: the review runs once at the end and a small edit gets the write check only",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_the_review_runs_once_at_the_end_and_a_small_edit_gets_the_write_check_only",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-006",
+   "phase": "T",
+   "name": "drafting edit mode: the length is set from the request and does not grow",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_the_length_is_set_from_the_request_and_does_not_grow",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-007",
+   "phase": "T",
+   "name": "drafting edit mode: facts first and voice rules are kept",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_facts_first_and_voice_rules_are_kept",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-008",
+   "phase": "T",
+   "name": "drafting edit mode: the edit rounds read the way the skill asks",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_the_edit_rounds_read_the_way_the_skill_asks",
+   "status": "passing"
+  },
+  {
+   "id": "Q15-DE-009",
+   "phase": "T",
+   "name": "drafting edit mode: the work rules send every draft through the drafting skill",
+   "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_the_work_rules_send_every_draft_through_the_drafting_skill",
+   "status": "passing"
   }
  ],
- "total_tests": 3904,
+ "total_tests": 3913,
  "checked": "2026-11-19"
 }

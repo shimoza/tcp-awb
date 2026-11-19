@@ -91,6 +91,25 @@ file and stops: translate along that prompt into the named file, then run the sa
 The checker is built for English. In a German text the blocking rules on commitments, earlier mails,
 weakness, sales tone and the history of the draft still apply, the sentence numbers do not.
 
+## Edit rounds
+
+He corrects a draft in rounds, often one phrase at a time. Each round is one pass and ends with the whole text.
+
+1. Take every fix of his message in one pass, also when he sends several fixes at once. Do not ask about each one.
+2. Apply the fixes to the master first. The master is the text in the target language that the reader gets, usually
+   English or German, saved in its file. Then make the Russian reading copy again from the corrected master with
+   `awb write translate FILE`, never by editing the copy alone. When he edits the Russian file himself, carry the
+   change back into the master and make the copy again.
+3. Show the whole Russian text again in the reply, from the first line to the last, unasked. No list of changes, no
+   diff and no summary of the edit. Name the files of the master and the copy in one line under it.
+4. A small edit (a word, a phrase or a sentence) gets `awb write keep` and `awb write check` only. The facts check and
+   the review run once, at the end, when he accepts the text. An edit that adds a fact, a number or a price gets
+   that fact checked against its source in the same round.
+5. The length budget set from the request holds for every round. A fix that adds a line takes a line out elsewhere,
+   so the text does not grow with the edits.
+6. When he names a meeting or a German reader, make the German version at once beside the English. Do not wait for
+   his acceptance of the English first.
+
 ## After he sends it
 
 When he gives you the version he actually sent, store the pair with `awb voice learn DRAFT SENT`. The report lists

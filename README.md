@@ -576,6 +576,8 @@ drafting skill writes mails, offers and PoC documents in that voice, with a chec
 fact. It blocks what he struck out most: "we" for "I", jargon, bold leads, admissions of weakness, sales tone and
 the history of the draft, and it names a section the request did not ask for.
 A session shows him a draft only after the check ran clean in the same turn.
+In a correction round the skill takes every fix of a message in one pass, fixes the master first and shows the
+whole Russian reading copy again with no change list; the review runs once at the end and the length does not grow.
 `awb voice learn DRAFT -` learns from the sent text piped in on the owner side: it is wiped like a paste first and
 the original is written nowhere.
 `awb write translate` makes the German version and his Russian reading copy from the accepted text in one step and
