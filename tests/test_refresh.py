@@ -57,7 +57,6 @@ def test_the_worklist_holds_the_expired_entries_with_how_to_check_them(home):
     assert {json.loads(line)["id"] for line in lines} == set(methods)
 
 
-
 READ_BLOCK = ("tier: read\n"
               "calls: GET ecs /v1/{project_id}/cloudservers/flavors\n"
               "confirms: flavors[name=s3.xlarge.2].os-extra_specs.cond:operation:az has eu-de-01(normal)\n"
@@ -229,3 +228,618 @@ def test_results_of_the_wrong_shape_are_refused(tmp_path, capsys):
     bad.write_text('{"id": "KB-AAAA", "verdict": "maybe"}\n')
     assert cli.main(["refresh", "apply", str(bad)]) == 2
     assert "needs an id and a verdict" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- hardening
+
+
+def _unchecked(**fields):
+    return dict({"id": "KB-AAAA", "verdict": "unchecked"}, **fields)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("id", "../outside"), ("id", "KB-AAAA\nforged"), ("batch", []),
+    ("source", {}), ("statement", 2), ("why", []), ("grade", True),
+    ("checked", "2026-02-30"), ("tried", "abc"), ("tried", [2]),
+], ids=["traversal-id", "multiline-id", "batch-type", "source-type", "statement-type",
+        "reason-type", "grade-type", "date", "tried-string", "tried-member"])
+def test_hardening_results_validate_every_used_field(tmp_path, field, value):
+    row = _unchecked()
+    row[field] = value
+    with pytest.raises(kb.KBError):
+        refresh.read_results(results(tmp_path, [row]))
+
+
+@pytest.mark.parametrize("text", [
+    '{"id":"KB-AAAA","verdict":"confirmed","verdict":"unchecked"}',
+    '{"id":"KB-AAAA","verdict":"unchecked","unknown":NaN}',
+    '[' * 20000 + '0' + ']' * 20000,
+], ids=["duplicate-key", "nonfinite", "deep-json"])
+def test_hardening_hostile_json_is_refused(tmp_path, text):
+    path = tmp_path / "results.jsonl"
+    path.write_text(text)
+    with pytest.raises(kb.KBError):
+        refresh.read_results(path)
+
+
+@pytest.mark.parametrize("kind", ["link", "parent-link", "fifo", "directory", "large"])
+def test_hardening_results_require_bounded_regular_files(tmp_path, kind):
+    target = results(tmp_path, [_unchecked()])
+    path = tmp_path / "input"
+    if kind == "link":
+        path.symlink_to(target)
+    elif kind == "parent-link":
+        path.symlink_to(tmp_path, target_is_directory=True)
+        path = path / target.name
+    elif kind == "fifo":
+        os.mkfifo(path)
+    elif kind == "directory":
+        path.mkdir()
+    else:
+        # Valid rows beyond the documented bound, without allocating a huge object.
+        with path.open("wb") as fh:
+            fh.write(b'\n' * ((8 << 20) + 1))
+    with pytest.raises(kb.KBError):
+        refresh.read_results(path)
+
+
+@pytest.mark.parametrize("kind", ["missing", "unreadable", "invalid-utf8"])
+def test_hardening_results_read_failures_hide_values(tmp_path, monkeypatch, kind):
+    private = "pass" + "word" + "=private-result-value"
+    path = tmp_path / private
+    if kind == "invalid-utf8":
+        path.write_bytes(b'\xff')
+    elif kind == "unreadable":
+        path.write_text('{}')
+        original = os.open
+
+        def denied(name, *args, **kw):
+            if str(name) in (str(path), path.name):
+                raise PermissionError(private)
+            return original(name, *args, **kw)
+
+        monkeypatch.setattr(os, "open", denied)
+        # The original implementation used Path.read_text instead of os.open.
+        read_text = Path.read_text
+        monkeypatch.setattr(Path, "read_text", lambda self, *a, **kw:
+                            (_ for _ in ()).throw(PermissionError(private)) if self == path
+                            else read_text(self, *a, **kw))
+    with pytest.raises(kb.KBError) as caught:
+        refresh.read_results(path)
+    assert private not in str(caught.value)
+
+
+def test_hardening_regular_results_outside_project_are_allowed(home, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    assert refresh.read_results(results(outside, [_unchecked()]))[0]["id"] == "KB-AAAA"
+
+
+def test_hardening_duplicate_plants_cannot_hide_a_confirmation(home):
+    rows = [{"id": "PLANT-1", "verdict": verdict, "batch": "batch-01"}
+            for verdict in ("confirmed", "refuted")]
+    rows.append(_unchecked(batch="batch-01"))
+    applied, calibration = refresh.apply(rows, plants={"PLANT-1": "batch-01"})
+    assert not applied[0].ok and "CONFIRMED although false" in calibration[0]
+
+
+@pytest.mark.parametrize("plants", [{"PLANT-1": []}, {"../outside": "batch-01"},
+                                    {"PLANT-1": "batch\nforged"}])
+def test_hardening_plants_are_validated_before_application(home, plants):
+    with pytest.raises(kb.KBError):
+        refresh.apply([_unchecked()], plants=plants)
+
+
+def test_hardening_plant_batch_mismatch_is_refused(home):
+    rows = [{"id": "PLANT-1", "verdict": "confirmed", "batch": "batch-02"}]
+    with pytest.raises(kb.KBError):
+        refresh.apply(rows, plants={"PLANT-1": "batch-01"})
+
+
+def test_hardening_apply_validates_the_whole_batch_before_writing(home):
+    e = entry("ECS flavor s3.xlarge.2 is offered in eu-de", checked=OLD)
+    rows = [{"id": e.id, "verdict": "confirmed", "grade": "live", "source": "flavor list"},
+            _unchecked(batch=[])]
+    with pytest.raises(kb.KBError):
+        refresh.apply(rows)
+    assert kb.get(e.id).checked == OLD
+
+
+@pytest.mark.parametrize("private", ["pass" + "word" + "=Never" + "Publish934!"], ids=["secret"])
+def test_hardening_unchecked_reasons_are_screened(home, private, capsys, tmp_path):
+    assert refresh.main(["apply", str(results(tmp_path, [_unchecked(why=private)]))]) == 0
+    output = capsys.readouterr()
+    assert private not in output.out + output.err
+    assert "withheld" in output.out
+
+
+def test_hardening_apply_errors_do_not_echo_dependency_values(home, monkeypatch):
+    private = "unrecognized-private-value"
+
+    def broken(*args, **kwargs):
+        raise kb.KBError(private)
+
+    monkeypatch.setattr(kb, "recheck", broken)
+    applied, _ = refresh.apply([{"id": "KB-AAAA", "verdict": "confirmed"}])
+    assert not applied[0].ok and private not in applied[0].outcome
+
+
+@pytest.mark.parametrize("kind", ["link", "parent-link", "hardlink", "fifo"])
+def test_hardening_report_refuses_unsafe_destinations(home, tmp_path, kind):
+    folder = refresh.refresh_dir(home, TODAY)
+    folder.mkdir(parents=True)
+    report = folder / "REPORT-projects.md"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / report.name
+    target.write_text("keep me")
+    if kind == "link":
+        report.symlink_to(target)
+    elif kind == "parent-link":
+        folder.rmdir()
+        folder.symlink_to(outside, target_is_directory=True)
+    elif kind == "hardlink":
+        os.link(target, report)
+    else:
+        os.mkfifo(report)
+    with pytest.raises((kb.KBError, OSError)):
+        refresh.run(home, parts=("projects",), update=False, today=TODAY)
+    assert target.read_text() == "keep me"
+
+
+def test_hardening_report_is_private_and_atomically_replaced(home, monkeypatch):
+    _, path = refresh.run(home, parts=("projects",), update=False, today=TODAY)
+    original = path.read_bytes()
+    assert path.stat().st_mode & 0o077 == 0
+
+    def no_sync(fd):
+        raise OSError("private disk error")
+
+    monkeypatch.setattr(os, "fsync", no_sync)
+    with pytest.raises(OSError):
+        refresh.run(home, parts=("projects",), update=False, today=TODAY)
+    assert path.read_bytes() == original
+    assert not list(path.parent.glob(".refresh-*.tmp"))
+
+
+def test_hardening_report_directory_is_pinned_during_publication(home, tmp_path, monkeypatch):
+    folder = refresh.refresh_dir(home, TODAY)
+    folder.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    moved = folder.with_name("held")
+    real_replace = os.replace
+
+    def swap(src, dst, **kw):
+        folder.rename(moved)
+        folder.symlink_to(outside, target_is_directory=True)
+        return real_replace(src, dst, **kw)
+
+    monkeypatch.setattr(os, "replace", swap)
+    refresh.run(home, parts=("projects",), update=False, today=TODAY)
+    assert not list(outside.iterdir())
+    assert (moved / "REPORT-projects.md").is_file()
+
+
+def test_hardening_concurrent_runs_do_not_overlap_parts(home, monkeypatch):
+    import concurrent.futures
+    import threading
+
+    entered, release, second = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+
+    def part(p, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(5)
+        else:
+            second.set()
+        return refresh.Part("projects")
+
+    monkeypatch.setattr(refresh, "part_projects", part)
+    with concurrent.futures.ThreadPoolExecutor(2) as pool:
+        first = pool.submit(refresh.run, home, parts=("projects",), today=TODAY)
+        try:
+            assert entered.wait(5)
+            other = pool.submit(refresh.run, home, parts=("projects",), today=TODAY)
+            assert not second.wait(0.2)
+        finally:
+            release.set()
+        first.result(timeout=5)
+        other.result(timeout=5)
+    assert second.is_set()
+
+
+def test_hardening_linked_lock_is_refused_before_running_parts(home, tmp_path, monkeypatch):
+    folder = home.shared / "refresh"
+    folder.mkdir()
+    target = tmp_path / "lock"
+    target.write_text("keep")
+    (folder / ".run.lock").symlink_to(target)
+    monkeypatch.setattr(refresh, "part_projects", lambda *a, **kw: pytest.fail("part ran"))
+    with pytest.raises((OSError, kb.KBError)):
+        refresh.run(home, parts=("projects",))
+    assert target.read_text() == "keep"
+
+
+@pytest.mark.parametrize("private", ["pass" + "word" + "=Never" + "Publish934!"], ids=["secret"])
+def test_hardening_reports_screen_part_lines(home, monkeypatch, private):
+    monkeypatch.setattr(refresh, "part_projects", lambda *a, **kw: refresh.Part("projects", [private]))
+    parts, report = refresh.run(home, parts=("projects",), today=TODAY)
+    assert private not in report.read_text() + repr(parts)
+
+
+def test_hardening_part_errors_do_not_echo_dependency_values(home, monkeypatch):
+    private = "unrecognized-private-value"
+
+    def broken(*args, **kwargs):
+        raise kb.KBError(private)
+
+    monkeypatch.setattr(refresh, "part_knowledge", broken)
+    parts, report = refresh.run(home, parts=("knowledge",), today=TODAY)
+    assert parts[0].error and private not in report.read_text()
+
+
+def test_hardening_cli_contains_report_write_failures(home, monkeypatch, capsys):
+    def broken(*args, **kwargs):
+        raise OSError("private-path-value")
+
+    monkeypatch.setattr(refresh, "run", broken)
+    assert refresh.main(["--part", "projects"]) == 2
+    assert "private-path-value" not in capsys.readouterr().err
+
+
+def test_hardening_worklist_screens_decoded_fields(home, monkeypatch):
+    from dataclasses import replace
+
+    e = entry("ECS flavor s3.xlarge.2 is offered in eu-de", checked=OLD)
+    private = "pass" + "word" + "=Never" + "Publish934!"
+    monkeypatch.setattr(kb, "load", lambda *a: [replace(e, source=private)])
+    parts, report = refresh.run(home, parts=("knowledge",), today=TODAY)
+    assert parts[0].error
+    assert not (report.parent / "worklist.jsonl").exists()
+    assert private not in report.read_text()
+
+
+def test_hardening_benchmark_link_is_not_followed(home, tmp_path, monkeypatch):
+    bench = home.kb / "bench"
+    bench.mkdir(parents=True)
+    source = tmp_path / "outside.json"
+    source.write_text('[{"question":"outside","accept":["KB-AAAA"]}]')
+    (bench / "q.json").symlink_to(source)
+    monkeypatch.setattr(kb, "bench", lambda *a, **kw: pytest.fail("linked benchmark read"))
+    part = refresh.part_knowledge(home, home.shared / "refresh" / "test", today=TODAY)
+    assert part.overdue == 1 and "cannot be read" in "\n".join(part.lines)
+
+
+def _project(home, folder):
+    return projects.Project("tcp-abcd", "lab", "", "tcp", str(folder), "key", "active", TODAY.isoformat())
+
+
+@pytest.mark.parametrize("kind", ["outside", "state-link", "open-link", "open-missing", "open-invalid"])
+def test_hardening_project_files_fail_closed(home, tmp_path, monkeypatch, kind):
+    folder = (tmp_path / "outside") if kind == "outside" else home.projects_root / "tcp-abcd"
+    folder.mkdir(parents=True)
+    (folder / "STATE.md").write_text("current")
+    (folder / "OPEN.md").write_text("- pending\n")
+    if kind.endswith("link"):
+        path = folder / ("STATE.md" if kind == "state-link" else "OPEN.md")
+        path.unlink()
+        target = tmp_path / "private"
+        target.write_text("- private\n")
+        path.symlink_to(target)
+    elif kind == "open-missing":
+        (folder / "OPEN.md").unlink()
+    elif kind == "open-invalid":
+        (folder / "OPEN.md").write_bytes(b'\xff')
+    monkeypatch.setattr(projects, "load", lambda p: [_project(home, folder)])
+    part = refresh.part_projects(home, today=TODAY, max_age=14)
+    assert part.overdue == 1
+    assert "0 open item(s)" not in "\n".join(part.lines)
+
+
+def test_hardening_defaults_do_not_read_linked_rules(home, tmp_path, mirrors):
+    root = tmp_path / "code"
+    rules = root / "seal" / "work-claude"
+    rules.mkdir(parents=True)
+    outside = tmp_path / "outside.md"
+    outside.write_text("Use `awb teleport`.")
+    (rules / "CLAUDE.md").symlink_to(outside)
+    (root / "COMMANDS.md").write_text("Use `awb kb`.")
+    part = refresh.part_defaults(home, mirrors, code_root=root)
+    assert part.overdue and "teleport" not in "\n".join(part.lines)
+
+
+def _note():
+    return {"id": "note-1", "date": TODAY.isoformat(), "title": "Public feature", "services": ["gadget hub"],
+            "seen": TODAY.isoformat() + "T00:00:00Z", "text": "Public text."}
+
+
+@pytest.mark.parametrize("last", [42, {"x": 1}, "private-watermark"])
+def test_hardening_release_state_invalid_values_use_first_run(home, tmp_path, monkeypatch, last):
+    state = refresh.rn_state(home)
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"last": last}))
+    monkeypatch.setattr(refresh.mirror, "release_notes", lambda base: [_note()])
+    part = refresh.part_release_notes(home, tmp_path, tmp_path / "out", update=False, today=TODAY)
+    assert "dated since" in "\n".join(part.lines)
+    assert "private-watermark" not in "\n".join(part.lines)
+
+
+@pytest.mark.parametrize("field,value", [("date", "2026-01-01\nforged"), ("services", "ecs")],
+                         ids=["date", "services"])
+def test_hardening_release_notes_validate_public_fields(home, field, value):
+    note = _note()
+    note[field] = value
+    with pytest.raises(kb.KBError):
+        refresh.release_note_lines([note], [], refresh.offered.load(), today=TODAY)
+
+
+def test_hardening_linked_plants_file_is_refused(home, tmp_path, capsys):
+    source = tmp_path / "source.json"
+    source.write_text('{}')
+    link = tmp_path / "plants.json"
+    link.symlink_to(source)
+    assert refresh.main(["apply", str(results(tmp_path, [_unchecked()])), "--plants", str(link)]) == 2
+    assert "left as it is" not in capsys.readouterr().out
+
+
+def test_hardening_weekly_state_refuses_linked_parent(home, tmp_path, monkeypatch, capsys):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    parent = tmp_path / "linked"
+    parent.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(refresh.config, "is_work_user", lambda: False)
+    monkeypatch.setattr(refresh, "run", lambda *a, **kw: ([], tmp_path / "REPORT.md"))
+    refresh.weekly(home, state=parent / "state.json")
+    assert not list(outside.iterdir())
+
+
+@pytest.fixture
+def small_wipe(monkeypatch):
+    from types import SimpleNamespace
+
+    counts = dict(cases=1, leak_cases=0, loss_cases=0, leaked_values=0, lost_terms=0, withheld=0, errors=0)
+    harness = SimpleNamespace(rt=SimpleNamespace(code_under_test=lambda: None), selfcheck=lambda work: [],
+                              DIMENSIONS=("test",), module_path=lambda dim: dim, load_cases=lambda path: [{}],
+                              run_case=lambda case, work: {}, summary_of=lambda entries: counts)
+    monkeypatch.setattr(refresh, "_wipe_harness", lambda root: harness)
+    monkeypatch.setattr(refresh, "_release", lambda: "abc1234")
+    return harness
+
+
+@pytest.mark.parametrize("kind", ["link", "fifo", "malformed"])
+def test_hardening_wipe_history_cannot_be_followed_or_ignored(home, tmp_path, small_wipe, kind):
+    path = refresh.board.wipe_tsv(home)
+    path.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.tsv"
+    outside.write_text("private history\n")
+    if kind == "link":
+        path.symlink_to(outside)
+    elif kind == "fifo":
+        os.mkfifo(path)
+    else:
+        path.write_text("malformed history\n")
+    with pytest.raises((OSError, kb.KBError)):
+        refresh.part_wipe(home, today=TODAY)
+    assert outside.read_text() == "private history\n"
+
+
+def test_hardening_wipe_publication_is_atomic_and_private(home, small_wipe, monkeypatch):
+    refresh.part_wipe(home, today=TODAY)
+    path = refresh.board.wipe_tsv(home)
+    before = path.read_bytes()
+    assert path.stat().st_mode & 0o077 == 0
+
+    def failed(fd):
+        raise OSError("private-write-value")
+
+    monkeypatch.setattr(os, "fsync", failed)
+    with pytest.raises(OSError):
+        refresh.part_wipe(home, today=TODAY)
+    assert path.read_bytes() == before
+
+
+def test_hardening_concurrent_wipe_runs_preserve_both_rows(home, small_wipe):
+    import concurrent.futures
+    import threading
+
+    entered, release, overlapped = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+
+    def selfcheck(work):
+        calls.append(work)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(5)
+        else:
+            overlapped.set()
+        return []
+
+    small_wipe.selfcheck = selfcheck
+    with concurrent.futures.ThreadPoolExecutor(2) as pool:
+        first = pool.submit(refresh.part_wipe, home, today=TODAY)
+        try:
+            assert entered.wait(5)
+            other = pool.submit(refresh.part_wipe, home, today=TODAY)
+            assert not overlapped.wait(0.2)
+        finally:
+            release.set()
+        first.result(timeout=5)
+        other.result(timeout=5)
+    lines = refresh.board.wipe_tsv(home).read_text().splitlines()
+    assert len(lines) == 3 and len(refresh.board.wipe_history(home)) == 2
+
+
+def test_hardening_concurrent_apply_keeps_compound_changes_together(home, monkeypatch):
+    import concurrent.futures
+    import threading
+
+    e = entry("ECS flavor s3.xlarge.2 is offered in eu-de", checked=OLD)
+    entered, release, overlapped = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+
+    def amend(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(5)
+        else:
+            overlapped.set()
+
+    monkeypatch.setattr(kb, "amend", amend)
+    monkeypatch.setattr(kb, "recheck", lambda *a, **kw: e)
+    rows = [{"id": e.id, "verdict": "changed", "statement": "A corrected fact"}]
+    with concurrent.futures.ThreadPoolExecutor(2) as pool:
+        first = pool.submit(refresh.apply, rows)
+        try:
+            assert entered.wait(5)
+            other = pool.submit(refresh.apply, rows)
+            assert not overlapped.wait(0.2)
+        finally:
+            release.set()
+        assert first.result(timeout=5)[0][0].ok
+        assert other.result(timeout=5)[0][0].ok
+
+
+@pytest.mark.parametrize("kind", ["today-link", "earlier-link", "parent-link", "malformed"])
+def test_hardening_price_snapshots_are_checked_before_use(home, tmp_path, monkeypatch, kind):
+    folder = price.snapshot_dir(home) / "eu-de"
+    folder.mkdir(parents=True)
+    current = folder / (TODAY.isoformat() + ".json")
+    prior = folder / ((TODAY - datetime.timedelta(days=1)).isoformat() + ".json")
+    data = '{"records":[{"id":"TEST_EVS_SSD","priceAmount":"0.1"}]}'
+    current.write_text(data)
+    outside = tmp_path / "outside.json"
+    outside.write_text(data)
+    if kind == "today-link":
+        current.unlink()
+        current.symlink_to(outside)
+    elif kind == "earlier-link":
+        prior.symlink_to(outside)
+    elif kind == "parent-link":
+        moved = folder.with_name("held")
+        folder.rename(moved)
+        folder.symlink_to(moved, target_is_directory=True)
+    else:
+        current.write_text('{"records":"wrong"}')
+    monkeypatch.setattr(price, "SNAPSHOT_REGIONS", ("eu-de",))
+    parts, report = refresh.run(home, parts=("prices",), today=TODAY)
+    assert parts[0].error and "ERROR" in report.read_text()
+
+
+def test_hardening_price_snapshot_publication_preserves_prior_output(home, monkeypatch):
+    from types import SimpleNamespace
+
+    record = price.Record.from_raw({"id": "TEST_EVS_SSD", "priceAmount": "0.1"})
+    fetched = SimpleNamespace(listing=SimpleNamespace(state=jobs.LIST), records=[record],
+                              url="public source", fetched_at="today", cached_at="today")
+    monkeypatch.setattr(price, "SNAPSHOT_REGIONS", ("eu-de",))
+    monkeypatch.setattr(price, "fetch", lambda *a, **kw: fetched)
+    part = refresh.part_prices(home, today=TODAY, job=jobs.Job("t", None, out=io.StringIO()))
+    path = price.snapshot_dir(home) / "eu-de" / (TODAY.isoformat() + ".json")
+    assert not part.error and path.stat().st_mode & 0o077 == 0
+    assert json.loads(path.read_text())["records"][0]["id"] == record.id
+    assert not list(path.parent.glob(".*.tmp"))
+
+
+def test_hardening_release_state_link_is_refused(home, tmp_path, monkeypatch):
+    state = refresh.rn_state(home)
+    state.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"last":"2026-01-01T00:00:00Z"}')
+    state.symlink_to(outside)
+    monkeypatch.setattr(refresh.mirror, "release_notes", lambda base: [_note()])
+    with pytest.raises((OSError, kb.KBError)):
+        refresh.part_release_notes(home, tmp_path, tmp_path / "out", update=False, today=TODAY)
+
+
+def test_hardening_release_output_failure_keeps_watermark(home, tmp_path, monkeypatch):
+    state = refresh.rn_state(home)
+    state.parent.mkdir(parents=True)
+    state.write_text('{"last":"2026-01-01T00:00:00Z"}')
+    before = state.read_bytes()
+    output = tmp_path / "out"
+    output.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    (output / "release-notes.txt").symlink_to(outside)
+    monkeypatch.setattr(refresh.config, "is_work_user", lambda: False)
+    monkeypatch.setattr(refresh.mirror, "sync_release_notes", lambda base: dict(new=1, known=0, pages=1))
+    monkeypatch.setattr(refresh.mirror, "release_notes", lambda base: [_note()])
+    with pytest.raises((OSError, kb.KBError)):
+        refresh.part_release_notes(home, tmp_path, output, update=True, today=TODAY)
+    assert state.read_bytes() == before and outside.read_text() == "keep"
+
+
+def test_hardening_worklist_link_does_not_overwrite_external_file(home, tmp_path):
+    folder = refresh.refresh_dir(home, TODAY)
+    folder.mkdir(parents=True)
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("keep")
+    (folder / "worklist.jsonl").symlink_to(outside)
+    parts, _ = refresh.run(home, parts=("knowledge",), today=TODAY)
+    assert parts[0].error and outside.read_text() == "keep"
+
+
+@pytest.mark.parametrize("reason", ["first\nforged line", "\x1b[2Jhidden"])
+def test_hardening_unchecked_reasons_cannot_inject_output_lines(home, reason):
+    applied, _ = refresh.apply([_unchecked(why=reason)])
+    assert "\n" not in applied[0].outcome and "\x1b" not in applied[0].outcome
+
+
+@pytest.mark.parametrize("error", [ValueError, TypeError, KeyError, AttributeError])
+def test_hardening_malformed_part_data_is_reported_as_failure(home, monkeypatch, error):
+    def broken(*args, **kwargs):
+        raise error("private-value")
+
+    monkeypatch.setattr(refresh, "part_knowledge", broken)
+    parts, report = refresh.run(home, parts=("knowledge",), today=TODAY)
+    assert parts[0].error and "private-value" not in report.read_text()
+
+
+@pytest.mark.parametrize("kwargs", [{"parts": ("../outside",)}, {"max_state_age": -1}])
+def test_hardening_invalid_run_options_are_refused(home, kwargs):
+    with pytest.raises(kb.KBError):
+        refresh.run(home, **kwargs)
+
+
+def test_hardening_lock_wait_is_bounded(home, monkeypatch):
+    import fcntl
+
+    folder = home.shared / "refresh"
+    folder.mkdir()
+    with (folder / ".run.lock").open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        monkeypatch.setattr(refresh, "LOCK_WAIT", 0, raising=False)
+        with pytest.raises(kb.KBError, match="another refresh"):
+            refresh.run(home, parts=("projects",))
+
+
+def test_hardening_recheck_requests_cannot_inject_tsv_rows(home, monkeypatch):
+    written = []
+    monkeypatch.setattr(refresh.recheck, "request", lambda rows: written.extend(rows) or len(rows))
+    with pytest.raises(kb.KBError):
+        refresh._request(refresh.Part("mirrors"), [("KB-AAAA", TODAY, "docs mirror a/b.md\nforged")])
+    assert not written
+
+
+@pytest.mark.parametrize("location", ["record", "source"])
+def test_hardening_structured_secret_is_screened_before_snapshot_write(home, monkeypatch, location):
+    from types import SimpleNamespace
+
+    private = "Never" + "Publish934!"
+    raw = {"id": "TEST_EVS_SSD"}
+    if location == "record":
+        raw["pass" + "word"] = private
+    record = price.Record.from_raw(raw)
+    source = "public source" if location == "record" else "https://user:" + private + "@api.example/"
+    fetched = SimpleNamespace(listing=SimpleNamespace(state=jobs.LIST), records=[record],
+                              url=source, fetched_at="today", cached_at="today")
+    monkeypatch.setattr(price, "SNAPSHOT_REGIONS", ("eu-de",))
+    monkeypatch.setattr(price, "fetch", lambda *a, **kw: fetched)
+    parts, report = refresh.run(home, parts=("prices",), today=TODAY)
+    assert parts[0].error
+    assert not (price.snapshot_dir(home) / "eu-de" / (TODAY.isoformat() + ".json")).exists()
+    assert private not in report.read_text()

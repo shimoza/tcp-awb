@@ -60,18 +60,24 @@ its planted facts is not applied at all, because its checker has shown that it c
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
+import fcntl
 import io
 import json
+import os
 import re
+import secrets
 import shutil
+import stat
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import awb
-from awb import codes, config, jobs, kb, offered, projects
+from awb import check, codes, config, jobs, kb, offered, projects
 from awb.tcp import board, dataset, mirror, price, recheck
 
 PARTS = ("mirrors", "release-notes", "prices", "knowledge", "wipe", "projects", "defaults", "dataset")
@@ -94,6 +100,137 @@ _AWB_CMD_RE = re.compile(r"`awb ([a-z][a-z-]*)")
 _REVISION_RE = re.compile(r"\b(?:revision|revised|Rev\.?)\s+(\d{2})\.(\d{2})\.(\d{4})\b", re.I)
 
 
+MAX_INPUT = 8 << 20
+LOCK_WAIT = 30.0
+
+
+@contextlib.contextmanager
+def _directory(path: Path, *, create: bool = False):
+    """Walk without following links, and keep the directory open during I/O."""
+    path = Path(path)
+    if ".." in path.parts or "\0" in str(path):
+        raise kb.KBError("unsafe refresh path")
+    path = path.absolute()
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for name in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(name, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def _read(path: Path) -> str:
+    path = Path(path)
+    with _directory(path.parent) as parent:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_INPUT:
+                raise kb.KBError("refresh input must be a bounded regular file")
+            with os.fdopen(fd, "rb", closefd=False) as fh:
+                data = fh.read(MAX_INPUT + 1)
+            if len(data) > MAX_INPUT:
+                raise kb.KBError("refresh input is too large")
+        finally:
+            os.close(fd)
+    return data.decode("utf-8")
+
+
+def _write(path: Path, text: str) -> None:
+    """Publish one complete private file, preserving the old file on failure."""
+    with _directory(path.parent, create=True) as parent:
+        try:
+            st = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            st = None
+        if st is not None and (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1):
+            raise kb.KBError("refresh output must be a regular file with one link")
+        name = ".refresh-%s.tmp" % secrets.token_hex(12)
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                os.fchmod(fh.fileno(), 0o600)
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(name, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+        finally:
+            try:
+                os.unlink(name, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+
+
+@contextlib.contextmanager
+def _locked(folder: Path, name: str):
+    with _directory(folder, create=True) as parent:
+        fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                raise kb.KBError("unsafe refresh lock")
+            deadline = time.monotonic() + LOCK_WAIT
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise kb.KBError("another refresh is still running") from None
+                    time.sleep(0.05)
+            yield
+        finally:
+            os.close(fd)
+
+
+def _public(text: str, *, allow: tuple[str, ...] = ()) -> str:
+    """Leave clean text unchanged; withhold the whole value if the secret check fails. Refresh output is our
+    own text from public sources, so it gets the secret check only, never the name check (checked once at
+    entry; a register lookup per line would also eat the per-uid check budget)."""
+    try:
+        if (len(text) <= MAX_INPUT and not any(ord(c) < 32 and c not in "\n\t" for c in text)
+                and not (check._secret_classes(text) - set(allow))):
+            return text
+    except Exception:
+        pass
+    return "[withheld]"
+
+
+def _finish(part: Part) -> Part:
+    # Price records are screened before formatting; a generated percentage can look like a phone number.
+    allow = ("phone",) if part.name == "prices" else ()
+    part.lines = [_public(line, allow=allow) for line in part.lines]
+    if part.error:
+        part.error = _public(part.error)
+    return part
+
+
+def _public_json(value) -> None:
+    # Check both field associations in JSON and decoded values, including escaped text.
+    def strings(item):
+        if isinstance(item, str):
+            yield item
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                yield from strings(key)
+                yield from strings(child)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                yield from strings(child)
+
+    for text in (json.dumps(value, ensure_ascii=False), "\n".join(strings(value))):
+        if _public(text) != text:
+            raise kb.KBError("refresh data withheld by the output check")
+
+
 @dataclass
 class Part:
     name: str
@@ -113,6 +250,10 @@ def _request(part: Part, rows: list[tuple[str, object, str]]) -> None:
     """Write the requests of a part to requested.tsv (recheck.request) and count the new ones by kind."""
     if not rows:
         return
+    for kid, day, reason in rows:
+        if not codes.KB_RE.fullmatch(kid) or any(c in reason for c in "\r\n\t"):
+            raise kb.KBError("invalid recheck request")
+        _public_json(reason)
     written = recheck.request(rows)
     kinds: dict[str, int] = {}
     for _, _, reason in rows:
@@ -183,8 +324,8 @@ def part_mirrors(base: Path, *, update: bool, job: jobs.Job, p: config.Paths | N
                 part.overdue += 1
                 rows += [(e.id, today, "service description %s" % r["current"]) for e in entries
                          if not e.is_retired and e.grade == "contract"]
-        except mirror.MirrorError as err:
-            part.lines.append("service description: not updated (%s)" % err)
+        except mirror.MirrorError:
+            part.lines.append("service description: not updated")
             part.overdue += 1
         listing = mirror.list_repos()
         if listing.state != jobs.LIST:
@@ -213,7 +354,7 @@ def part_mirrors(base: Path, *, update: bool, job: jobs.Job, p: config.Paths | N
     if mirror.current_sd(base) is None:
         part.lines.append("no service description in the mirror: contract entries cannot be checked here")
         part.overdue += 1
-    return part
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- release notes
@@ -263,6 +404,27 @@ def _plain(text: str) -> str:
     return text if len(text) <= RN_SHOWN else text[:RN_SHOWN - 3] + "..."
 
 
+def _validate_notes(notes) -> None:
+    if not isinstance(notes, list) or len(notes) > 100000:
+        raise kb.KBError("invalid release notes")
+    for note in notes:
+        if not isinstance(note, dict):
+            raise kb.KBError("invalid release note")
+        if any(not isinstance(note.get(key), str) for key in ("id", "date", "title")):
+            raise kb.KBError("invalid release note fields")
+        try:
+            if datetime.date.fromisoformat(note["date"]).isoformat() != note["date"]:
+                raise ValueError
+        except ValueError:
+            raise kb.KBError("invalid release note date") from None
+        if not isinstance(note.get("text", ""), str) or not isinstance(note.get("seen", ""), str):
+            raise kb.KBError("invalid release note text")
+        services = note.get("services", [])
+        if not isinstance(services, list) or any(not isinstance(name, str) for name in services):
+            raise kb.KBError("invalid release note services")
+        _public_json(note)
+
+
 def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offered.Catalog, *,
                        today: datetime.date | None = None, limit: int | None = RN_LIMIT) -> list[str]:
     """For each note, oldest first: the active entries that name its services and share at least RN_SHARED topic
@@ -272,6 +434,7 @@ def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offe
     today = today or datetime.date.today()
     out: list[str] = []
     announced: list[str] = []
+    _validate_notes(notes)
     for n in sorted(notes, key=lambda n: (n["date"], n["id"])):
         lines = announced if n["date"] > today.isoformat() else out
         topic: set[str] | None = None
@@ -301,25 +464,37 @@ def release_note_lines(notes: list[dict], entries: list[kb.Entry], catalog: offe
     if announced:
         out.append("announced:")
         out += ["  " + line for line in announced]
-    return out
+    return [_public(line) for line in out]
 
 
-def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bool, today: datetime.date,
+def part_release_notes(p: config.Paths, base: Path, out_dir: Path, **kwargs) -> Part:
+    with _locked(p.shared / "refresh", ".release_notes.lock"):
+        return _part_release_notes(p, base, out_dir, **kwargs)
+
+
+def _part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bool, today: datetime.date,
                        show_all: bool = False) -> Part:
     part = Part("release-notes")
     if update and not config.is_work_user():
         try:
             r = mirror.sync_release_notes(base)
             part.lines.append("release notes: %d new, %d known, %d page(s) read" % (r["new"], r["known"], r["pages"]))
-        except mirror.MirrorError as err:
-            part.lines.append("release notes: not updated (%s)" % err)
+        except mirror.MirrorError:
+            part.lines.append("release notes: not updated")
             part.overdue += 1
     state = rn_state(p)
     try:
-        last = json.loads(state.read_text(encoding="utf-8")).get("last", "")
-    except (OSError, ValueError, AttributeError):
+        last = json.loads(_read(state)).get("last", "")
+        if not isinstance(last, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", last):
+            last = ""
+        else:
+            datetime.datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ")
+    except FileNotFoundError:
+        last = ""
+    except (ValueError, AttributeError, RecursionError):
         last = ""
     notes = mirror.release_notes(base)
+    _validate_notes(notes)
     if last:
         fresh = [n for n in notes if n.get("seen", "") > last]
         since = "first seen since %s" % last
@@ -330,7 +505,7 @@ def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bo
     if not notes:
         part.lines.append("no release notes in the mirror: run awb mirror rn")
         part.overdue += 1
-        return part
+        return _finish(part)
     entries, catalog = kb.load(p), offered.load()
     lines = release_note_lines(fresh, entries, catalog, today=today, limit=None if show_all else RN_LIMIT)
     part.lines.append("%d release note(s) %s; %d line(s) for a look" % (len(fresh), since, len(lines)))
@@ -345,43 +520,70 @@ def part_release_notes(p: config.Paths, base: Path, out_dir: Path, *, update: bo
             rows.append((m.group(1), max(today.isoformat(), m.group(2)), "release note %s %s" % (m.group(2),
                                                                                                  m.group(3))))
     _request(part, rows)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "release-notes.txt").write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    _write(out_dir / "release-notes.txt", "".join(line + "\n" for line in lines))
     if update and not config.is_work_user():
-        state.parent.mkdir(parents=True, exist_ok=True)
-        state.write_text(json.dumps({"last": mirror._now()}) + "\n", encoding="utf-8")
-    return part
+        _write(state, json.dumps({"last": mirror._now()}) + "\n")
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- prices
 
 
-def part_prices(p: config.Paths, *, today: datetime.date, job: jobs.Job) -> Part:
+def _price_records(path: Path) -> list[price.Record]:
+    data = _json(_read(path))
+    if not isinstance(data, dict) or not isinstance(data.get("records"), list) or not data["records"]:
+        raise kb.KBError("invalid price snapshot")
+    if any(not isinstance(row, dict) for row in data["records"]):
+        raise kb.KBError("invalid price records")
+    _public_json(data["records"])
+    return [price.Record.from_raw(row) for row in data["records"]]
+
+
+def part_prices(p: config.Paths, **kwargs) -> Part:
+    with _locked(p.shared / "refresh", ".prices.lock"):
+        return _part_prices(p, **kwargs)
+
+
+def _part_prices(p: config.Paths, *, today: datetime.date, job: jobs.Job) -> Part:
     part = Part("prices")
     for region in price.SNAPSHOT_REGIONS:
         folder = price.snapshot_dir(p) / region
-        earlier = sorted(x for x in folder.glob("????-??-??.json") if x.stem < today.isoformat()) \
-            if folder.is_dir() else []
+        try:
+            with _directory(folder) as directory:
+                names = os.listdir(directory)
+        except FileNotFoundError:
+            names = []
+        earlier = sorted(folder / name for name in names
+                         if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\.json", name)
+                         and name[:-5] < today.isoformat())
         todays = folder / (today.isoformat() + ".json")
         if not todays.exists():
             f = price.fetch(None, region, job=job)
             try:
-                price.write_snapshot(p, f, region, today=today)
-            except price.PriceError as err:
-                part.lines.append("%s: no snapshot (%s)" % (region, err))
+                if f.listing.state != jobs.LIST or not f.records:
+                    raise price.PriceError("no complete snapshot")
+                data = {"source": f.url, "region": region, "fetched_at": f.fetched_at,
+                        "cached_at": f.cached_at, "count": len(f.records), "records": [r.raw for r in f.records]}
+                _public_json({k: v for k, v in data.items() if k != "source"})
+                # The configured API URL may be local; names and secrets still cannot leave.
+                if _public(f.url, allow=("url",)) != f.url:
+                    raise kb.KBError("price source withheld by the output check")
+                _write(todays, json.dumps(data, ensure_ascii=False, sort_keys=True) + "\n")
+            except price.PriceError:
+                part.lines.append("%s: no snapshot" % region)
                 part.overdue += 1
                 continue
+        new = _price_records(todays)
         if not earlier:
             part.lines.append("%s: snapshot of %s, the first one: nothing to compare" % (region, today.isoformat()))
             continue
-        _, old = price.load_snapshot(earlier[-1])
-        _, new = price.load_snapshot(todays)
+        old = _price_records(earlier[-1])
         d = price.diff(old, new)
         part.lines.append("%s: against %s: %s" % (region, earlier[-1].stem, d.lines()[0]))
         part.lines += ["  " + line for line in d.lines()[1:21]]
         if len(d.lines()) > 21:
             part.lines.append("  ... %d more, see awb price diff" % (len(d.lines()) - 21))
-    return part
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- knowledge
@@ -433,9 +635,8 @@ def part_knowledge(p: config.Paths, out_dir: Path, *, today: datetime.date) -> P
     entries = kb.load(p)
     work = worklist(entries, today)
     active = [e for e in entries if not e.is_retired]
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "worklist.jsonl").write_text("".join(json.dumps(w, ensure_ascii=False) + "\n" for w in work),
-                                            encoding="utf-8")
+    _public_json(work)
+    _write(out_dir / "worklist.jsonl", "".join(json.dumps(w, ensure_ascii=False) + "\n" for w in work))
     # an expired entry a recheck run takes (a read or write block) is that run's work; every other one, first of all
     # one without a block, is overdue here
     by_tier: dict[str, int] = {}
@@ -457,14 +658,15 @@ def part_knowledge(p: config.Paths, out_dir: Path, *, today: datetime.date) -> P
     for bench_file in sorted((p.kb / "bench").glob("*.json")):
         try:
             r = kb.bench(kb.load_bench(bench_file), p)
-        except kb.KBError as err:
-            part.lines.append("retrieval, bench/%s: %s" % (bench_file.name, err))
+        except (kb.KBError, OSError, ValueError):
+            part.lines.append("retrieval: benchmark cannot be read or checked")
+            part.overdue += 1
             continue
         n = r["answerable"] or 1
         part.lines.append("retrieval, bench/%s: %d answerable, first %d (%d%%), in the first %d %d (%d%%)"
                           % (bench_file.name, r["answerable"], r["hit1"], round(100 * r["hit1"] / n), r["top"],
                              r["hit_top"], round(100 * r["hit_top"] / n)))
-    return part
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- wipe
@@ -483,7 +685,12 @@ def _release() -> str:
     return hooks._release()
 
 
-def part_wipe(p: config.Paths, *, today: datetime.date, code_root: Path | None = None,
+def part_wipe(p: config.Paths, **kwargs) -> Part:
+    with _locked(p.shared / "refresh", ".wipe.lock"):
+        return _part_wipe(p, **kwargs)
+
+
+def _part_wipe(p: config.Paths, *, today: datetime.date, code_root: Path | None = None,
               only: dict[str, list[str]] | None = None) -> Part:
     """The pack through the installed intake. `only` (dimension -> case ids) runs a part of it, for the tests."""
     part = Part("wipe")
@@ -493,13 +700,13 @@ def part_wipe(p: config.Paths, *, today: datetime.date, code_root: Path | None =
         harness.rt.code_under_test()
     except (ImportError, SystemExit) as err:
         part.error = "the pack cannot be loaded (%s)" % type(err).__name__
-        return part
+        return _finish(part)
     work = Path(tempfile.mkdtemp(prefix="awb-wipe-"))
     try:
         failures = harness.selfcheck(work)
         if failures:
             part.error = "not recorded, the harness did not show that it can fail: %s" % "; ".join(failures)
-            return part
+            return _finish(part)
         part.lines.append("selfcheck: the planted leak and the forced loss are reported, the caught case is clean")
         by_module: list[tuple[str, dict]] = []
         results: list[dict] = []
@@ -521,7 +728,30 @@ def part_wipe(p: config.Paths, *, today: datetime.date, code_root: Path | None =
                                       s["lost_terms"], s["withheld"], s["errors"], release))
     part.lines += ["  %-12s %3d cases, %d leaks, %d losses" % (dim, m["cases"], m["leak_cases"], m["loss_cases"])
                    for dim, m in by_module]
-    history = board.wipe_history(p)
+    tsv = board.wipe_tsv(p)
+    try:
+        previous = _read(tsv)
+    except FileNotFoundError:
+        previous = ""
+    history = []
+    if previous:
+        rows = previous.splitlines()
+        if rows[0].split("\t") != list(board.WIPE_COLUMNS):
+            raise kb.KBError("invalid wipe history")
+        for line in rows[1:]:
+            cells = line.split("\t")
+            if len(cells) != len(board.WIPE_COLUMNS):
+                raise kb.KBError("invalid wipe history")
+            row = dict(zip(board.WIPE_COLUMNS, cells))
+            try:
+                datetime.date.fromisoformat(row["date"])
+                for key in ("cases", "leaks", "losses", "leaked_values", "lost_terms", "withheld", "errors"):
+                    row[key] = int(row[key])
+                    if row[key] < 0:
+                        raise ValueError
+            except ValueError:
+                raise kb.KBError("invalid wipe history") from None
+            history.append(row)
     if history:
         last = history[-1]
         grown = [(what, last[key], s[mine]) for what, key, mine in (("leaks", "leaks", "leak_cases"),
@@ -541,15 +771,13 @@ def part_wipe(p: config.Paths, *, today: datetime.date, code_root: Path | None =
     row = [today.isoformat(), s["cases"], s["leak_cases"], s["loss_cases"], s["leaked_values"], s["lost_terms"],
            s["withheld"], s["errors"], release,
            ",".join("%s=%d/%d" % (dim, m["leak_cases"], m["loss_cases"]) for dim, m in by_module)]
-    tsv = board.wipe_tsv(p)
-    tsv.parent.mkdir(parents=True, exist_ok=True)
-    new = not tsv.exists()
-    with tsv.open("a", encoding="utf-8") as fh:
-        if new:
-            fh.write("\t".join(board.WIPE_COLUMNS) + "\n")
-        fh.write("\t".join(str(x) for x in row) + "\n")
+    _public_json(row)
+    _public_json(previous)
+    if not previous:
+        previous = "\t".join(board.WIPE_COLUMNS) + "\n"
+    _write(tsv, previous.rstrip("\n") + "\n" + "\t".join(str(x) for x in row) + "\n")
     part.lines.append("recorded in %s" % tsv)
-    return part
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- projects
@@ -559,22 +787,37 @@ def part_projects(p: config.Paths, *, today: datetime.date, max_age: int) -> Par
     part = Part("projects")
     try:
         registered = [r for r in projects.load(p) if r.state in projects.LIVE_STATES]
-    except projects.ProjectError as err:
-        part.error = str(err)
-        return part
+    except projects.ProjectError:
+        part.error = "project register cannot be read"
+        return _finish(part)
     for r in registered:
-        state = Path(r.path) / "STATE.md"
-        opened = Path(r.path) / "OPEN.md"
+        folder = Path(r.path)
+        if not folder.is_absolute() or not folder.is_relative_to(p.projects_root.absolute()) or ".." in folder.parts:
+            part.lines.append("project path is outside the projects root")
+            part.overdue += 1
+            continue
+        state = folder / "STATE.md"
+        opened = folder / "OPEN.md"
         try:
-            age = (today - datetime.date.fromtimestamp(state.stat().st_mtime)).days
+            with _directory(folder) as parent:
+                fd = os.open(state.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                try:
+                    st = os.fstat(fd)
+                    if not stat.S_ISREG(st.st_mode):
+                        raise OSError("not a regular file")
+                    age = (today - datetime.date.fromtimestamp(st.st_mtime)).days
+                finally:
+                    os.close(fd)
         except OSError:
             part.lines.append("%s: no STATE.md" % r.code)
             part.overdue += 1
             continue
         try:
-            items = sum(1 for line in opened.read_text(encoding="utf-8").splitlines() if line.startswith("- "))
-        except OSError:
-            items = 0
+            items = sum(1 for line in _read(opened).splitlines() if line.startswith("- "))
+        except (OSError, UnicodeError, kb.KBError):
+            part.lines.append("%s: OPEN.md cannot be read" % r.code)
+            part.overdue += 1
+            continue
         mark = ""
         if age > max_age:
             mark = "  OVERDUE"
@@ -582,7 +825,7 @@ def part_projects(p: config.Paths, *, today: datetime.date, max_age: int) -> Par
         part.lines.append("%s: STATE.md %d day(s) old, %d open item(s)%s" % (r.code, age, items, mark))
     if not registered:
         part.lines.append("no active project")
-    return part
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- defaults
@@ -608,8 +851,8 @@ def part_defaults(p: config.Paths, base: Path, *, code_root: Path | None = None)
     known = _commands()
     for doc in (rules, guide):
         try:
-            text = doc.read_text(encoding="utf-8")
-        except OSError:
+            text = _read(doc)
+        except (OSError, UnicodeError, kb.KBError):
             part.lines.append("%s cannot be read" % doc.name)
             part.overdue += 1
             continue
@@ -621,8 +864,10 @@ def part_defaults(p: config.Paths, base: Path, *, code_root: Path | None = None)
     cited: dict[str, set[str]] = {}
     for path in sorted((code_root / "awb").rglob("*.py")) + [rules, guide]:
         try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
+            text = _read(path)
+        except (OSError, UnicodeError, kb.KBError):
+            part.overdue += 1
+            part.lines.append("a source file cannot be read")
             continue
         for kid in _KB_ID_RE.findall(text):
             if kid == "KB-XXXX":                       # the placeholder of the help texts, not an id
@@ -659,7 +904,7 @@ def part_defaults(p: config.Paths, base: Path, *, code_root: Path | None = None)
             part.overdue += 1
         else:
             part.lines.append("rules/services.tsv: the current revision %s" % current)
-    return part
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- dataset
@@ -673,21 +918,30 @@ def part_dataset(p: config.Paths, *, today: datetime.date, after: list[Part]) ->
     failed = [x.name for x in after if x.error and x.name != "wipe"]
     if failed:
         part.lines.append("not built: %s ended in an error" % ", ".join(failed))
-        return part
+        return _finish(part)
     if not kb.export(p, today=today)[0]:
         part.lines.append("not built: no fact fit to leave")
-        return part
+        return _finish(part)
     built = dataset.build(p, today=today, force=True)
     part.lines += built.lines
-    return part
+    return _finish(part)
 
 
 # --------------------------------------------------------------------------- the run and the report
 
 
-def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.date | None = None,
+def run(p: config.Paths, **kwargs) -> tuple[list[Part], Path]:
+    with _locked(p.shared / "refresh", ".run.lock"):
+        return _run(p, **kwargs)
+
+
+def _run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.date | None = None,
         max_state_age: int = MAX_STATE_AGE, job: jobs.Job | None = None,
         show_all: bool = False) -> tuple[list[Part], Path]:
+    if isinstance(parts, str) or any(name not in PARTS for name in parts):
+        raise kb.KBError("unknown refresh part")
+    if type(max_state_age) is not int or max_state_age < 0:
+        raise kb.KBError("state age must be a nonnegative integer")
     today = today or datetime.datetime.now(datetime.timezone.utc).date()
     job = job or jobs.Job("refresh", None, budget=jobs.DEFAULT_BUDGET, out=io.StringIO())
     out_dir = refresh_dir(p, today)
@@ -714,10 +968,10 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
                 done.append(part_defaults(p, base))
             else:
                 done.append(part_dataset(p, today=today, after=done))
-        except (kb.KBError, price.PriceError, mirror.MirrorError, dataset.DatasetError, OSError) as err:
-            done.append(Part(name, error="%s: %s" % (type(err).__name__, err if not isinstance(err, OSError)
-                                                                               else "operating system error")))
-    out_dir.mkdir(parents=True, exist_ok=True)
+        except (kb.KBError, price.PriceError, mirror.MirrorError, dataset.DatasetError,
+                OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+            done.append(Part(name, error="the part could not be completed"))
+    done = [_finish(part) for part in done]
     # a run of some parts gets a report of its own, so that it never overwrites the full report of the day
     chosen = [n for n in PARTS if n in parts]
     report = out_dir / ("REPORT.md" if chosen == list(PARTS) else "REPORT-%s.md" % "-".join(chosen))
@@ -729,7 +983,7 @@ def run(p: config.Paths, *, parts=PARTS, update: bool = True, today: datetime.da
         lines += part.lines
         lines.append("")
     lines += ["## recheck requests", "", request_line(done), ""]
-    report.write_text("\n".join(lines), encoding="utf-8")
+    _write(report, "\n".join(lines))
     return done, report
 
 
@@ -751,30 +1005,93 @@ class Applied:
     ok: bool
 
 
+def _json(text: str):
+    def pairs(items):
+        obj = {}
+        for key, value in items:
+            if key in obj:
+                raise ValueError("duplicate JSON key")
+            obj[key] = value
+        return obj
+
+    def constant(value):
+        raise ValueError("invalid JSON constant")
+
+    return json.loads(text, object_pairs_hook=pairs, parse_constant=constant)
+
+
 def read_results(path: Path) -> list[dict]:
     rows = []
     try:
-        text = Path(path).read_text(encoding="utf-8")
+        text = _read(Path(path))
     except (OSError, UnicodeDecodeError) as err:
         raise kb.KBError("the results cannot be read (%s)" % type(err).__name__) from None
     for n, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
             continue
         try:
-            row = json.loads(line)
-        except ValueError:
+            row = _json(line)
+        except (ValueError, RecursionError):
             raise kb.KBError("line %d of the results is not JSON" % n) from None
         if not isinstance(row, dict) or not isinstance(row.get("id"), str) or row.get("verdict") not in VERDICTS:
             raise kb.KBError("line %d of the results needs an id and a verdict (%s)" % (n, ", ".join(VERDICTS)))
+        _validate_rows([row])
         row["line"] = n
         rows.append(row)
+    _validate_rows(rows)
     return rows
+
+
+def _validate_rows(rows: list[dict]) -> None:
+    if not isinstance(rows, list) or len(rows) > 10000:
+        raise kb.KBError("invalid results list")
+    for row in rows:
+        if (not isinstance(row, dict) or not isinstance(row.get("id"), str)
+                or not re.fullmatch(r"(?:" + codes.KB + r"|PLANT-[0-9]{1,6})", row["id"])
+                or row.get("verdict") not in VERDICTS):
+            raise kb.KBError("results need an id and a verdict")
+        for key in ("grade", "source", "statement", "why", "checked", "batch"):
+            if key in row and (not isinstance(row[key], str) or len(row[key]) > 65536):
+                raise kb.KBError("invalid result field")
+        if "tried" in row and (not isinstance(row["tried"], list) or len(row["tried"]) > 1000
+                               or any(not isinstance(t, str) or len(t) > 65536 for t in row["tried"])):
+            raise kb.KBError("invalid tried texts")
+        if row.get("checked"):
+            try:
+                datetime.date.fromisoformat(row["checked"])
+            except ValueError:
+                raise kb.KBError("invalid checked date") from None
+        if row.get("batch"):
+            _validate_batch(row["batch"])
+
+
+def _validate_batch(batch) -> None:
+    if not isinstance(batch, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", batch):
+        raise kb.KBError("invalid calibration batch")
+    _public_json(batch)
+
+
+def _validate_plants(plants) -> None:
+    if not isinstance(plants, dict) or len(plants) > 10000:
+        raise kb.KBError("the plants file is a JSON object of id and batch")
+    for pid, batch in plants.items():
+        if not isinstance(pid, str) or not re.fullmatch(r"PLANT-[0-9]{1,6}", pid):
+            raise kb.KBError("invalid plant id")
+        _validate_batch(batch)
 
 
 def rejected_batches(rows: list[dict], plants: dict[str, str]) -> tuple[set[str], list[str]]:
     """The batches that confirmed a planted false fact, and a line for every planted fact."""
+    _validate_rows(rows)
+    _validate_plants(plants)
     lines, rejected = [], set()
-    seen = {r["id"]: r for r in rows}
+    seen = {}
+    for r in rows:
+        # A later duplicate must never conceal a confirmed false fact.
+        if r["id"] not in seen or r["verdict"] == "confirmed":
+            seen[r["id"]] = r
+        if r["id"] in plants and r.get("batch", plants[r["id"]]) != plants[r["id"]]:
+            raise kb.KBError("plant batch does not match calibration")
     for pid, batch in sorted(plants.items()):
         r = seen.get(pid)
         verdict = r["verdict"] if r else "missing"
@@ -790,8 +1107,15 @@ def rejected_batches(rows: list[dict], plants: dict[str, str]) -> tuple[set[str]
 
 def apply(rows: list[dict], *, plants: dict[str, str] | None = None, where=None,
           today: datetime.date | None = None) -> tuple[list[Applied], list[str]]:
+    # The lock covers the compound amend/recheck and retire/add operations as well.
+    with _locked(kb.root(where), ".refresh-apply.lock"):
+        return _apply(rows, plants=plants, where=where, today=today)
+
+
+def _apply(rows: list[dict], *, plants: dict[str, str] | None = None, where=None,
+          today: datetime.date | None = None) -> tuple[list[Applied], list[str]]:
     today = today or datetime.date.today()
-    plants = plants or {}
+    plants = {} if plants is None else plants
     rejected, calibration = rejected_batches(rows, plants)
     out: list[Applied] = []
     seen: set[str] = set()
@@ -810,7 +1134,7 @@ def apply(rows: list[dict], *, plants: dict[str, str] | None = None, where=None,
         checked = r.get("checked") or None
         try:
             if verdict == "unchecked":
-                out.append(Applied(rid, verdict, "left as it is: %s" % (r.get("why") or "no reason given"), True))
+                out.append(Applied(rid, verdict, "left as it is: %s" % " ".join(_public(r.get("why") or "no reason given").splitlines()), True))
             elif verdict == "confirmed":
                 e = kb.recheck(rid, grade=r.get("grade", ""), source=r.get("source", ""), tried=tried,
                                checked=checked, where=where, today=today)
@@ -847,14 +1171,35 @@ def apply(rows: list[dict], *, plants: dict[str, str] | None = None, where=None,
 
 
 def _reasons(err: Exception) -> str:
-    reasons = getattr(err, "reasons", None)
-    return "; ".join(reasons) if reasons else str(err)
+    return "the knowledge base rejected the result"
 
 
 # --------------------------------------------------------------------------- command line
 
 
-def weekly(p: config.Paths, *, today: datetime.date | None = None, state: Path | None = None) -> int:
+def _weekly_state(value: dict, path: Path) -> None:
+    try:
+        with _directory(path.parent):
+            pass
+        _public_json(value)
+        _write(path, json.dumps(dict(value, at=mirror._now()), sort_keys=True) + "\n")
+    except (OSError, kb.KBError):
+        return
+
+
+def weekly(p: config.Paths, **kwargs) -> int:
+    if config.is_work_user():
+        print("awb refresh: the weekly run is the owner's; the work user does not update the mirrors", file=sys.stderr)
+        return 2
+    try:
+        with _locked(p.shared / "refresh", ".weekly.lock"):
+            return _weekly(p, **kwargs)
+    except (kb.KBError, OSError):
+        print("awb refresh weekly: cannot complete the run", file=sys.stderr)
+        return 1
+
+
+def _weekly(p: config.Paths, *, today: datetime.date | None = None, state: Path | None = None) -> int:
     """`awb refresh weekly`: every part with the update, as the owner's timer awb-refresh-weekly.timer runs it every
     Saturday 17:00 UTC, before the read tier of the fact-check at 19:00 takes what the refresh requested. The result
     goes into the state file `awb owner status` reads (ownerwait.refresh_state_path): a part that ended in an error,
@@ -869,22 +1214,23 @@ def weekly(p: config.Paths, *, today: datetime.date | None = None, state: Path |
         parts, report = run(p, update=True, today=today, job=jobs.Job("refresh", None, budget=WEEKLY_BUDGET))
     except Exception as err:            # anything that broke the run off shows in owner status, not only the journal
         reason = "the run broke off (%s)" % type(err).__name__
-        ownerwait.write_dataset_state({"state": "failed", "reason": reason}, state or ownerwait.refresh_state_path())
+        _weekly_state({"state": "failed", "reason": reason}, state or ownerwait.refresh_state_path())
         print("awb refresh weekly: failed, %s" % reason, file=sys.stderr)
         return 1
+    parts = [_finish(x) for x in parts]
     failed = [x for x in parts if x.error]
     if failed:
         reason = "; ".join("%s: %s" % (x.name, x.error) for x in failed)
-        ownerwait.write_dataset_state({"state": "failed", "reason": reason, "report": str(report)},
+        _weekly_state({"state": "failed", "reason": reason, "report": _public(str(report))},
                                       state or ownerwait.refresh_state_path())
         print("awb refresh weekly: failed, %s" % reason, file=sys.stderr)
         return 1
-    ownerwait.write_dataset_state({"state": "done", "report": str(report), "overdue": sum(x.overdue for x in parts),
+    _weekly_state({"state": "done", "report": _public(str(report)), "overdue": sum(x.overdue for x in parts),
                                    "requested": {k: sum(x.requested.get(k, 0) for x in parts)
                                                  for k in recheck.REQUEST_KINDS}},
                                   state or ownerwait.refresh_state_path())
     print("awb refresh weekly: " + request_line(parts))
-    print("awb refresh weekly: report %s" % report)
+    print("awb refresh weekly: report %s" % _public(str(report)))
     return 0
 
 
@@ -912,14 +1258,13 @@ def main(argv: list[str] | None = None) -> int:
             return exc.code if isinstance(exc.code, int) else 2
         try:
             rows = read_results(args.results)
-            plants = json.loads(args.plants.read_text(encoding="utf-8")) if args.plants else {}
-            if not isinstance(plants, dict):
-                raise kb.KBError("the plants file is a JSON object of id and batch")
-        except (kb.KBError, OSError, ValueError) as err:
+            plants = _json(_read(args.plants)) if args.plants else {}
+            _validate_plants(plants)
+            applied, calibration = apply(rows, plants=plants)
+        except (kb.KBError, OSError, ValueError, RecursionError) as err:
             print("awb refresh apply: %s" % (err if isinstance(err, kb.KBError) else type(err).__name__),
                   file=sys.stderr)
             return 2
-        applied, calibration = apply(rows, plants=plants)
         for line in calibration:
             print("plant: " + line)
         for a in applied:
@@ -945,13 +1290,17 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
     job = jobs.Job("refresh", None, budget=args.budget)
-    parts, report = run(config.paths(), parts=tuple(args.part) or PARTS, update=not args.no_update,
-                        max_state_age=args.max_state_age, job=job, show_all=args.show_all)
+    try:
+        parts, report = run(config.paths(), parts=tuple(args.part) or PARTS, update=not args.no_update,
+                            max_state_age=args.max_state_age, job=job, show_all=args.show_all)
+    except (kb.KBError, OSError, ValueError):
+        print("awb refresh: cannot complete the run", file=sys.stderr)
+        return 2
     for part in parts:
         print("%-10s %s" % (part.name, "ERROR " + part.error if part.error else
                             ("%d overdue" % part.overdue if part.overdue else "nothing overdue")))
     print("awb refresh: " + request_line(parts))
-    print("awb refresh: report %s" % report)
+    print("awb refresh: report %s" % _public(str(report)))
     if any(p.error for p in parts):
         return 2
     return 1 if any(p.overdue for p in parts) else 0
