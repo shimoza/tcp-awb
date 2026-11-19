@@ -98,6 +98,7 @@ def test_draft_paths_are_the_matches_of_the_old_pattern():
 # --------------------------------------------------------------------------- the budget and crashes fail closed
 
 
+@pytest.mark.wallclock
 def test_a_standard_input_that_never_closes_is_stopped_by_the_budget(home, monkeypatch, capsys):
     """The input was read before the alarm was set: a pipe that stays open held the write guard until the client
     cancelled it, which lets the write through."""
@@ -116,6 +117,7 @@ def test_a_standard_input_that_never_closes_is_stopped_by_the_budget(home, monke
     assert "nothing passes unchecked" in capsys.readouterr().err
 
 
+@pytest.mark.wallclock
 def test_a_spent_budget_is_not_swallowed_by_a_part_that_steps_back(home, monkeypatch, capsys):
     """The alarm raised an Exception and the parts of the prompt hook that catch every Exception (the rules notice and
     the knowledge block) swallowed it: the hook ran on without a budget."""
@@ -248,6 +250,7 @@ def test_the_draft_gate_reads_a_transcript_with_entries_of_another_shape(tmp_pat
     assert turn.reply == ["done"] and turn.results == {"u1": (False, "")}
 
 
+@pytest.mark.wallclock
 def test_session_start_skips_a_named_pipe_instead_of_waiting(project, monkeypatch, capsys):
     """OPEN.md as a named pipe held the start until its budget was spent and the context was lost."""
     for name in ("kb", "career"):

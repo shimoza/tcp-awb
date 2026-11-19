@@ -61,6 +61,11 @@ SUITE_SOLO = (b"ProcessPoolExecutor", b"multiprocessing")
 """A test file whose text names one of these starts a pool of its own, sized to the cores: it runs alone before the
 queue (test_self_clean took 88 s alone and more than its 120 s limit next to three other files, then hung in the
 pool's shutdown)."""
+SUITE_WALLCLOCK = b"pytest.mark.wallclock"
+"""Q-0028: a test that asserts a wall-clock bound carries @pytest.mark.wallclock. In a file whose text names the
+marker those tests run alone before the queue (`-m wallclock`) and the rest of the file runs in the queue
+(`-m "not wallclock"`): a bound of 30 s took 32.7 s next to three other files (C-314), and a whole file alone would
+cost its whole time in series."""
 FILE_SECONDS = 1200
 """The clock of one test file in the whole suite: a file that hangs is an error case after 20 minutes and the other
 files still report."""
@@ -399,12 +404,27 @@ def suite_files(tree: Path) -> list[str]:
     return ["tests/%s" % name for _, name in sorted(found)]
 
 
-def _solo(path: Path) -> bool:
-    try:
-        text = path.read_bytes()
-    except OSError:
-        return False
-    return any(word in text for word in SUITE_SOLO)
+Job = tuple[str, list[str], str]
+
+
+def suite_jobs(tree: Path, files: list[str]) -> tuple[list[Job], list[Job]]:
+    """The pytest runs of the whole suite as (file, args, label): the runs that go alone before the queue (a file
+    with its own process pool, whole; the wall-clock tests of a file that names SUITE_WALLCLOCK) and the runs of
+    the queue (every other file, and the rest of a file with wall-clock tests)."""
+    alone, queue = [], []
+    for rel in files:
+        try:
+            text = (tree / rel).read_bytes()
+        except OSError:
+            text = b""
+        if any(word in text for word in SUITE_SOLO):
+            alone.append((rel, [rel], rel))
+        elif SUITE_WALLCLOCK in text:
+            alone.append((rel, [rel, "-m", "wallclock"], rel + " (wall-clock tests, alone)"))
+            queue.append((rel, [rel, "-m", "not wallclock"], rel))
+        else:
+            queue.append((rel, [rel], rel))
+    return alone, queue
 
 
 def _missing_case(rel: str, rc: int) -> ET.Element:
@@ -448,7 +468,8 @@ def merge_junit(parts: list[tuple[str, int, Path]], seconds: float) -> bytes:
 
 def _suite_parallel(python: str, tree: Path, tmp: Path, env: dict[str, str], log_path: Path, junit: Path,
                     seconds: float | None, workers: int = SUITE_WORKERS) -> int:
-    """The whole suite as one pytest per test file: first the files of SUITE_SOLO one at a time, then the others
+    """The whole suite as one pytest per test file: first the runs that go alone (suite_jobs: the files of
+    SUITE_SOLO and the wall-clock tests of SUITE_WALLCLOCK) one at a time, then the others
     `workers` at a time from one queue (Q-0013), each with FILE_SECONDS at most. Each worker has a
     HOME and a TMPDIR of its own (the TMPDIR beside `tmp`, removed at the end), so the pytest temp folders of two files
     never meet. The junit files become one
@@ -463,8 +484,10 @@ def _suite_parallel(python: str, tree: Path, tmp: Path, env: dict[str, str], log
     deadline = None if seconds is None else time.monotonic() + seconds
     parts_dir = tmp / "parts"
     parts_dir.mkdir()
-    solo = [(i, rel) for i, rel in enumerate(files) if _solo(tree / rel)]
-    queue = [(i, rel) for i, rel in enumerate(files) if (i, rel) not in solo]
+    alone, rest = suite_jobs(tree, files)
+    jobs = alone + rest
+    solo = list(enumerate(jobs))[:len(alone)]
+    queue = list(enumerate(jobs))[len(alone):]
     lock = threading.Lock()
     done: dict[int, tuple[str, int, Path, Path, float]] = {}
     wtmp: dict[int, str] = {}
@@ -483,7 +506,7 @@ def _suite_parallel(python: str, tree: Path, tmp: Path, env: dict[str, str], log
             with lock:
                 if not todo:
                     return
-                i, rel = todo.pop(0)
+                i, (rel, args, label) = todo.pop(0)
             left = FILE_SECONDS if deadline is None else min(FILE_SECONDS, deadline - time.monotonic())
             part_xml, part_log = parts_dir / ("%d.xml" % i), parts_dir / ("%d.log" % i)
             start = time.monotonic()
@@ -491,9 +514,9 @@ def _suite_parallel(python: str, tree: Path, tmp: Path, env: dict[str, str], log
                 rc = 124
                 part_log.write_bytes(b"not started: the clock of the suite ran out\n")
             else:
-                rc = _pytest_run(python, tree, wenv, part_xml, part_log, [rel], left)
+                rc = _pytest_run(python, tree, wenv, part_xml, part_log, args, left)
             with lock:
-                done[i] = (rel, rc, part_xml, part_log, time.monotonic() - start)
+                done[i] = (rel, rc, part_xml, part_log, time.monotonic() - start, label)
 
     try:
         work(0, solo)
@@ -506,11 +529,11 @@ def _suite_parallel(python: str, tree: Path, tmp: Path, env: dict[str, str], log
         for path in wtmp.values():
             shutil.rmtree(path, ignore_errors=True)
     rows = [done[i] for i in sorted(done)]
-    junit.write_bytes(merge_junit([(rel, rc, x) for rel, rc, x, _, _ in rows], time.monotonic() - t0))
+    junit.write_bytes(merge_junit([(rel, rc, x) for rel, rc, x, _, _, _ in rows], time.monotonic() - t0))
     bad = [r for r in rows if r[1] not in (0, 5)]
     with open(log_path, "wb") as log:
-        for rel, rc, _, part, took in [r for r in rows if r[1] in (0, 5)] + bad:
-            log.write(("=== %s (exit %d, %.1f s)\n" % (rel, rc, took)).encode())
+        for _, rc, _, part, took, label in [r for r in rows if r[1] in (0, 5)] + bad:
+            log.write(("=== %s (exit %d, %.1f s)\n" % (label, rc, took)).encode())
             with contextlib.suppress(OSError):
                 with open(part, "rb") as f:
                     shutil.copyfileobj(f, log)
@@ -519,10 +542,11 @@ def _suite_parallel(python: str, tree: Path, tmp: Path, env: dict[str, str], log
         for o in got.values():
             c[o] += 1
         log.write(("=== the whole suite: %d files on %d workers, %d passed, %d failed, %d errors, %d skipped"
-                   " in %.0f s\n" % (len(rows), max(1, workers), c["passed"], c["failed"], c["error"], c["skipped"],
+                   " in %.0f s\n" % (len({r[0] for r in rows}), max(1, workers), c["passed"], c["failed"], c["error"],
+                                      c["skipped"],
                       time.monotonic() - t0)).encode())
-        for rel, rc, _, _, _ in bad:
-            log.write(("FAILED %s (exit %d)\n" % (rel, rc)).encode())
+        for _, rc, _, _, _, label in bad:
+            log.write(("FAILED %s (exit %d)\n" % (label, rc)).encode())
     if deadline is not None and time.monotonic() >= deadline - 1 and any(r[1] == 124 for r in rows):
         return 124      # the suite's clock ran out; a file over FILE_SECONDS alone is a red file (1)
     return 1 if bad else 0

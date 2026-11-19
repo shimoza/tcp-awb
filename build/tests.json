@@ -27446,8 +27446,43 @@
    "name": "drafting edit mode: the work rules send every draft through the drafting skill",
    "run": ".venv/bin/pytest tests/test_drafting_edit_mode.py::test_the_work_rules_send_every_draft_through_the_drafting_skill",
    "status": "passing"
+  },
+  {
+   "id": "Q28-1",
+   "phase": "T",
+   "name": "Q-0028 every test with a wall-clock bound carries the wallclock marker",
+   "run": ".venv/bin/pytest tests/test_suite_wallclock.py::test_every_test_with_a_wall_clock_bound_carries_the_wallclock_marker",
+   "status": "passing"
+  },
+  {
+   "id": "Q28-2",
+   "phase": "T",
+   "name": "Q-0028 the wall-clock finder sees the C-314 bound and the usual forms and skips a deadline check",
+   "run": ".venv/bin/pytest tests/test_suite_wallclock.py::test_the_finder_sees_the_bound_of_c314_and_the_usual_forms_and_skips_a_deadline_check",
+   "status": "passing"
+  },
+  {
+   "id": "Q28-3",
+   "phase": "T",
+   "name": "Q-0028 the wallclock marker is registered",
+   "run": ".venv/bin/pytest tests/test_suite_wallclock.py::test_the_marker_is_registered_so_a_typo_is_no_silent_new_marker",
+   "status": "passing"
+  },
+  {
+   "id": "Q28-4",
+   "phase": "T",
+   "name": "Q-0028 the suite unit runs the wallclock tests of every such file alone and the rest in the queue",
+   "run": ".venv/bin/pytest tests/test_suite_wallclock.py::test_the_suite_unit_runs_the_wallclock_tests_of_every_such_file_alone_and_the_rest_in_the_queue",
+   "status": "passing"
+  },
+  {
+   "id": "Q28-5",
+   "phase": "T",
+   "name": "Q-0028 suite unit: wallclock tests run alone before the queue, the rest of their file in the queue, one junit",
+   "run": ".venv/bin/pytest tests/test_suite_parallel.py::test_the_wallclock_tests_of_a_file_run_alone_before_the_queue_and_the_rest_of_the_file_in_the_queue",
+   "status": "passing"
   }
  ],
- "total_tests": 3921,
+ "total_tests": 3926,
  "checked": "2026-11-19"
 }

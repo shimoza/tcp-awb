@@ -347,6 +347,7 @@ def test_glue_affixes_come_from_the_rules_file():
         assert _hits(m2, affix + "zlgx") == [("zlgx", "CUST-AAAA")], affix
 
 
+@pytest.mark.wallclock
 def test_a_long_token_is_searched_quickly(m):
     import time
 

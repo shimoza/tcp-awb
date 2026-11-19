@@ -91,6 +91,7 @@ def logged(auth):
 
 # the fifth open request of one address key is refused before its body ------------------------------------------
 
+@pytest.mark.wallclock
 def test_five_open_requests_from_one_address_key_hold_four_slots(site):
     """five unauthenticated requests of one /64 send their headers and never their body: four hold a slot, the
     fifth answers 429 at once with the busy text before any body byte is read and is logged counted by the key."""
@@ -135,6 +136,7 @@ def test_another_address_key_is_served_while_one_holds_its_four(site):
 
 # a body that never completes is cut at the unauthenticated timeout -----------------------------------------------
 
+@pytest.mark.wallclock
 def test_a_body_that_never_completes_is_cut_at_the_timeout(site, monkeypatch):
     """an unauthenticated POST announces 100 bytes and sends 3: the read ends after UNAUTHENTICATED_TIMEOUT (made
     small here, the real value is 5 seconds) with 408, the slot is free again and the log has one counted line

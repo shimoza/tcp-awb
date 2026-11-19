@@ -313,6 +313,7 @@ def test_locked_answers_locked_with_its_time(vp, daemon, monkeypatch, capsys):
     assert capsys.readouterr().out.splitlines()[-1] == "state: locked"
 
 
+@pytest.mark.wallclock
 def test_the_daemon_answers_since_while_locked_only(vp, monkeypatch, capsys):
     """T3. Planted failures: a daemon that never sets the time, never clears it on unlock, answers it while unlocked
     or plain, or writes it in another shape (SINCE_RE is written in this file, not taken from vault.py)."""
@@ -434,6 +435,7 @@ def test_rate_limit_per_peer_uid(vp):
     assert log.splitlines()[-1].split("\t")[2:] == [str(len(TEXT)), "-", "rate"]
 
 
+@pytest.mark.wallclock
 def test_request_size_and_read_timeout(vp, monkeypatch):
     monkeypatch.setattr(vault, "MAX_REQUEST", 1000)
     monkeypatch.setattr(vault, "READ_TIMEOUT", 0.3)
@@ -988,6 +990,7 @@ def test_a_reload_keeps_the_state_unlocked_and_the_socket_files(vp, notify, monk
         assert "MAINPID=%d" % answer["pid"] in notify.messages()
 
 
+@pytest.mark.wallclock
 @pytest.mark.long   # a real daemon takes over from another while a client keeps asking: the child is held by a gate
 def test_checks_and_pings_answer_during_the_hand_over(vp, notify, monkeypatch, tmp_path):
     """Planted: an _op_reload that keeps the daemon lock across the wait for the child makes both time out."""
@@ -1219,6 +1222,7 @@ def test_a_reload_from_another_uid_is_refused(vp, daemon, monkeypatch):
     assert not daemon.handing_over.is_set()
 
 
+@pytest.mark.wallclock
 @pytest.mark.long   # it asserts that the client waits more than 4.5 s for a slow parent
 def test_the_reload_client_outlasts_the_parent(vp, notify, monkeypatch, tmp_path):
     """The clock is scaled: the daemon's deadline and the client's timeout shrink by the same factor. The stand-in

@@ -96,6 +96,7 @@ def test_a_single_file_says_checking_1_file(home, capsys, tmp_path):
     assert capsys.readouterr().err.splitlines()[0] == "checking 1 file"
 
 
+@pytest.mark.wallclock
 def test_the_synthetic_set_of_13_markdown_files_imports_within_the_time_bound(home, tmp_path):
     files = synthetic_set(tmp_path)
     assert len(files) == SET_SIZE and all(SMALL <= f.stat().st_size <= LARGE + 1 for f in files)

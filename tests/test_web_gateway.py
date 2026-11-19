@@ -574,6 +574,7 @@ def test_a_sign_in_in_flight_limits_its_address_and_a_busy_slot_is_not_counted(r
     assert auth.sign_in("reader1", pw["reader1"], "192.0.2.2") == "ok"
 
 
+@pytest.mark.wallclock
 def test_200_parallel_bad_logins_from_one_slash_64_stop_neither_another_login_nor_the_owner_host(readers):
     """Replaces test_200_parallel_bad_logins_from_one_slash_64_do_not_stop_the_owner (finding 10 of the review of
     2026-10-10: on the main host an owner entry is a login like any other now, so five of the bad tries for its name

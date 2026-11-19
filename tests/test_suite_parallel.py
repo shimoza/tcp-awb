@@ -148,6 +148,30 @@ def test_a_file_with_its_own_process_pool_runs_alone_before_the_queue(tmp_path):
     assert all(rows["test_pool.py"][1] < start for name, (start, _) in rows.items() if name != "test_pool.py")
 
 
+def test_the_wallclock_tests_of_a_file_run_alone_before_the_queue_and_the_rest_of_the_file_in_the_queue(tmp_path):
+    """Q-0028: a bound of 30 s took 32.7 s next to three other files (C-314); the marked tests go alone, the rest of
+    their file still runs in the queue and both halves land in the one junit."""
+    order = tmp_path / "order.txt"
+    stamp = ('import os, time\nimport pytest\n\n\ndef _stamp(name):\n'
+             '    open(%r, "a").write("%%s %%.3f %%.3f\\n" %% (name, time.time(), time.time()))\n\n\n'
+             'def test_t():\n    time.sleep(0.2)\n    _stamp(os.path.basename(__file__))\n' % str(order))
+    files = {"tests/test_q%d.py" % i: stamp for i in range(4)}
+    files["tests/test_clock.py"] = stamp + ('\n\n@pytest.mark.wallclock\ndef test_bound():\n'
+                                            '    time.sleep(0.5)\n    _stamp("bound")\n')
+    files["pyproject.toml"] = '[tool.pytest.ini_options]\nmarkers = ["wallclock: alone"]\n'
+    rc, out = _run(tmp_path, files)
+    assert rc == 0
+    rows = {r.split()[0]: float(r.split()[1]) for r in order.read_text().splitlines()}
+    assert set(rows) == {"bound", "test_clock.py", "test_q0.py", "test_q1.py", "test_q2.py", "test_q3.py"}
+    assert all(rows["bound"] < t for name, t in rows.items() if name != "bound")
+    got = side.outcomes((out / "suite.xml").read_bytes())
+    assert got["tests/test_clock.py::test_bound"] == "passed" and got["tests/test_clock.py::test_t"] == "passed"
+    assert len(got) == 6
+    log = (out / "suite.log").read_text(encoding="utf-8")
+    assert "=== tests/test_clock.py (wall-clock tests, alone) (exit 0" in log
+    assert log.splitlines()[-1].startswith("=== the whole suite: 5 files on")
+
+
 def test_a_file_over_its_own_clock_is_a_red_file_and_the_others_still_report(tmp_path, monkeypatch):
     monkeypatch.setattr(side, "FILE_SECONDS", 3)
     rc, out = _run(tmp_path, {"tests/test_hang.py": "import time\n\n\ndef test_hang():\n    time.sleep(30)\n",

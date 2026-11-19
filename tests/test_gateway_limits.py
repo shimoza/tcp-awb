@@ -5,6 +5,8 @@ import socket
 import threading
 import time
 
+import pytest
+
 from awb.tcp.web import gateway
 
 
@@ -16,6 +18,7 @@ def test_k5_the_status_handler_has_a_short_timeout():
     assert 0 < gateway.StatusHandler.timeout <= 5
 
 
+@pytest.mark.wallclock
 def test_k5_an_idle_client_of_the_status_socket_is_dropped(tmp_path):
     path = str(tmp_path / "s.sock")
     server = gateway.make_status_server(gateway.unix_listener(path, 0o666))
@@ -33,6 +36,7 @@ def test_k5_an_idle_client_of_the_status_socket_is_dropped(tmp_path):
         server.server_close()
 
 
+@pytest.mark.wallclock
 def test_k17_the_deadline_reader_stops_a_trickle_and_keeps_a_fast_request():
     a, b = socket.socketpair()
     try:
@@ -66,6 +70,7 @@ def test_k17_the_deadline_reader_stops_a_trickle_and_keeps_a_fast_request():
         b.close()
 
 
+@pytest.mark.wallclock
 def test_k17_a_slow_header_is_cut_at_the_deadline_not_per_byte(tmp_path, monkeypatch):
     monkeypatch.setattr(gateway, "UNAUTHENTICATED_TIMEOUT", 1)
     (tmp_path / "auth.json").write_text('{"username": "awb", "salt": "00", "rounds": 1000, "hash": "00"}')

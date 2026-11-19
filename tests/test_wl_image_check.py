@@ -134,6 +134,7 @@ def test_wl_a_secret_across_the_border_of_two_pieces_of_a_disk_image_is_refused(
         winlabsession.check_file(path, SIZE)
 
 
+@pytest.mark.wallclock
 def test_wl_the_secret_check_of_4_mb_of_random_bytes_keeps_up_with_the_transfer():
     # today's check takes about one piece of noise in a hundred for a secret (Pwd= and three characters): such a
     # piece goes through the whole check again for its count, so the bound is taken on a piece without one

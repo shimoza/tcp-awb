@@ -81,6 +81,7 @@ def test_a_phone_number_over_two_cells_with_bold_or_code_is_found():
         assert [s.cls.lower() for s in patterns.find_structured(text)] == ["phone"], text
 
 
+@pytest.mark.wallclock
 def test_a_long_digit_run_costs_no_time():
     for text in ("0" + "1" * 300 + " " + FULL, " ".join("1234567890" * 8) + "\n" + FULL, "0x" + "ab" * 200):
         t0 = time.monotonic()
@@ -251,6 +252,7 @@ def test_session_start_checks_past_the_cut_and_cuts_at_a_line_end(project, monke
 # --------------------------------------------------------------------------- the budget
 
 
+@pytest.mark.wallclock
 def test_a_hook_over_its_budget_fails_closed(home, monkeypatch, capsys):
     monkeypatch.setattr(hooks, "HOOK_BUDGET", 0.2)
 

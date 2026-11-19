@@ -621,7 +621,8 @@ the marker `long` with the reason on the test; `.venv/bin/pytest -m "not long"` 
 working loop, the full run and every build run them. Running with pytest-xdist (`-n 2`) is not set up: some tests
 rely on the timing of real daemons and failed under the load of a second worker. The build's suite unit runs the
 whole suite as one pytest per test file instead, four files at a time, each with a HOME and a TMPDIR of its own
-(Q-0013).
+(Q-0013). A file with its own process pool and every test marked `wallclock` (it asserts how long something took)
+run alone before that queue; `tests/test_suite_wallclock.py` fails when a wall-clock bound has no marker (Q-0028).
 
 The suite also runs from a read-only copy of the tree anywhere outside the homes, with a venv that has the test
 extras and not the package, as the self-build runs it on a `git archive` export:

@@ -28,4 +28,5 @@ addopts = "-q"
 timeout = 120
 # the few tests that must stay long, each with its reason on the test; `pytest -m "not long"` is the quick run for a
 # working loop, the full run (and every build) still runs them
-markers = ["long: must stay long, the time it takes is part of what it proves"]
+markers = ["long: must stay long, the time it takes is part of what it proves",
+           "wallclock: asserts how long something took; the build suite runs it alone, never next to other files"]

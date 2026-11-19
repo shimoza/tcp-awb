@@ -233,6 +233,7 @@ def _gone_within(pid, seconds):
         time.sleep(0.02)
 
 
+@pytest.mark.wallclock
 def test_a_session_that_never_returns_under_a_2_s_clock_is_hung_within_5_s_and_no_child_is_left(world):
     world.host.minute = 0.2
     t0 = time.monotonic()

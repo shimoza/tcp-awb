@@ -44,6 +44,7 @@ def _quick(root: Path) -> tuple[int, str, float]:
     return code, out.getvalue(), time.monotonic() - t0
 
 
+@pytest.mark.wallclock
 def test_a_core_module_that_imports_the_platform_package_fails_quick_in_under_two_minutes_and_names_the_test(copy):
     target = copy / "awb" / "codes.py"
     target.write_text(target.read_text(encoding="utf-8") + "\nimport awb.tcp.board  # planted\n", encoding="utf-8")

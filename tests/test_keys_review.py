@@ -319,6 +319,7 @@ def test_kr_a_full_call_socket_never_locks_the_owner_out_of_the_admin_socket(ksv
             s.close()
 
 
+@pytest.mark.wallclock
 def test_kr_a_request_line_sent_a_byte_at_a_time_ends_at_the_read_timeout(ksvc, monkeypatch):
     """The read timeout counted from the last byte, so a peer that sent one byte now and then held its connection
     as long as it liked; the whole request line has READ_TIMEOUT now."""

@@ -143,6 +143,7 @@ def test_retry_lets_other_errors_through_at_once():
     assert len(calls) == 1
 
 
+@pytest.mark.wallclock
 def test_retry_without_its_own_sleep_waits_through_pause_and_the_suite_never_waits(monkeypatch):
     """F1 section 5: every wait of a job goes through `jobs.pause`, which the suite disarms (tests/conftest.py).
     Planted: a retry that calls time.sleep itself, or a pause the suite left armed (30 s here)."""

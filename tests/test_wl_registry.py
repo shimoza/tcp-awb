@@ -403,6 +403,7 @@ def test_wl_review_concurrent_opens_have_one_winner(registered, monkeypatch):
         assert sorted(pool.map(attempt, [PROJECT, OTHER], timeout=60)) == [False, True]
 
 
+@pytest.mark.wallclock
 def test_wl_review_a_held_registry_lock_refuses_within_the_wait(registered, monkeypatch):
     import fcntl
     import os

@@ -116,6 +116,7 @@ def test_usage_without_codex_exits_2(bench, monkeypatch, capsys):
     assert capsys.readouterr().err.count("\n") == 1
 
 
+@pytest.mark.wallclock
 def test_usage_with_a_silent_codex_exits_2_within_the_deadline(bench, monkeypatch, capsys):
     monkeypatch.setenv("FAKE_CODEX_MODE", "silent")
     monkeypatch.setenv("AWB_CODEX_DEADLINE", "1")
