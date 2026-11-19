@@ -384,7 +384,10 @@ def test_owner_actions_answers_only_its_peer_and_only_from_its_status_file(tmp_p
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(5)
         s.connect(server.server_address)
-        s.sendall(("GET %s HTTP/1.0\r\nX-AWB-Level: %s\r\n\r\n" % (path, level)).encode())
+        try:
+            s.sendall(("GET %s HTTP/1.0\r\nX-AWB-Level: %s\r\n\r\n" % (path, level)).encode())
+        except BrokenPipeError:
+            pass    # the server closed before a byte was read (a refused peer, when it wins the race); read what is left
         data = b""
         try:
             while chunk := s.recv(65536):
