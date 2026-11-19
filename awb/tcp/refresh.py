@@ -227,7 +227,8 @@ def _public_json(value) -> None:
                 yield from strings(child)
 
     for text in (json.dumps(value, ensure_ascii=False), "\n".join(strings(value))):
-        if _public(text) != text:
+        # secrets only: control characters in a public value are cleaned where it becomes a line, not refused
+        if len(text) > MAX_INPUT or check._secret_classes(text):
             raise kb.KBError("refresh data withheld by the output check")
 
 
