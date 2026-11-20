@@ -1839,9 +1839,12 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
 
 
 @_serial
-def recheck(winpath: str, file: str, machine: str | None = None, root: Path | None = None) -> dict:
+def recheck(winpath: str, file: str, machine: str | None = None, root: Path | None = None,
+            check: bool = False) -> dict:
     """The checks of a get again over the part a get kept when the name check could not run, without a transfer
-    and without the machine. Returns {"machine", "size", "sha256", "file", "log"}. Raises WinlabError."""
+    and without the machine. Returns {"machine", "size", "sha256", "file", "log"}. Raises WinlabError. A kept disk
+    image follows the default of get (owner decision 2026-11-20): its size and SHA-256 are verified, it gets no name
+    check (OWN_IMAGE) and is published; `check` runs the name check."""
     root = root or _root()
     title = "get --recheck %s" % file
     name = machine
@@ -1865,16 +1868,20 @@ def recheck(winpath: str, file: str, machine: str | None = None, root: Path | No
             if have != rec["size"]:
                 raise WinlabError("the kept part of %s is %s, the get received %s: run the get again"
                                   % (rel, _size(have), _size(rec["size"])))
+            own = not check and _own_image(folder, part, dst, rec["size"])
             sha, public = _check_and_publish(rpath, rec, folder, part, dst, rec["size"], rec["sha256"],
                                               rec.get("public") is True,
-                                              "the kept part of %s changed since the get" % rel)
+                                              "the kept part of %s changed since the get" % rel, names=not own)
     except WinlabError as err:
         log(root, name, "get %s from %s" % (rel, name), ["from %s" % winpath, "recheck failed: %s" % err])
         raise
     _unlink(rpath)
     path = log(root, name, "get %s from %s" % (rel, name), ["from %s" % winpath, "%s, sha256 %s, checked again "
                                                              "without a transfer" % (_size(rec["size"]), sha)]
-               + (["secret check skipped: a public image window of the owner"] if public else []))
+               + (["secret check skipped: a public image window of the owner"] if public else [])
+               + ([OWN_IMAGE] if own else []))
+    if own:
+        _ledger_own(root, rel, rec["size"], sha)
     return {"machine": name, "size": rec["size"], "sha256": sha, "file": rel, "log": path.relative_to(root)}
 
 
@@ -1970,7 +1977,7 @@ def main(args: argparse.Namespace, tail: list[str] | None) -> int:
                 ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))
             return EXIT_OK
         if command == "get" and getattr(args, "recheck", False):
-            result = recheck(args.winpath, args.file, machine=args.machine)
+            result = recheck(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
             print("awb winlab: checked %s of %s from %s again, sha256 %s, published as %s" % (
                 _size(result["size"]), args.winpath, result["machine"], result["sha256"][:12], result["file"]))
             return EXIT_OK

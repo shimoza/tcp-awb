@@ -28573,8 +28573,15 @@
    "name": "bytg winlab image check: a plain file from the lab keeps its name check",
    "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_plain_file_from_the_lab_keeps_its_name_check",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-010",
+   "phase": "T",
+   "name": "bytg winlab image check: a plain recheck publishes a kept image without a check request",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_plain_recheck_publishes_a_kept_image_without_a_check_request",
+   "status": "passing"
   }
  ],
- "total_tests": 4082,
+ "total_tests": 4083,
  "checked": "2026-11-20"
 }

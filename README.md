@@ -1254,8 +1254,9 @@ A disk image that get brings from a lab machine is our own lab output and gets n
 the SHA-256 compare it gets the secret check (none in a public image window) and is published, and the run log and
 the project ledger get one line with the file, size, SHA-256 and "own lab output, no name check". The rule is to check
 once at entry: a customer image enters only through `awb intake`. Every other file from a lab machine (logs, text,
-archives) keeps its checks. `--check` runs the name check on a disk image too, and `--recheck` on a kept image runs
-it. An image over 2 GB is too large for the whole name check, which reads the file into memory: it gets the name
+archives) keeps its checks. `--check` runs the name check on a disk image too. A plain `--recheck` of a kept image
+follows the same default: it verifies the size and the SHA-256 of the transfer, writes the same lines and publishes
+it; `--recheck --check` runs the name check. An image over 2 GB is too large for the whole name check, which reads the file into memory: it gets the name
 check over the unique text runs of its bytes (ASCII and UTF-8, UTF-16 in both byte orders; zero blocks and repeats
 dropped) in requests of 400,000 characters paced under the byte budget of the vault daemon, with a progress line
 every minute and a resume mark at least every 512 MB.

@@ -154,7 +154,7 @@ def test_fast_an_interrupted_check_resumes_at_its_mark_and_does_not_redo_finishe
     state["fail_after"] = None
     state["calls"] = 0
     monkeypatch.setattr(winlabsession, "connect", lambda machine: pytest.fail("the recheck connected"))
-    assert _get("--recheck") == 0, capsys.readouterr().err
+    assert _get("--recheck", "--check") == 0, capsys.readouterr().err
     assert "resumed at 5.0 MB of 6.0 MB" in capsys.readouterr().err
     again = sent[first:]
     assert again and not any(early.decode() in t for t in again)
@@ -216,3 +216,27 @@ def test_fast_a_plain_file_from_the_lab_keeps_its_name_check(lab, socket_, capsy
     assert cli.main(["winlab", "get", WINDIR + "report.txt", "report.txt"]) == 1
     assert "registered name(s)" in capsys.readouterr().err
     assert not (lab.root / "report.txt").exists()
+
+
+def test_fast_a_plain_recheck_publishes_a_kept_image_without_a_check_request(lab, large, socket_, monkeypatch,
+                                                                              capsys):
+    """Owner decision 2026-11-20: --recheck of a kept disk image follows the default of get. The kept part is
+    verified (size, SHA-256 of the transfer) and published without the name check; only --recheck --check checks."""
+    sent, state = socket_
+    added = []
+    from awb import ledger
+    monkeypatch.setattr(ledger, "add", lambda kind, done, **kw: added.append(done))
+    data = _image()
+    lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
+    state["fail_after"] = 0
+    assert _get() == 1
+    assert "kept unpublished as disk.vhdx.awb-part" in capsys.readouterr().err
+    state["fail_after"] = None
+    state["calls"], before = 0, len(sent)
+    monkeypatch.setattr(winlabsession, "connect", lambda machine: pytest.fail("the recheck connected"))
+    assert _get("--recheck") == 0, capsys.readouterr().err
+    # only the path checks of the command itself, no request with a byte of the image
+    assert state["calls"] == 0 and all(t in (WINDIR + "disk.vhdx", "disk.vhdx") for t in sent[before:])
+    assert (lab.root / "disk.vhdx").read_bytes() == data and not (lab.root / "disk.vhdx.awb-part").exists()
+    assert _records(lab.root) == [] and winlabsession.OWN_IMAGE in logs(lab.root)
+    assert len(added) == 1 and winlabsession.OWN_IMAGE in added[0]

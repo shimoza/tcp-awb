@@ -75,13 +75,13 @@ def test_lg_an_unavailable_name_check_keeps_the_part_and_recheck_resumes_without
     monkeypatch.setattr(winlabsession, "connect", lambda machine: pytest.fail("the recheck connected"))
     # the name check still cannot run: the recheck keeps the part again and loses none of the progress
     _pieces_fail_after(monkeypatch, 0)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx", "--recheck"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx", "--recheck", "--check"]) == 1
     assert "kept unpublished" in capsys.readouterr().err
     assert part.read_bytes() == IMAGE and _records(lab.root)[0]["checked"] == 3 * 512
     monkeypatch.setattr(hooks, "name_hits", _real_name_hits)
     pieces = []
     monkeypatch.setattr(winlabsession, "_piece_names", lambda text: pieces.append(1) or 0)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx", "--recheck"]) == 0, \
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx", "--recheck", "--check"]) == 0, \
         capsys.readouterr().err
     assert (lab.root / "results" / "disk.vhdx").read_bytes() == IMAGE and not part.exists()
     assert len(pieces) == -(-(len(IMAGE) - 3 * 512 + winlabsession.OVERLAP) // 512)
@@ -130,7 +130,7 @@ def test_lg_a_registered_name_in_a_kept_part_still_deletes_it_on_recheck(lab, sm
     capsys.readouterr()
     assert (lab.root / "disk.vhdx.awb-part").exists()
     monkeypatch.setattr(hooks, "name_hits", _real_name_hits)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--recheck"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--recheck", "--check"]) == 1
     err = capsys.readouterr().err
     assert "registered name(s): the copy was deleted" in err
     fixtures.assert_no_fixture_name(err, "recheck refusal")
