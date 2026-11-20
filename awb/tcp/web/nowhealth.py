@@ -4,7 +4,7 @@ UX review of 2026-11-19, W1 to W4).
     GET /api/health      both console pages, from the console data service (awb.tcp.web.projects_api, user awb):
                          {"generated_at", "health": [tile], "now": [item]}
     the owner status     `awb owner status --write` adds `dev_asks`, `queue` and `lists_built` to the status file;
-                         owner-actions serves them as GET /api/owner/dev-asks and GET /api/owner/queue
+                         owner-actions serves them in the answer of GET /api/owner/state
 
 A tile is {"id", "label", "state", "value", "detail"}: state is ok, warn, bad or unknown, value and detail are fixed
 words with ids, short hashes, numbers and times. The six tiles:
@@ -310,6 +310,26 @@ def now_items(build, journal, live, notices: Path, now: dt.datetime) -> list[dic
 # --------------------------------------------------------------------------- the answer of GET /api/health
 
 
+def build_data(paths) -> dict | None:
+    """board.build_state with the full start of each check added from the same state.tsv. The board keeps its own
+    data and text as they are (its checks carry the clock time only)."""
+    from awb.tcp import board
+
+    build = board.build_state(paths)
+    if build is None:
+        return None
+    raw = _read_small(board.build_tsv(paths), board.BUILD_TSV_MAX)
+    starts = {}
+    for row in (raw or b"").decode("utf-8", "replace").splitlines():
+        cells = row.split("\t")
+        if len(cells) == 5 and cells[0] == "check" and STAMP_RE.fullmatch(cells[3]):
+            starts.setdefault(cells[1], cells[3])
+    for c in build["checks"]:
+        c.setdefault("since", starts.get(c["id"], ""))
+    return build
+
+
+
 def health(paths, *, opt: Path = OPT, proc: Path = PROC, disk: Path = DISK, now: dt.datetime | None = None,
            vault_ping: Callable[[], dict] | None = None, keys_ping: Callable[[], str] | None = None) -> dict:
     from awb import deploy
@@ -325,7 +345,7 @@ def health(paths, *, opt: Path = OPT, proc: Path = PROC, disk: Path = DISK, now:
         def keys_ping():
             from awb.tcp import keys
             return keys.request(keys.call_socket(), {"op": "ping"}, timeout=3)["state"]
-    build = board.build_state(paths)
+    build = build_data(paths)
     try:
         written = _z(dt.datetime.fromtimestamp(os.stat(board.build_tsv(paths)).st_mtime, dt.timezone.utc))
     except OSError:

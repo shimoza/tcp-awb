@@ -28038,8 +28038,8 @@
   {
    "id": "Q26-09",
    "phase": "T",
-   "name": "Q-0025 gateway: the dev asks and the queue routes are owner host only",
-   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_owner_routes_of_the_lists_are_owner_only",
+   "name": "Q-0025 gateway: the dev asks and the queue come with GET /api/owner/state on the owner host only",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_lists_come_with_the_owner_state_on_the_owner_host_only",
    "status": "passing"
   },
   {

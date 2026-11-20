@@ -1,6 +1,6 @@
 """Q-0026 and Q-0025 (section 5 of the UX review of 2026-11-19, W1 to W4): the health strip and the Now block of both
 console pages (GET /api/health of the console data service) and the dev asks and the queue of the owner page (the
-status file of the owner's timer, GET /api/owner/dev-asks and GET /api/owner/queue). Temporary folders, a fake /proc,
+status file of the owner's timer, served in the answer of GET /api/owner/state). Temporary folders, a fake /proc,
 invented codes and the fixture register only; no live service is reached."""
 from __future__ import annotations
 
@@ -166,7 +166,9 @@ def test_now_lists_open_build_work_lab_windows_by_end_and_a_pending_deploy(home)
     (notices / ("winlab-lab-bad.%s.json" % CODE)).write_text(json.dumps(
         {"machine": "lab-bad", "project": OTHER, "end": "2026-11-20T15:00:00Z"}))                # another code
     (notices / "input-20261120T090000Z-0000aaaa.json").write_text("{}")
-    items = nowhealth.now_items(board.build_state(home), {"state": "done"}, LIVE, notices, NOW)
+    items = nowhealth.now_items(nowhealth.build_data(home), {"state": "done"}, LIVE, notices, NOW)
+    # the board keeps its own data: its checks carry the clock time only, never the full start (test_parked)
+    assert all("since" not in c for c in board.build_state(home)["checks"])
     assert [(i["kind"], i["id"], i["state"]) for i in items] == [
         ("check", "C-301", "running"), ("task", "B-077", "queued"), ("lab", CODE, "ends soon"),
         ("lab", OTHER, "open"), ("deploy", MAIN, "pending")]
@@ -249,13 +251,17 @@ def test_health_goes_to_the_data_service_on_both_hosts_and_never_to_a_limited_re
     assert (status, body) == (404, b"Not found.\n") and len(site.tcp.calls) == before
 
 
-def test_the_owner_routes_of_the_lists_are_owner_only(site):
-    for route in ("/api/owner/dev-asks", "/api/owner/queue"):
-        assert route in owner_actions.ROUTES
-        status, _, _ = site.request(route, headers={"Cookie": "__Host-awb-session=" + site.reader_session()})
-        assert status == 404                                   # /api/owner/ is not on the main host
-        status, _, body = site.request(route, host=OWNER, headers=owner_headers(site, site.owner_session()))
-        assert status == 200 and "written" in json.loads(body)
+def test_the_lists_come_with_the_owner_state_on_the_owner_host_only(site):
+    assert owner_actions.ROUTES == gateway.OWNER_ACTIONS                       # no route of their own
+    assert not any("dev-asks" in p or p.endswith("/queue") for p in owner_actions.ROUTES)
+    site.status.write_text(json.dumps(status_doc(dev_asks=[], queue={"readable": False, "rows": []},
+                                                 lists_built=1)))
+    status, _, _ = site.request("/api/owner/state",
+                                headers={"Cookie": "__Host-awb-session=" + site.reader_session()})
+    assert status == 404                                       # /api/owner/ is not on the main host
+    status, _, body = site.request("/api/owner/state", host=OWNER, headers=owner_headers(site, site.owner_session()))
+    data = json.loads(body)
+    assert status == 200 and data["dev_asks"] == [] and data["queue"] == {"readable": False, "rows": []}
 
 
 # --------------------------------------------------------------------------- W3 and W4: the owner side
@@ -350,14 +356,12 @@ def test_the_status_carries_the_lists_through_the_shape_and_owner_actions_serves
     path = tmp_path / "status.json"
     owner.write(data, path, checker=lambda text: "passed")
     assert owner_actions.read_status(path) == data
-    code, asks = owner_actions.answer("/api/owner/dev-asks", data, time.time())
-    assert code == 200 and asks["asks"] == data["dev_asks"] and asks["stale"] is False
-    code, rows = owner_actions.answer("/api/owner/queue", data, time.time())
-    assert code == 200 and rows["rows"] == data["queue"]["rows"] and rows["readable"] is True
-    # an old status file without the lists: empty answers
-    old = status_doc()
-    assert owner_actions.answer("/api/owner/dev-asks", old, time.time())[1]["asks"] == []
-    assert owner_actions.answer("/api/owner/queue", old, time.time())[1]["rows"] == []
+    code, state = owner_actions.answer("/api/owner/state", data, time.time())
+    assert code == 200 and state["dev_asks"] == data["dev_asks"] and state["stale"] is False
+    assert state["queue"] == data["queue"] and state["queue"]["readable"] is True
+    # an old status file without the lists: empty lists
+    old = owner_actions.answer("/api/owner/state", status_doc(), time.time())[1]
+    assert old["dev_asks"] == [] and old["queue"] == {"readable": True, "rows": []}
     # the name check of the whole status cannot run: every text of the lists is withheld as unavailable
     owner.write(data, path, checker=lambda text: "unavailable")
     held = owner_actions.read_status(path)
@@ -405,8 +409,9 @@ def test_the_contract_carries_health_and_the_two_owner_lists():
     doc = contract.build()
     ops = {(m, p): op for m, p, op in contract.operations(doc)}
     assert ("get", "/api/health") in ops and ops[("get", "/api/health")].get("security") != [{"owner": []}]
-    for path in ("/api/owner/dev-asks", "/api/owner/queue"):
-        assert ops[("get", path)]["security"] == [{"owner": []}]
+    assert ("get", "/api/owner/dev-asks") not in ops and ("get", "/api/owner/queue") not in ops
+    state = doc["components"]["schemas"]["OwnerState"]
+    assert {"dev_asks", "queue"} <= set(state["properties"]) and "dev_asks" not in state["required"]
     assert contract.check(doc) == []
     assert (REPO / "docs" / "api" / "openapi.yaml").read_text(encoding="utf-8") == contract.to_yaml(doc)
     tiles = contract.HEALTH_ANSWER["health"]
@@ -476,17 +481,16 @@ def run_owner_page(answers: dict) -> dict:
 def test_the_owner_page_shows_health_now_dev_asks_and_the_queue():
     old = (NOW - dt.timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
     answers = {
-        "/api/owner/state": {"csrf": "c", "vault": {"state": "unlocked"}, "keys": {"state": "unlocked"}},
-        "/api/health": contract.HEALTH_ANSWER,
-        "/api/owner/dev-asks": {"asks": [
+        "/api/owner/state": {"csrf": "c", "vault": {"state": "unlocked"}, "keys": {"state": "unlocked"},
+                             "written": old, "stale": False, "dev_asks": [
             {"code": CODE, "file": "2026-11-16-%s-1.md" % CODE, "title": "the import stops", "withheld": None,
              "created": old, "blocks": True},
             {"code": OTHER, "file": "2026-11-17-%s-1.md" % OTHER, "title": None, "withheld": "name",
-             "created": old, "blocks": False}], "written": old, "stale": False},
-        "/api/owner/queue": {"rows": [
+             "created": old, "blocks": False}],
+                             "queue": {"rows": [
             {"id": "Q-0025", "who": "development", "project": None, "what": "dev asks page", "next": "review",
-             "withheld": None, "created": old, "next_changed": old, "stale": True}], "readable": True,
-            "written": old, "stale": False},
+             "withheld": None, "created": old, "next_changed": old, "stale": True}], "readable": True}},
+        "/api/health": contract.HEALTH_ANSWER,
     }
     out = run_owner_page(answers)
     assert "Key service" in out["health"] and "locked" in out["health"] and "t-bad" in out["healthCls"]
@@ -496,10 +500,9 @@ def test_the_owner_page_shows_health_now_dev_asks_and_the_queue():
         out["asks"] and "blocks" in out["asks"] and "mark bad" in out["asksCls"]
     assert out["queueRows"] == 1 and "dev asks page · next: review" in out["queue"] and "stale" in out["queue"]
     assert "mark warn" in out["queueCls"]
-    empty = run_owner_page({"/api/owner/state": answers["/api/owner/state"],
-                            "/api/health": dict(contract.HEALTH_ANSWER, now=[]),
-                            "/api/owner/dev-asks": {"asks": [], "written": old, "stale": False},
-                            "/api/owner/queue": {"rows": [], "readable": False, "written": old, "stale": False}})
+    empty = run_owner_page({"/api/owner/state": dict(answers["/api/owner/state"], dev_asks=[],
+                                                     queue={"rows": [], "readable": False}),
+                            "/api/health": dict(contract.HEALTH_ANSWER, now=[])})
     assert "Nothing runs now" in empty["now"] and "No open ask." in empty["asks"]
     assert "Not available." in empty["queue"]
 

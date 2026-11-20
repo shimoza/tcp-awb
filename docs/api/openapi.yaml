@@ -4061,7 +4061,7 @@ paths:
       tags:
         - owner
       summary: The vault, the key service, the release and the page, with the csrf of the owner session.
-      description: "Codes and states only. When the vault is locked the page says so; it is unlocked in the owner's terminal, never here. csrf and shared_password_active come from the gateway, the rest from the status file owner-actions reads."
+      description: "Codes and states only. When the vault is locked the page says so; it is unlocked in the owner's terminal, never here. csrf and shared_password_active come from the gateway, the rest from the status file owner-actions reads. dev_asks and queue (Q-0025): the owner's timer reads <shared>/notices/dev/ (awb dev ask) and queue.tsv (awb queue) at most every five minutes and lets each title, what and next through the name check; a text with a finding is withheld with its class. Read only: closing an ask and archiving a row stay commands of a session or a terminal."
       responses:
         "200":
           description: From the status file of the owner's timer.
@@ -4088,6 +4088,40 @@ paths:
                       backups: 4
                     csrf: "1791892800.<hmac>"
                     shared_password_active: false
+                    dev_asks:
+                      - code: tcp-q7m4
+                        file: "2026-11-16-tcp-q7m4-1.md"
+                        title: the import stops at a file of 30 MB
+                        withheld: null
+                        created: "2026-11-16T08:02:11Z"
+                        blocks: true
+                      - code: tcp-k2wd
+                        file: "2026-11-17-tcp-k2wd-2.md"
+                        title: null
+                        withheld: name
+                        created: "2026-11-17T14:40:00Z"
+                        blocks: false
+                    queue:
+                      rows:
+                        - id: Q-0025
+                          who: development
+                          project: null
+                          what: dev asks and queue on the owner page
+                          next: review the page
+                          withheld: null
+                          created: "2026-11-19T10:00:00Z"
+                          next_changed: "2026-11-19T10:00:00Z"
+                          stale: true
+                        - id: Q-0031
+                          who: owner
+                          project: tcp-q7m4
+                          what: null
+                          next: null
+                          withheld: name
+                          created: "2026-11-20T07:00:00Z"
+                          next_changed: "2026-11-20T07:00:00Z"
+                          stale: false
+                      readable: true
                     written: "2026-10-08T12:00:00Z"
                     stale: false
         "401":
@@ -4450,195 +4484,6 @@ paths:
                         text: "owner: review ecs-1."
                         has_default: false
                         app: "app: SSH host awb-test, folder /work/tcp-q7m4"
-                    written: "2026-10-08T12:00:00Z"
-                    stale: false
-        "401":
-          description: No valid session. Sign in first.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-              examples:
-                sign-in-to-open-the:
-                  value:
-                    error: Sign in to open the project data.
-        "403":
-          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-              examples:
-                not-allowed:
-                  value:
-                    error: Not allowed.
-            text/html:
-              schema:
-                type: string
-              examples:
-                open-the-owner-page-directly:
-                  value: |
-                    Open the owner page directly.
-        "502":
-          description: The backend did not answer, or its answer was too large.
-          content:
-            text/html:
-              schema:
-                type: string
-              examples:
-                the-awb-service-is-temporarily:
-                  value: |
-                    The AWB service is temporarily unavailable.
-                the-response-was-too-large:
-                  value: |
-                    The response was too large.
-        "503":
-          description: The owner's timer has not written its status yet, or it cannot be read.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-              examples:
-                the-owner-status-is-not:
-                  value:
-                    error: The owner status is not available yet.
-      x-awb-state: repository
-      security:
-        - owner: []
-      servers:
-        - url: "https://{owner_host}/"
-          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
-          variables:
-            owner_host:
-              default: owner.example.com
-  /api/owner/dev-asks:
-    get:
-      operationId: listOwnerDevAsks
-      tags:
-        - owner
-      summary: The open asks of the projects to development.
-      description: "From the status file: the owner's timer reads <shared>/notices/dev/ (awb dev ask) at most every five minutes and lets each title through the name check; a title with a finding is withheld with its class. Read only: closing an ask stays a command of a session."
-      responses:
-        "200":
-          description: From the status file of the owner's timer.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/OwnerDevAsks"
-              examples:
-                sample:
-                  value:
-                    asks:
-                      - code: tcp-q7m4
-                        file: "2026-11-16-tcp-q7m4-1.md"
-                        title: the import stops at a file of 30 MB
-                        withheld: null
-                        created: "2026-11-16T08:02:11Z"
-                        blocks: true
-                      - code: tcp-k2wd
-                        file: "2026-11-17-tcp-k2wd-2.md"
-                        title: null
-                        withheld: name
-                        created: "2026-11-17T14:40:00Z"
-                        blocks: false
-                    written: "2026-10-08T12:00:00Z"
-                    stale: false
-        "401":
-          description: No valid session. Sign in first.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-              examples:
-                sign-in-to-open-the:
-                  value:
-                    error: Sign in to open the project data.
-        "403":
-          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-              examples:
-                not-allowed:
-                  value:
-                    error: Not allowed.
-            text/html:
-              schema:
-                type: string
-              examples:
-                open-the-owner-page-directly:
-                  value: |
-                    Open the owner page directly.
-        "502":
-          description: The backend did not answer, or its answer was too large.
-          content:
-            text/html:
-              schema:
-                type: string
-              examples:
-                the-awb-service-is-temporarily:
-                  value: |
-                    The AWB service is temporarily unavailable.
-                the-response-was-too-large:
-                  value: |
-                    The response was too large.
-        "503":
-          description: The owner's timer has not written its status yet, or it cannot be read.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-              examples:
-                the-owner-status-is-not:
-                  value:
-                    error: The owner status is not available yet.
-      x-awb-state: repository
-      security:
-        - owner: []
-      servers:
-        - url: "https://{owner_host}/"
-          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
-          variables:
-            owner_host:
-              default: owner.example.com
-  /api/owner/queue:
-    get:
-      operationId: listOwnerQueue
-      tags:
-        - owner
-      summary: The open rows of the owner's work queue.
-      description: "From the status file: the owner's timer reads queue.tsv (awb queue) at most every five minutes and lets what and next through the name check; a row with a finding is withheld with its class. Read only: archiving a row stays awb queue done in a terminal."
-      responses:
-        "200":
-          description: From the status file of the owner's timer.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/OwnerQueue"
-              examples:
-                sample:
-                  value:
-                    rows:
-                      - id: Q-0025
-                        who: development
-                        project: null
-                        what: dev asks and queue on the owner page
-                        next: review the page
-                        withheld: null
-                        created: "2026-11-19T10:00:00Z"
-                        next_changed: "2026-11-19T10:00:00Z"
-                        stale: true
-                      - id: Q-0031
-                        who: owner
-                        project: tcp-q7m4
-                        what: null
-                        next: null
-                        withheld: name
-                        created: "2026-11-20T07:00:00Z"
-                        next_changed: "2026-11-20T07:00:00Z"
-                        stale: false
-                    readable: true
                     written: "2026-10-08T12:00:00Z"
                     stale: false
         "401":
@@ -7352,6 +7197,13 @@ components:
         shared_password_active:
           type: boolean
           description: true while the single login of auth.json still works (no users file yet).
+        dev_asks:
+          type: array
+          description: "The open dev asks (Q-0025), oldest first, at most 200; empty for a status file without them."
+          items:
+            "$ref": "#/components/schemas/OwnerDevAsk"
+        queue:
+          "$ref": "#/components/schemas/OwnerQueue"
       required:
         - vault
         - keys
@@ -7644,7 +7496,7 @@ components:
         file:
           type: string
           description: The file of the ask in <shared>/notices/dev/.
-          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}-tcp-[a-z2-7]{4}-[1-9][0-9]{0,3}\\.md$"
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}-(?:tcp|hcs)-[a-z2-7]{4}-[1-9][0-9]{0,3}\\.md$"
         title:
           type:
             - string
@@ -7669,23 +7521,6 @@ components:
         - withheld
         - created
         - blocks
-    OwnerDevAsks:
-      type: object
-      properties:
-        asks:
-          type: array
-          description: The open asks, oldest first, at most 200.
-          items:
-            "$ref": "#/components/schemas/OwnerDevAsk"
-        written:
-          type: string
-          format: date-time
-        stale:
-          type: boolean
-      required:
-        - asks
-        - written
-        - stale
     OwnerQueueRow:
       type: object
       properties:
@@ -7740,6 +7575,7 @@ components:
         - stale
     OwnerQueue:
       type: object
+      description: The open rows of awb queue (Q-0025).
       properties:
         rows:
           type: array
@@ -7749,16 +7585,9 @@ components:
         readable:
           type: boolean
           description: false when the owner's timer could not read the queue.
-        written:
-          type: string
-          format: date-time
-        stale:
-          type: boolean
       required:
         - rows
         - readable
-        - written
-        - stale
     HealthTile:
       type: object
       properties:

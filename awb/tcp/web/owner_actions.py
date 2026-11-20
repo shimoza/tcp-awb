@@ -8,16 +8,16 @@ the status the owner's timer writes (`awb owner status --write`): codes, numbers
 decision text and app lines. It opens
 nothing else, holds no key, reaches no vault and runs no command.
 
-    GET /api/owner/state      the vault and the key service (state and since), the deployed release, the page
+    GET /api/owner/state      the vault and the key service (state and since), the deployed release, the page,
+                              the open dev asks (dev_asks: code, file, title after the name check, created,
+                              blocks) and the open rows of awb queue (queue: readable and rows of id, who, project,
+                              what and next after the name check, created, next_changed, stale), Q-0025
     GET /api/owner/ui-runs    the newest runs of the UI queue, the one Publish would take marked
     GET /api/ui-runs          the same runs for the UI runs page (T7 part 2): id, state, created, finished,
                               validation and the summary the owner's timer let pass the name check, else withheld
                               with its class
     GET /api/owner/intake     per customer code the candidates that wait for a review and the time of the report
     GET /api/owner/items      checked project decisions, source indexes, defaults and app lines from the status file
-    GET /api/owner/dev-asks   the open dev asks (Q-0025): code, file, title after the name check, created, blocks
-    GET /api/owner/queue      the open rows of awb queue (Q-0025): id, who, project, what and next after the name
-                              check, created, next_changed, stale; readable false when the timer could not read it
     POST /api/owner/publish   {run_id, code}: Publish (T9 step 3). The TOTP code is checked again here against this
                               service's own copy of the secret (/etc/awb/owner-publish.json, awb-owner 600), fresh
                               and once; then the run id alone goes to the root unit on /run/awb-web-publish.sock,
@@ -101,18 +101,14 @@ def answer(route: str, status: dict | None, now: float) -> tuple[int, dict]:
     meta = {"written": status["written"], "stale": stale(status["written"], now)}
     if route == "/api/owner/state":
         return 200, {"vault": status["vault"], "keys": status["keys"], "deployed": status["deployed"],
-                     "page": status["page"], **meta}
+                     "page": status["page"], "dev_asks": status.get("dev_asks", []),
+                     "queue": status.get("queue", {"readable": True, "rows": []}), **meta}
     if route == "/api/owner/ui-runs":
         return 200, {"runs": [{k: r[k] for k in OWNER_RUN_KEYS} for r in status["ui_runs"]], **meta}
     if route == "/api/ui-runs":
         return 200, {"runs": [{k: r[k] for k in PAGE_RUN_KEYS} for r in status["ui_runs"]], **meta}
     if route == "/api/owner/items":
         return 200, {"items": status.get("decisions", []), **meta}
-    if route == "/api/owner/dev-asks":
-        return 200, {"asks": status.get("dev_asks", []), **meta}
-    if route == "/api/owner/queue":
-        queue = status.get("queue", {"readable": True, "rows": []})
-        return 200, {"rows": queue["rows"], "readable": queue["readable"], **meta}
     return 200, {"customers": status["intake"], **meta}
 
 

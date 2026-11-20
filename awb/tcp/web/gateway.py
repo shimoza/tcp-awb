@@ -861,8 +861,6 @@ OWNER_ROUTES = (
     ('GET', '/api/owner/ui-runs', 'owner_socket', False),
     ('GET', '/api/owner/intake', 'owner_socket', False),
     ('GET', '/api/owner/items', 'owner_socket', False),
-    ('GET', '/api/owner/dev-asks', 'owner_socket', False),     # Q-0025: the open dev asks of the status file
-    ('GET', '/api/owner/queue', 'owner_socket', False),        # Q-0025: the open rows of awb queue of the status file
     ('GET', '/api/ui-runs', 'owner_socket', False),
     ('POST', '/api/owner/publish', 'owner_socket', False),
     ('POST', '/api/owner/items/take-default', 'project_socket', False),

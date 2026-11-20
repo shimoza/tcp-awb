@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from awb import codes
 from awb.intake_counts import CUSTOMER_RE
 
 RUN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -75,8 +76,8 @@ def validate(status: dict) -> None:
 
 # --------------------------------------------------------------------------- the dev asks and the queue (Q-0025)
 
-ASK_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(?:tcp|hcs)-[a-z2-7]{4}-[1-9][0-9]{0,3}\.md$")   # awb.devask.FILE_RE
-PROJECT_CODE_RE = re.compile(r"^(?:tcp|hcs)-[a-z0-9]{4}$")
+ASK_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-%s-[1-9][0-9]{0,3}\.md$" % codes.PROJECT)   # awb.devask.FILE_RE
+PROJECT_CODE_RE = re.compile(r"^(?:%s|%s)$" % (codes.PROJECT, codes.TCP_PROJECT_WIDE))
 QUEUE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,39}$")                                       # awb.workqueue.HANDLE
 QUEUE_WHO_RE = re.compile(r"^(?:owner|desk|development|session:[A-Za-z][A-Za-z0-9-]{0,39})$")
 TITLE_MAX = 120

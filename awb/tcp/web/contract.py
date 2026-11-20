@@ -560,6 +560,17 @@ USAGE_ANSWER = {"source": "calls to the TCP API", "month": "2026-10",
                          {"day": "2026-10-16", "calls": 12, "throttled": 2, "errors": 0, "waited_seconds": 3.1,
                           "services": [{"service": "ecs", "calls": 12}]}],
                 "total": {"calls": 53, "throttled": 2, "errors": 1}}
+OWNER_ASKS = [
+    {"code": "tcp-q7m4", "file": "2026-11-16-tcp-q7m4-1.md", "title": "the import stops at a file of 30 MB",
+     "withheld": None, "created": "2026-11-16T08:02:11Z", "blocks": True},
+    {"code": "tcp-k2wd", "file": "2026-11-17-tcp-k2wd-2.md", "title": None, "withheld": "name",
+     "created": "2026-11-17T14:40:00Z", "blocks": False}]
+OWNER_QUEUE = {"rows": [
+    {"id": "Q-0025", "who": "development", "project": None, "what": "dev asks and queue on the owner page",
+     "next": "review the page", "withheld": None, "created": "2026-11-19T10:00:00Z",
+     "next_changed": "2026-11-19T10:00:00Z", "stale": True},
+    {"id": "Q-0031", "who": "owner", "project": "tcp-q7m4", "what": None, "next": None, "withheld": "name",
+     "created": "2026-11-20T07:00:00Z", "next_changed": "2026-11-20T07:00:00Z", "stale": False}], "readable": True}
 HEALTH_ANSWER = {
     "generated_at": "2026-11-20T09:30:00Z",
     "health": [
@@ -1065,7 +1076,10 @@ def _schemas() -> dict:
             "csrf": string("The value of X-AWB-CSRF for the POSTs of this owner session, valid 10 minutes."),
             "shared_password_active": boolean("true while the single login of auth.json still works (no users "
                                               "file yet)."),
-        }),
+            "dev_asks": array(ref("OwnerDevAsk"), "The open dev asks (Q-0025), oldest first, at most 200; empty "
+                                                  "for a status file without them."),
+            "queue": ref("OwnerQueue"),
+        }, required=["vault", "keys", "deployed", "page", "written", "stale", "csrf", "shared_password_active"]),
         "UiRun": obj({
             "id": string("The run id of the UI queue."),
             "state": string(enum=["queued", "running", "ready", "completed", "failed", "cancelled", "unknown"]),
@@ -1132,15 +1146,13 @@ def _schemas() -> dict:
         "OwnerDevAsk": obj({
             "code": ref("ProjectCode"),
             "file": string("The file of the ask in <shared>/notices/dev/.",
-                           pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-tcp-[a-z2-7]{4}-[1-9][0-9]{0,3}\.md$"),
+                           pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-%s-[1-9][0-9]{0,3}\.md$" % codes.PROJECT),
             "title": string("The title after the name check; null when withheld.", nullable=True, maxLength=120),
             "withheld": string("The classes that withheld the title or unavailable; null when shown.",
                                nullable=True),
             "created": string(format="date-time"),
             "blocks": boolean("The project is blocked until development answers."),
         }),
-        "OwnerDevAsks": obj({"asks": array(ref("OwnerDevAsk"), "The open asks, oldest first, at most 200."),
-                             "written": string(format="date-time"), "stale": boolean()}),
         "OwnerQueueRow": obj({
             "id": string("The row id of awb queue.", pattern=r"^[A-Za-z][A-Za-z0-9-]{0,39}$"),
             "who": string("owner, desk, development or session:CODE."),
@@ -1156,8 +1168,8 @@ def _schemas() -> dict:
             "stale": boolean("The next step is unchanged for 24 hours, as awb queue list marks it."),
         }),
         "OwnerQueue": obj({"rows": array(ref("OwnerQueueRow"), "The open rows, oldest first, at most 200."),
-                           "readable": boolean("false when the owner's timer could not read the queue."),
-                           "written": string(format="date-time"), "stale": boolean()}),
+                           "readable": boolean("false when the owner's timer could not read the queue.")},
+                          description="The open rows of awb queue (Q-0025)."),
         "HealthTile": obj({
             "id": string(enum=["vault", "keys", "runner", "release", "disk", "web"]),
             "label": string("The label of the tile."),
@@ -1861,10 +1873,14 @@ def _owner_paths() -> dict:
                 "deployed": {"release": "0123456789abcdef0123456789abcdef01234567", "journal": "done"},
                 "page": {"size": 210345, "time": "2026-10-06T15:02:11Z", "backup_time": "2026-10-06T15:02:11Z",
                          "backups": 4},
-                "csrf": "1791892800.<hmac>", "shared_password_active": False},
+                "csrf": "1791892800.<hmac>", "shared_password_active": False,
+                "dev_asks": OWNER_ASKS, "queue": OWNER_QUEUE},
             "Codes and states only. When the vault is locked the page says so; it is unlocked in the owner's "
             "terminal, never here. csrf and shared_password_active come from the gateway, the rest from the status "
-            "file owner-actions reads.")},
+            "file owner-actions reads. dev_asks and queue (Q-0025): the owner's timer reads <shared>/notices/dev/ "
+            "(awb dev ask) and queue.tsv (awb queue) at most every five minutes and lets each title, what and next "
+            "through the name check; a text with a finding is withheld with its class. Read only: closing an ask "
+            "and archiving a row stay commands of a session or a terminal.")},
         "/api/owner/ui-runs": {"get": owner_op(
             "listOwnerUiRuns", "The newest runs of the UI queue.", "UiRuns", {"runs": [
                 {"id": "ui-20261008-001", "state": "completed", "finished": "2026-10-08T11:20:04+00:00",
@@ -1902,26 +1918,6 @@ def _owner_paths() -> dict:
             "From the status file written by awb owner status --write, including the checked app line. "
             "Owner-actions reads no project files. Old status files return an empty items list. "
             "The page posts code and item to take-default only when has_default is true.")},
-        "/api/owner/dev-asks": {"get": owner_op(
-            "listOwnerDevAsks", "The open asks of the projects to development.", "OwnerDevAsks",
-            {"asks": [{"code": "tcp-q7m4", "file": "2026-11-16-tcp-q7m4-1.md", "title": "the import stops at a "
-                       "file of 30 MB", "withheld": None, "created": "2026-11-16T08:02:11Z", "blocks": True},
-                      {"code": "tcp-k2wd", "file": "2026-11-17-tcp-k2wd-2.md", "title": None, "withheld": "name",
-                       "created": "2026-11-17T14:40:00Z", "blocks": False}]},
-            "From the status file: the owner's timer reads <shared>/notices/dev/ (awb dev ask) at most every five "
-            "minutes and lets each title through the name check; a title with a finding is withheld with its "
-            "class. Read only: closing an ask stays a command of a session.")},
-        "/api/owner/queue": {"get": owner_op(
-            "listOwnerQueue", "The open rows of the owner's work queue.", "OwnerQueue",
-            {"rows": [{"id": "Q-0025", "who": "development", "project": None, "what": "dev asks and queue on the "
-                       "owner page", "next": "review the page", "withheld": None, "created": "2026-11-19T10:00:00Z",
-                       "next_changed": "2026-11-19T10:00:00Z", "stale": True},
-                      {"id": "Q-0031", "who": "owner", "project": "tcp-q7m4", "what": None, "next": None,
-                       "withheld": "name", "created": "2026-11-20T07:00:00Z",
-                       "next_changed": "2026-11-20T07:00:00Z", "stale": False}], "readable": True},
-            "From the status file: the owner's timer reads queue.tsv (awb queue) at most every five minutes and "
-            "lets what and next through the name check; a row with a finding is withheld with its class. Read "
-            "only: archiving a row stays awb queue done in a terminal.")},
         "/api/owner/items/take-default": {"post": operation(
             "takeOwnerItemDefault", "owner", "Take the default of a project owner item.", {
                 "200": answer("One project note, its prompt notice and one ledger line; a repeat writes nothing.",
