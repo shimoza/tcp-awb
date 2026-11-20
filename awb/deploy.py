@@ -239,6 +239,7 @@ COMMAND_ONLY: dict[str, str] = {
                    "HOW-TO.pdf"),
     "awb/pdffont.py": "the embedded fonts of awb pdf --unicode, which is command only",
     "awb/xlsxlite.py": "the workbook writer and reader of awb pricebook, which is command only",
+    "awb/version.py": "awb version live, run in a working session or by the owner against the deploy journal",
     "awb/confusables.py": "python -m awb.confusables, run once by a build session to write awb/confusables_latin.py",
 }
 
