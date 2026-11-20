@@ -187,15 +187,21 @@ def test_a_long_text_breaks_into_numbered_pages(project):
         assert re.search(r"(?m)^%d\s*/\s*%d$" % (n, pages), page), n
 
 
-def test_cyrillic_is_refused_with_its_line_and_count_and_replaced_with_replace(project, capsys):
+@pytest.mark.skipif(__import__("awb.pdffont").pdffont.find() is None, reason="no Liberation or DejaVu font")
+def test_cyrillic_renders_by_default_and_is_replaced_with_replace(project, capsys):
+    """Replaces test_cyrillic_is_refused_with_its_line_and_count_and_replaced_with_replace (owner's yes of
+    2026-11-20, Unicode by default): Cyrillic now embeds a font of the host and comes back from pdftotext as
+    written, where it was refused with its line and count. The refusal of a character no font has, with its line
+    and count, is asserted in tests/test_pdf_unicode.py. Kept: --replace writes ? with the standard fonts."""
     src = project / "deliverables" / "note.md"
     src.write_text("# Note\n\nPlain words first.\n\nThen a word: привет and more.\n",
                    encoding="utf-8")
     out = src.with_suffix(".pdf")
-    assert pdf.main([str(src)]) == 1
-    err = capsys.readouterr().err.strip()
-    assert len(err.splitlines()) == 1 and "line 5: 6 character(s)" in err and "--replace" in err
-    assert not out.exists()
+    assert pdf.main([str(src)]) == 0
+    assert capsys.readouterr().err == ""
+    assert "Then a word: привет and more." in poppler("pdftotext", out)
+    assert b"/FontFile2" in out.read_bytes()
+    out.unlink()
     assert pdf.main([str(src), "--replace"]) == 0
     said = capsys.readouterr().out
     assert "6 character(s) the standard fonts cannot show written as ?" in said

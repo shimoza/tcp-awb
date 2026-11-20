@@ -1795,8 +1795,8 @@ a PDF of a Markdown or HTML deliverable, next to it: standard fonts, selectable 
 - `FILE`: the Markdown (.md) or HTML (.html) file
 - `--out PDF`: the PDF (default: FILE with .pdf, next to it); inside the project folder or the session scratch folder
 - `--title T`: the title in the document info (default: the first heading)
-- `--unicode`: embed a TrueType font of the host (Liberation, else DejaVu) so Cyrillic and every other character it has show as selectable text (default: the standard fonts, WinAnsi only)
-- `--replace`: write ? for a character the fonts cannot show (default: refuse)
+- `--unicode`: taken for older calls, the default now: text outside WinAnsi (Cyrillic) embeds a TrueType font of the host (Liberation, else DejaVu) as selectable text; with --replace it keeps the embedded font
+- `--replace`: write ? for a character the fonts cannot show (default: refuse); alone it keeps the standard fonts, so every character outside WinAnsi becomes ?
 
 ### `awb xchg put FILE [--as NAME] [--image] [--reason REASON] [--internal-image] [--kind WORD] [--lang XX]`
 

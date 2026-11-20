@@ -13779,8 +13779,8 @@
   {
    "id": "b033-pdf-5",
    "phase": "b033-pdf",
-   "name": "PDF: Cyrillic is refused with its line and count in one line; --replace writes ? and says how many",
-   "run": ".venv/bin/pytest tests/test_pdf.py::test_cyrillic_is_refused_with_its_line_and_count_and_replaced_with_replace",
+   "name": "PDF: Cyrillic renders by default with an embedded font (owner's yes 2026-11-20); --replace writes ? and says how many",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_cyrillic_renders_by_default_and_is_replaced_with_replace",
    "status": "passing"
   },
   {

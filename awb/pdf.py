@@ -21,13 +21,15 @@ way it must lie inside the project folder of the current folder (its SCOPE.md) o
 private (0600), published atomically; concurrent conversions may replace each other with complete PDFs.
 Names and secrets in source, parsed text, links, paths and metadata refuse publication. Input lines and joined
 Markdown paragraphs are limited to 16384 characters, tables to 100000 rectangular cells and output to 1000 pages.
-A character the standard fonts cannot show (outside WinAnsi, Cyrillic for example) is never
-dropped silently: the command refuses with the first line that holds one and the count, unless --unicode or --replace
-is given. --unicode embeds a TrueType font of the host instead of the standard fonts (Liberation Sans and Mono,
-the metrics of the standard fonts, else DejaVu; awb/pdffont.py), only the glyphs the document uses, with a ToUnicode
-map: Russian, German umlauts and Latin in one document, the text selectable and read back by pdftotext as it was
-written. --replace writes "?" for each character the fonts cannot show and says how many. Exit codes: 0 written,
-1 refused for such characters, 2 usage or error (2 also when --unicode finds no font file on the host).
+A document whose text is all WinAnsi keeps the standard fonts. One with a character outside WinAnsi (Cyrillic for
+example) embeds a TrueType font of the host instead, by default since the owner's yes of 2026-11-20 (Liberation Sans
+and Mono, the metrics of the standard fonts, else DejaVu; awb/pdffont.py), only the glyphs the document uses, with a
+ToUnicode map: Russian, German umlauts and Latin in one document, the text selectable and read back by pdftotext as
+it was written. --unicode is still taken and changes nothing on its own. A character no font can show is never
+dropped silently: the command refuses with the first line that holds one and the count. --replace writes "?" for
+each such character and says how many; --replace alone keeps the standard fonts (every character outside WinAnsi
+becomes "?"), --replace with --unicode embeds the font and replaces only what it lacks. Exit codes: 0 written,
+1 refused for such characters, 2 usage or error (2 also when the text needs a font and the host has no font file).
 
 Used by `awb howto render --pdf` and by `awb dataset build` for its HOW-TO.pdf (`render`).
 """
@@ -79,7 +81,7 @@ _BOLD = ([278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 
 _WIDE = {0x85: 1000, 0x89: 1000, 0x8C: 1000, 0x97: 1000, 0x99: 1000, 0xC6: 1000, 0xA0: 278}
 
 
-# the embedded fonts of the document being rendered (--unicode), None for the standard fonts
+# the embedded fonts of the document being rendered, None for the standard fonts
 _EMBEDDED: contextvars.ContextVar = contextvars.ContextVar("awb_pdf_embedded", default=None)
 
 
@@ -87,11 +89,13 @@ def unicode_fonts() -> "pdffont.FontSet":
     """The embedded font set of the host, or PdfError when a style has no font file."""
     files = pdffont.find()
     if files is None:
-        raise PdfError("--unicode: no Liberation or DejaVu font file on this host")
+        raise PdfError("no Liberation or DejaVu font file on this host for the characters outside WinAnsi; "
+                       "give --replace to write ? for them")
     try:
         return pdffont.FontSet(files)
     except (OSError, pdffont.FontError):
-        raise PdfError("--unicode: a font file of the host cannot be read") from None
+        raise PdfError("a font file of the host cannot be read; give --replace to write ? for the characters "
+                       "outside WinAnsi") from None
 
 
 class PdfError(Exception):
@@ -99,7 +103,7 @@ class PdfError(Exception):
 
 
 class PdfRefused(PdfError):
-    """Characters the standard fonts cannot show, without --replace."""
+    """Characters the fonts cannot show, without --replace."""
 
 
 @dataclass
@@ -511,10 +515,10 @@ def layout(blocks: list[Block]) -> _Pages:
     return pages
 
 
-def render(blocks: list[Block], title: str, author: str = AUTHOR, unicode: bool = False) -> bytes:
-    """The PDF of the blocks: A4, the standard fonts (or with `unicode` the embedded fonts of the host), a page
-    number on every page, title and author in the info."""
-    token = _EMBEDDED.set(unicode_fonts() if unicode else None)
+def render(blocks: list[Block], title: str, author: str = AUTHOR, unicode: bool = False, fonts=None) -> bytes:
+    """The PDF of the blocks: A4, the standard fonts (or with `unicode` or a given font set `fonts` the embedded
+    fonts of the host), a page number on every page, title and author in the info."""
+    token = _EMBEDDED.set(fonts if fonts is not None else unicode_fonts() if unicode else None)
     try:
         return _render(blocks, title, author)
     finally:
@@ -1053,7 +1057,9 @@ def _publish(target: Path, data: bytes) -> None:
 
 def convert(path: Path, out: Path | None = None, title: str | None = None, replace: bool = False,
             start: Path | None = None, author: str = AUTHOR, unicode: bool = False) -> tuple[Path, int, int]:
-    """Write a checked, private PDF atomically; (PDF, pages, replaced character count)."""
+    """Write a checked, private PDF atomically; (PDF, pages, replaced character count). Text outside WinAnsi
+    embeds the fonts of the host, unless `replace` alone asks for the standard fonts with ? (`unicode` and
+    `replace` together embed and replace only what the embedded fonts lack)."""
     try:
         path = Path(path)
         kind = SUFFIXES.get(path.suffix.lower())
@@ -1072,19 +1078,19 @@ def convert(path: Path, out: Path | None = None, title: str | None = None, repla
         if any(len(line) > MAX_LINE for line in text.split("\n")):
             raise PdfError("input line is too long")
         _screen(text)
-        fonts = unicode_fonts() if unicode else None
-        bad = unshowable(html.unescape(text) if kind == "html" else text, fonts)
+        shown = html.unescape(text) if kind == "html" else text
+        fonts = None
+        bad = unshowable(shown)
+        if bad and (unicode or not replace):
+            fonts = unicode_fonts()
+            bad = unshowable(shown, fonts)
         count = sum(n for _, n in bad)
         if bad and not replace:
-            if fonts is not None:
-                raise PdfRefused("line %d: %d character(s) the embedded fonts cannot show, %d in %d line(s) in all; "
-                                 "nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
-                                                                                         count, len(bad)))
-            raise PdfRefused("line %d: %d character(s) the standard fonts cannot show (outside WinAnsi), %d in %d line(s) "
-                             "in all; nothing written; give --unicode to embed a font that shows them (Cyrillic) or "
-                             "--replace to write ? for them" % (bad[0][0], bad[0][1], count, len(bad)))
+            raise PdfRefused("line %d: %d character(s) the embedded fonts cannot show, %d in %d line(s) in all; "
+                             "nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
+                                                                                     count, len(bad)))
         blocks, found = from_html(text) if kind == "html" else from_markdown(text)
-        data = render(blocks, title or found or path.stem, author, unicode)
+        data = render(blocks, title or found or path.stem, author, fonts=fonts)
         _publish(target, data)
         return target, len(re.findall(rb"(?m)^<< /Type /Page /Parent \d+ 0 R /MediaBox", data)), count
     except (OSError, ValueError, RecursionError):
@@ -1094,17 +1100,20 @@ def convert(path: Path, out: Path | None = None, title: str | None = None, repla
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
-    ap = SafeParser(prog="awb pdf", description="A PDF of a Markdown or HTML deliverable, next to it, with the "
-                                                "standard fonts and selectable text.")
+    ap = SafeParser(prog="awb pdf", description="A PDF of a Markdown or HTML deliverable, next to it, with "
+                                                "selectable text: the standard fonts, or an embedded font of the "
+                                                "host when the text is outside WinAnsi (Cyrillic).")
     ap.add_argument("file", help="the Markdown (.md) or HTML (.html) file")
     ap.add_argument("--out", default=None, metavar="PDF", help="the PDF (default: FILE with .pdf, next to it); inside the project "
                                                 "folder or the session scratch folder")
     ap.add_argument("--title", default=None, metavar="T", help="the title in the document info (default: the first heading)")
     ap.add_argument("--unicode", action="store_true",
-                    help="embed a TrueType font of the host (Liberation, else DejaVu) so Cyrillic and every other "
-                         "character it has show as selectable text (default: the standard fonts, WinAnsi only)")
+                    help="taken for older calls, the default now: text outside WinAnsi (Cyrillic) embeds a TrueType "
+                         "font of the host (Liberation, else DejaVu) as selectable text; with --replace it keeps "
+                         "the embedded font")
     ap.add_argument("--replace", action="store_true",
-                    help="write ? for a character the fonts cannot show (default: refuse)")
+                    help="write ? for a character the fonts cannot show (default: refuse); alone it keeps the "
+                         "standard fonts, so every character outside WinAnsi becomes ?")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:

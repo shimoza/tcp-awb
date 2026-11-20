@@ -1002,7 +1002,7 @@ copies the newest pass to `/srv/tcp-mirrors/console/<date>/` (folders 0750, file
 
 ## A PDF of a deliverable
 
-The host has no office suite, so `awb pdf FILE [--out PDF] [--title T] [--unicode]` is the one route from a Markdown or HTML
+The host has no office suite, so `awb pdf FILE [--out PDF] [--title T] [--replace]` is the one route from a Markdown or HTML
 deliverable to a PDF, for every project and for you; no project writes its own. It writes next to FILE unless
 `--out` names another file (inside the project folder or the session scratch folder only) and runs as the work
 user in a project session. The PDF is A4 with the standard fonts, so the text stays selectable: headings,
@@ -1010,12 +1010,13 @@ paragraphs, lists, code blocks in Courier that keep their lines and indents (a l
 drawn arrow, never cut, so a copied command is the command), Markdown pipe tables as a ruled grid (a bold header
 row repeated on every page, column widths fitted to the page, text wrapped inside its cell, the alignment of the
 separator row), HTML tables as aligned text, links with their URL, page
-numbers and the title (the first heading unless `--title`) in the document info. A character the standard fonts
-cannot show (Cyrillic for example) is never dropped silently: the command refuses with its line and the count.
-`--unicode` embeds a TrueType font of the host instead (Liberation Sans and Mono, the metrics of the standard fonts,
-else DejaVu; `awb/pdffont.py`), only the glyphs the document uses and with a ToUnicode map, so Russian, German umlauts
-and Latin share one document and pdftotext gives the text back as it was written. `--replace` writes `?` for a
-character the fonts cannot show and says how many. `awb howto render --pdf` and the HOW-TO.pdf of the dataset
+numbers and the title (the first heading unless `--title`) in the document info. Text outside the standard fonts
+(Cyrillic for example) embeds a TrueType font of the host by default (Liberation Sans and Mono, the metrics of the
+standard fonts, else DejaVu; `awb/pdffont.py`), only the glyphs the document uses and with a ToUnicode map, so
+Russian, German umlauts and Latin share one document and pdftotext gives the text back as it was written.
+`--unicode` is still taken and changes nothing on its own. A character no font can show is never dropped silently:
+the command refuses with its line and the count. `--replace` writes `?` for such a character and says how many;
+alone it keeps the standard fonts, so every character outside WinAnsi becomes `?`. `awb howto render --pdf` and the HOW-TO.pdf of the dataset
 use the same writer (`awb/pdf.py`). A project that misses something here (another file format, a font, a package)
 asks with `awb dev ask` and never builds its own writer or installs a package: development decides what is installed
 for all projects.

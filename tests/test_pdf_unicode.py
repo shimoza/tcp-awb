@@ -1,4 +1,4 @@
-"""awb pdf --unicode: Russian (Cyrillic) and German umlauts as selectable text with an embedded font of the host
+"""awb pdf (Unicode by default since 2026-11-20, --unicode an alias): Russian (Cyrillic) and German umlauts as selectable text with an embedded font of the host
 (awb/pdffont.py). The owner decision of 2026-11-20: shared capabilities instead of a writer per project.
 
 Read back with pdftotext and pdffonts of the poppler tools. Skips where the host has no Liberation or DejaVu file.
@@ -64,13 +64,26 @@ def test_the_subset_keeps_the_file_small(project):
     assert src.with_suffix(".pdf").stat().st_size < 200_000
 
 
-def test_without_unicode_the_refusal_names_both_ways_out(project, capsys):
+@needs_fonts
+def test_without_unicode_cyrillic_embeds_the_font_and_without_a_font_the_error_names_replace(project, monkeypatch,
+                                                                                              capsys):
+    """Replaces test_without_unicode_the_refusal_names_both_ways_out (owner's yes of 2026-11-20, Unicode by
+    default): without --unicode Cyrillic now embeds a font of the host and reads back as written. Kept from the
+    replaced test: where nothing can show it (no font file on the host) nothing is written and the one line names
+    the way out, --replace."""
     src = project / "deliverables" / "note.md"
     src.write_text("# Note\n\nСлово.\n", encoding="utf-8")
-    assert pdf.main([str(src)]) == 1
-    err = capsys.readouterr().err
-    assert "--unicode" in err and "--replace" in err
-    assert not src.with_suffix(".pdf").exists()
+    assert pdf.main([str(src)]) == 0
+    out = src.with_suffix(".pdf")
+    assert "Слово." in poppler("pdftotext", out) and b"/FontFile2" in out.read_bytes()
+    capsys.readouterr()
+    out.unlink()
+    monkeypatch.setattr(pdffont, "find", lambda: None)
+    assert pdf.main([str(src)]) == 2
+    err = capsys.readouterr().err.strip()
+    assert len(err.splitlines()) == 1 and "no Liberation or DejaVu font file" in err and "--replace" in err
+    assert not out.exists()
+    assert pdf.main([str(src), "--replace"]) == 0 and "?????." in poppler("pdftotext", out)
 
 
 def test_a_latin_document_keeps_the_standard_fonts(project):
