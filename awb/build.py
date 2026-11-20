@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from awb import config
+from awb import config, safefile
 
 # --------------------------------------------------------------------------- places
 
@@ -324,29 +324,8 @@ def parse(text: str, qdir: Path | None = None) -> tuple[list[Task], list[Note]]:
 def _read_regular(path: Path, cap: int, dir_fd: int | None = None, own: bool = True) -> bytes:
     """The bytes of a regular file, opened without following a link, of this uid when `own`, at most `cap` bytes.
     Raises OSError with a message that names no content."""
-    fd = os.open(path if dir_fd is None else path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
-                 dir_fd=dir_fd)
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            raise OSError("not a regular file")
-        if own and st.st_uid != os.geteuid():
-            raise OSError("not a file of this user")
-        if st.st_nlink != 1:
-            raise OSError("a file with more than one name")
-        if st.st_size > cap:
-            raise OSError("larger than %d bytes" % cap)
-        data = b""
-        while len(data) <= cap:
-            chunk = os.read(fd, 65536)
-            if not chunk:
-                break
-            data += chunk
-        if len(data) > cap:
-            raise OSError("larger than %d bytes" % cap)
-        return data
-    finally:
-        os.close(fd)
+    return safefile.read_regular(path if dir_fd is None else path.name, dir_fd=dir_fd, cap=cap, own=own,
+                                 single_link=True, cloexec=True)
 
 
 def _open_dir(path: Path) -> int:
@@ -507,18 +486,8 @@ class Run:
 def _write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:
     """Write `data` under a fresh name beside `path` (exclusive, never through a link), then rename it over `path`:
     a reader sees the old file or the new one, never a part."""
-    tmp = path.with_name(".%s.%s.tmp" % (path.name, secrets.token_hex(6)))
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode)
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())
-        _rename(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+    safefile.write_atomic(path, data, mode=mode, temp=lambda name: ".%s.%s.tmp" % (name, secrets.token_hex(6)),
+                          rename=_rename)
 
 
 def _rename(src: Path, dst: Path) -> None:

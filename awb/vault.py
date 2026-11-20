@@ -64,7 +64,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import check, codes, config, fplearn, parts, register
+from awb import check, codes, config, fplearn, parts, register, safefile
 from awb.handover import (HANDOVER_DEADLINE, RELOAD_CLIENT_TIMEOUT, _adopt, _bind, _inherited, _Pair, _peer_uid,
                           hand_over, no_dump, release_path, sd_notify)
 from awb.matcher import Matcher
@@ -217,11 +217,9 @@ def _directory(path: Path, *, create: bool = False):
 
 @contextmanager
 def _regular_at(folder: int, name: str, flags: int = os.O_RDONLY):
-    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=folder)
+    fd = safefile.open_regular(name, dir_fd=folder, flags=flags, single_link=True,
+                               refuse=lambda: VaultError("only a regular vault file with one link is allowed"))
     try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
-            raise VaultError("only a regular vault file with one link is allowed")
         yield fd
     finally:
         os.close(fd)
@@ -251,21 +249,8 @@ def _revision(st) -> tuple:
 
 
 def _write_at(folder: int, name: str, data: bytes, mode: int) -> None:
-    tmp = ".awb-%s.tmp" % secrets.token_hex(16)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=folder)
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            os.fchmod(fh.fileno(), mode)
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, name, src_dir_fd=folder, dst_dir_fd=folder)
-        os.fsync(folder)
-    finally:
-        try:
-            os.unlink(tmp, dir_fd=folder)
-        except FileNotFoundError:
-            pass
+    safefile.write_atomic(name, data, dir_fd=folder, mode=mode, chmod=True, fsync_dir=True,
+                          temp=lambda _name: ".awb-%s.tmp" % secrets.token_hex(16))
 
 
 def _write_atomic(path: Path, data: bytes, mode: int = 0o600) -> None:

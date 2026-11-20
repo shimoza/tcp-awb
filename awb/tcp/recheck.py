@@ -84,7 +84,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import codes, jobs, kb
+from awb import codes, jobs, kb, safefile
 
 PROJECT_KEY = "recheck_project"
 """The key of the host file that names the standing service project of the design (kind project, no customer,
@@ -112,11 +112,11 @@ class RecheckError(Exception):
     """A refusal before the first call, with one line for the owner."""
 
 
-FOLDER_MODE = 0o2775
+FOLDER_MODE = safefile.SHARED_DIR
 """`<shared>/recheck` is written by both sides: the work user (state.tsv, refuted.tsv of a run) and the owner, another
 uid in the same group (requested.tsv of the weekly refresh). Group writable with the setgid bit, so that what one side
 creates keeps the group and the other side can write it (a folder of mode 2755 stopped the refresh of 2026-11-14)."""
-FILE_MODE = 0o664
+FILE_MODE = safefile.SHARED
 """The mode of a file of `<shared>/recheck`: the other side appends to it through the group."""
 
 

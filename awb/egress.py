@@ -75,7 +75,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from awb import config, egressgrant
+from awb import config, egressgrant, safefile
 
 TABLE = "awb_egress"
 MODES = ("count", "enforce")
@@ -300,23 +300,9 @@ def _atomic_write(path: Path, text: str, host: Host, mode_bits: int = 0o644, gid
                 st = None
             if st is not None and (not stat.S_ISREG(st.st_mode) or st.st_nlink != 1):
                 raise EgressError("an egress destination is not a regular file")
-            tmp = ".egress-" + secrets.token_hex(16)
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                    fh.write(text)
-                    fh.flush()
-                    os.fchmod(fh.fileno(), mode_bits)
-                    if host.chown_root and host.geteuid() == 0:
-                        os.fchown(fh.fileno(), 0, gid)
-                    os.fsync(fh.fileno())
-                os.replace(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
-                os.fsync(parent)
-            finally:
-                try:
-                    os.unlink(tmp, dir_fd=parent)
-                except FileNotFoundError:
-                    pass
+            safefile.write_atomic(name, text, dir_fd=parent, mode=mode_bits, create_mode=0o600, chmod=True,
+                                  owner=(0, gid) if host.chown_root and host.geteuid() == 0 else None,
+                                  temp=lambda _name: ".egress-" + secrets.token_hex(16), fsync_dir=True)
     except OSError:
         raise EgressError("an egress file could not be written safely") from None
 

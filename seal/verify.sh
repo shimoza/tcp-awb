@@ -237,6 +237,32 @@ allowed "the check socket answers ping" as_work python3 -c "$PING_PY" "$socket"
 allowed "the work user can write tcp-shared" as_work sh -c "$WRITE_SH" verify "$shared"
 allowed "the owner can write the outbox" runuser -u "$owner" -- sh -c "$WRITE_SH" verify "$shared/outbox"
 allowed "the outbox carries the setgid and the sticky bit" test "$(stat -c %a -- "$shared/outbox")" = "3770"
+
+shared_modes_ok() {
+    # shared_modes_ok DIR DIRMODE FILEMODE: DIR carries at least DIRMODE and every file in it at least FILEMODE
+    # (octal); a folder not made yet passes, a link or another kind where it should be fails
+    local m
+    [ -e "$1" ] || [ -L "$1" ] || return 0
+    [ -d "$1" ] && [ ! -L "$1" ] || return 1
+    m=$(stat -c %a -- "$1")
+    [ $((8#$m & 8#$2)) -eq $((8#$2)) ] || return 1
+    while IFS= read -r m; do
+        [ $((8#$m & 8#$3)) -eq $((8#$3)) ] || return 1
+    done < <(find "$1" -mindepth 1 -maxdepth 1 -type f -printf '%m\n')
+}
+# the folders of tcp-shared that both sides write, with their modes from the one table of awb/safefile.py (Q-0023)
+shared_table=""
+if [ "$dry_run" -eq 0 ]; then
+    shared_table=$(python3 -I -- "$seal_dir/../awb/safefile.py" table 2>/dev/null) || shared_table=""
+else
+    printf 'CHECK %s\n' "each shared folder of the table of awb/safefile.py carries its folder and file modes"
+fi
+allowed "the mode table of awb/safefile.py can be read" test -n "$shared_table"
+while read -r rel dmode fmode; do
+    [ -n "$rel" ] || continue
+    allowed "the shared folder $rel carries at least $dmode and each file in it at least $fmode (awb/safefile.py)" \
+        shared_modes_ok "$shared/$rel" "$dmode" "$fmode"
+done <<<"$shared_table"
 allowed "the owner can write the tenant history" runuser -u "$owner" -- sh -c "$WRITE_SH" verify "$shared/tenants"
 immutable() {
     # immutable FILE: the file carries the immutable flag (lsattr prints the flags first, i among them)

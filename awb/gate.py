@@ -86,7 +86,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
-from awb import check, codes, normalize, register
+from awb import check, codes, normalize, register, safefile
 from awb.extract import text as extract_text
 from awb.matcher import Matcher, Span
 
@@ -1162,20 +1162,12 @@ def _read_regular(f: Path) -> bytes | None:
     device, a socket, a folder). Opened without blocking, so that a named pipe never holds the gate (review
     2026-11-15: a pipe in a walked folder hung `awb gate DIR` for good), and judged by the opened file itself."""
     try:
-        fd = os.open(f, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+        fd = safefile.open_regular(f, follow=True, cloexec=True)
     except OSError:
         return None
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            return None
         os.set_blocking(fd, True)
-        chunks = []
-        while True:
-            chunk = os.read(fd, 1 << 20)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        return b"".join(chunks)
+        return safefile.read_fd(fd)
     except OSError:
         return None
     finally:

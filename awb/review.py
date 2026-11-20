@@ -99,7 +99,7 @@ from datetime import date
 from functools import wraps
 from pathlib import Path
 
-from awb import codes, config
+from awb import codes, config, safefile
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -204,19 +204,8 @@ def _directory(path: Path, create: bool = False):
 
 def _write_atomic(path: Path, text: str) -> None:
     with _directory(path.parent, create=True) as parent:
-        tmp = ".tmp-" + os.urandom(16).hex()
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
-                fh.write(text)
-                fh.flush()
-                os.fchmod(fh.fileno(), 0o640)
-            os.replace(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent)
-        finally:
-            try:
-                os.unlink(tmp, dir_fd=parent)
-            except FileNotFoundError:
-                pass
+        safefile.write_atomic(path.name, text, dir_fd=parent, mode=0o640, create_mode=0o600, chmod=True,
+                              fsync=False, temp=lambda _name: ".tmp-" + os.urandom(16).hex())
 
 
 def _remove_record(folder: Path) -> None:

@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import base64
 import os
-import tempfile
+import secrets
 from pathlib import Path
 
-from awb import config, normalize
+from awb import config, normalize, safefile
 from awb.intake.engine import IntakeError, keep_key
 
 
@@ -79,20 +79,7 @@ def _write_private(path: Path, text: str) -> None:
     if not path.parent.is_dir():
         path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(path.parent, 0o700)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".keep-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    safefile.publish_private(path, text, temp=lambda _name: ".keep-%s.tmp" % secrets.token_hex(4))
     os.chmod(path, 0o600)
 
 

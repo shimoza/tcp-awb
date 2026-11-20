@@ -29490,8 +29490,120 @@
    "name": "Q-0014 phase 2: an ended row of another shape is refused",
    "run": ".venv/bin/pytest tests/test_events_phase2.py::test_an_ended_row_of_another_shape_is_refused",
    "status": "passing"
+  },
+  {
+   "id": "Q23-1",
+   "phase": "T",
+   "name": "safefile: pinned read refuses a link, a pipe and a folder without waiting",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_read_regular_refuses_a_link_a_pipe_and_a_folder_without_waiting",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-2",
+   "phase": "T",
+   "name": "safefile: pinned read checks the one name and the cap and names the cap",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_read_regular_checks_links_and_size_and_names_the_cap",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-3",
+   "phase": "T",
+   "name": "safefile: a failed check closes the descriptor and raises the caller's error",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_a_failed_check_closes_the_descriptor_and_raises_the_callers_error",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-4",
+   "phase": "T",
+   "name": "safefile: atomic write replaces with the mode and leaves no temporary file",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_write_atomic_replaces_with_the_mode_and_leaves_no_temporary_file",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-5",
+   "phase": "T",
+   "name": "safefile: private and shared publish set 600 and 664 from the table",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_publish_private_and_shared_set_their_modes_from_the_table",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-6",
+   "phase": "T",
+   "name": "safefile: a failed rename keeps the old file and removes the temporary file",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_a_failed_rename_keeps_the_old_file_and_removes_the_temporary_file",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-7",
+   "phase": "T",
+   "name": "safefile: without overwrite an existing target is refused",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_without_overwrite_an_existing_target_is_refused_and_a_new_one_written",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-8",
+   "phase": "T",
+   "name": "safefile: a planted link at the temporary name is never followed",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_a_planted_link_at_the_temporary_name_is_never_followed",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-9",
+   "phase": "T",
+   "name": "safefile: write_new refuses an existing file and a link",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_write_new_refuses_an_existing_file_and_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-10",
+   "phase": "T",
+   "name": "safefile: the replaced copies keep their errors",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_the_copies_keep_their_errors",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-11",
+   "phase": "T",
+   "name": "safefile: the replaced copies keep their modes and temporary names",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_the_copies_keep_their_modes_and_temporary_names",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-12",
+   "phase": "T",
+   "name": "safefile: the shared modes of labclient, ux and recheck come from the table",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_the_shared_modes_of_the_modules_come_from_the_table",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-13",
+   "phase": "T",
+   "name": "safefile: the mode table runs as a script with the standard library alone",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_the_table_runs_as_a_script_with_the_standard_library_alone",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-14",
+   "phase": "T",
+   "name": "safefile: seal/verify.sh checks the shared folders against the table",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_verify_checks_the_shared_folders_against_the_table",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-15",
+   "phase": "T",
+   "name": "safefile: simulated two users: a shared publish carries the group and its bits",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_shared_publish_in_a_shared_folder_gives_the_group_and_the_group_bits",
+   "status": "passing"
+  },
+  {
+   "id": "Q23-16",
+   "phase": "T",
+   "name": "safefile: two uids (root only): the other user reads the shared file, never the private one",
+   "run": ".venv/bin/pytest tests/test_safefile.py::test_across_two_uids_the_other_user_reads_the_shared_file_and_never_the_private_one",
+   "status": "passing"
   }
  ],
- "total_tests": 4213,
+ "total_tests": 4229,
  "checked": "2026-11-20"
 }

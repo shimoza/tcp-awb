@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
-from awb import laptop
+from awb import laptop, safefile
 
 BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
 BOOT_STAMP = "boot-update.id"
@@ -363,14 +363,15 @@ def _replace_block(text: str, block: str) -> str:
 
 
 def _write_atomic(path: Path, text: str) -> None:
+    """The new text through `.NAME.part` beside it (not exclusive, no fsync): an existing file keeps its mode, a new
+    one gets 666 under the umask."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    part = path.with_name("." + path.name + ".part")
-    part.write_text(text, encoding="utf-8")
     try:
-        os.chmod(part, path.stat().st_mode & 0o777)
+        mode, chmod = path.stat().st_mode & 0o777, True
     except FileNotFoundError:
-        pass
-    os.replace(part, path)
+        mode, chmod = 0o666, False
+    safefile.write_atomic(path, text, mode=mode, chmod=chmod, temp=lambda name: "." + name + ".part",
+                          exclusive=False, fsync=False)
 
 
 def boot_setup(awb: str | None = None) -> list[str]:

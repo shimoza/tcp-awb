@@ -104,7 +104,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from awb import check, codes, config, gate, normalize, offered, patterns, register
+from awb import check, codes, config, gate, normalize, offered, patterns, register, safefile
 
 SCOPES = ("tcp", "hcs")
 SCOPE_FILE = "SCOPE"
@@ -897,23 +897,8 @@ def _write_atomic(path: Path, text: str, *, overwrite: bool = True) -> None:
                 raise KBError("the output file exists; give --force to replace it")
             if not stat.S_ISREG(st.st_mode):
                 raise KBError("the output must be a regular file")
-        tmp = ".%s.%s.tmp" % (path.name, secrets.token_hex(12))
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                os.fchmod(fh.fileno(), 0o640)
-                fh.write(text)
-                fh.flush()
-                os.fsync(fh.fileno())
-            if overwrite:
-                os.replace(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent)
-            else:
-                os.link(tmp, path.name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
-        finally:
-            try:
-                os.unlink(tmp, dir_fd=parent)
-            except FileNotFoundError:
-                pass
+        safefile.write_atomic(path.name, text, dir_fd=parent, mode=0o640, chmod=True, overwrite=overwrite,
+                              temp=lambda name: ".%s.%s.tmp" % (name, secrets.token_hex(12)))
 
 
 @contextmanager

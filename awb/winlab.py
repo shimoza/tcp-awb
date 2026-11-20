@@ -72,13 +72,12 @@ import os
 import re
 import secrets
 import socket
-import stat
 import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from awb import codes, config, events
+from awb import codes, config, events, safefile
 
 FILE_NAME = "winlab.json"
 PORT_MIN, PORT_MAX = 1024, 65535
@@ -198,12 +197,8 @@ def _parent(path: Path, create: bool = False):
 
 
 def _regular(folder: int, name: str, flags: int = os.O_RDONLY, mode: int = 0o600) -> int:
-    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, mode, dir_fd=folder)
-    st = os.fstat(fd)
-    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
-        os.close(fd)
-        raise WinlabError("lab storage requires a regular file with no links")
-    return fd
+    return safefile.open_regular(name, dir_fd=folder, flags=flags, mode=mode, single_link=True,
+                                 refuse=lambda: WinlabError("lab storage requires a regular file with no links"))
 
 
 def _read_bytes(path: Path, limit: int = METADATA_MAX) -> bytes:
@@ -236,20 +231,8 @@ def _atomic_json(path: Path, data: dict) -> None:
             pass
         else:
             os.close(fd)
-        tmp = ".winlab-" + secrets.token_hex(16)
-        try:
-            fd = _regular(folder, tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, indent=1, sort_keys=True)
-                fh.write("\n")
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, path.name, src_dir_fd=folder, dst_dir_fd=folder)
-        finally:
-            try:
-                os.unlink(tmp, dir_fd=folder)
-            except FileNotFoundError:
-                pass
+        safefile.write_atomic(path.name, json.dumps(data, indent=1, sort_keys=True) + "\n", dir_fd=folder,
+                              mode=0o600, temp=lambda _name: ".winlab-" + secrets.token_hex(16))
 
 
 LOCK_WAIT = 60.0

@@ -85,7 +85,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from awb import codes, config, jobs, obs
+from awb import codes, config, jobs, obs, safefile
 from awb.tcp import sweep as _sweep
 
 TENANTS_DIR = "tenants"
@@ -140,19 +140,8 @@ def _printable(text: str) -> str:
 
 def _read_regular(path: Path) -> str:
     """The text of a regular file, opened without following a link and without blocking on a FIFO."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise TenantError("%s is no regular file" % path.name)
-        chunks = []
-        while True:
-            chunk = os.read(fd, 1 << 16)
-            if not chunk:
-                break
-            chunks.append(chunk)
-    finally:
-        os.close(fd)
-    return b"".join(chunks).decode("utf-8")
+    data = safefile.read_regular(path, cloexec=True, refuse=lambda: TenantError("%s is no regular file" % path.name))
+    return data.decode("utf-8")
 
 
 def _append(path: Path, text: str) -> None:

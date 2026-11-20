@@ -24,12 +24,12 @@ import stat
 import sys
 from pathlib import Path
 
-from awb import codes, config
+from awb import codes, config, safefile
 
 FOLDER = "ux"
 EVENTS_FILE = "events.tsv"
-FOLDER_MODE = 0o2775
-FILE_MODE = 0o664
+FOLDER_MODE = safefile.SHARED_DIR   # 2775, the table of awb/safefile.py
+FILE_MODE = safefile.SHARED        # 664
 PHRASES = Path(__file__).resolve().parent.parent / "rules" / "ux-phrases.tsv"
 WHOLE_CLASSES = ("bare-yes",)
 """Classes whose phrase must be the whole prompt (spaces and the marks of STRIP around it aside)."""

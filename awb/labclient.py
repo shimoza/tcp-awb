@@ -60,6 +60,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from awb import safefile
+
 EXIT_OK, EXIT_REFUSED, EXIT_LEFT = 0, 2, 4
 LOG_FOLDER = Path("notes") / "lab-runs"
 SOCKET_ENV = "AWB_KEYS_SOCKET"
@@ -201,15 +203,8 @@ def _directory(path: Path, create: bool = False):
 
 
 def _file(parent: int, name: str, flags: int) -> int:
-    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, 0o600, dir_fd=parent)
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
-            raise LabClientError("refused: expected a regular file with one link")
-        return fd
-    except BaseException:
-        os.close(fd)
-        raise
+    return safefile.open_regular(name, dir_fd=parent, flags=flags, cloexec=True, single_link=True,
+                                 refuse=lambda: LabClientError("refused: expected a regular file with one link"))
 
 
 def _read(parent: int, name: str, limit: int = MAX_FILE) -> str:
@@ -221,7 +216,7 @@ def _read(parent: int, name: str, limit: int = MAX_FILE) -> str:
     return raw.decode("utf-8")
 
 
-SHARED_MODES = {"RESOURCES.md": 0o664}
+SHARED_MODES = {"RESOURCES.md": safefile.SHARED}
 """The mode of a project file this client creates that others read: the lab daemon reads RESOURCES.md."""
 
 
@@ -240,20 +235,8 @@ def _write(parent: int, name: str, text: str) -> None:
             mode = stat.S_IMODE(os.fstat(fd).st_mode) & 0o777
         finally:
             os.close(fd)
-    temp = ".lab-" + secrets.token_hex(16)
-    fd = _file(parent, temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            os.fchmod(fh.fileno(), mode)
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
-    finally:
-        try:
-            os.unlink(temp, dir_fd=parent)
-        except FileNotFoundError:
-            pass
+    safefile.write_atomic(name, text, dir_fd=parent, mode=mode, create_mode=0o600, chmod=True,
+                          temp=lambda _name: ".lab-" + secrets.token_hex(16))
 
 
 def _boundary(fn):

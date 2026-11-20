@@ -21,7 +21,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from awb import config
+from awb import config, safefile
 
 
 # --------------------------------------------------------------------------- the exit codes, the host and the project
@@ -110,10 +110,8 @@ def _regular(path: Path, *, append: bool = False):
             os.close(parent)
             parent = child
         flags = (os.O_WRONLY | os.O_APPEND | os.O_CREAT) if append else os.O_RDONLY
-        fd = os.open(path.name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o640, dir_fd=parent)
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise OSError("not a private regular file")
+        fd = safefile.open_regular(path.name, dir_fd=parent, flags=flags, mode=0o640, single_link=True,
+                                   refuse=lambda: OSError("not a private regular file"))
         yield fd
     finally:
         if fd is not None:
@@ -140,16 +138,7 @@ def _locked(fd: int, *, shared: bool = False):
 
 def _read_regular(path: Path, limit: int = _METADATA_LIMIT, *, locked: bool = False) -> str:
     def read(fd):
-        if os.fstat(fd).st_size > limit:
-            raise OSError("file too large")
-        chunks, size = [], 0
-        while size <= limit:
-            chunk = os.read(fd, min(65536, limit + 1 - size))
-            if not chunk:
-                return b"".join(chunks).decode("utf-8")
-            chunks.append(chunk)
-            size += len(chunk)
-        raise OSError("file too large")
+        return safefile.read_fd(fd, limit, too_large="file too large").decode("utf-8")
     with _regular(path) as fd:
         if locked:
             with _locked(fd, shared=True):

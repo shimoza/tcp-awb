@@ -39,6 +39,7 @@ from awb import codes as _codes
 from awb import config as _config
 from awb import devnote as _devnote
 from awb import register as _register
+from awb import safefile as _safefile
 
 PROJECT_KINDS = ("query", "project")
 REVIEW_TIERS = (1, 2, 3)
@@ -112,11 +113,7 @@ GOAL_WIDTH = 72
 
 def _read_regular(path, *, dir_fd=None) -> bytes:
     """Read the opened regular file, never a link or a blocking special file."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
-    with os.fdopen(fd, "rb") as fh:
-        if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
-            raise OSError("not a regular file")
-        return fh.read()
+    return _safefile.read_regular(path, dir_fd=dir_fd)
 
 
 def goal_of(path: str | os.PathLike) -> str:

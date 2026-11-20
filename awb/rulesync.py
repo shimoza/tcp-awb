@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 
-from awb import config, devnote
+from awb import config, devnote, safefile
 from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS,
                           LAB_RUN_RULE, LAB_RUN_RULE_HEAD, LAB_RUN_RULE_OLD_HEAD, LEVEL_2, LEVEL_2_RUN,
                           OPEN_COMMAND_RULE, OWN_OUTPUT_RULE, PROJECT_LINE, PUT_KEY_RULE, REVIEW_L1, START_RULE)
@@ -354,17 +354,8 @@ def _read_mark(path: Path) -> dict:
 
 
 def _publish(parent: int, name: str, data: dict, mode: int, exclusive: bool = False) -> None:
-    tmp = ".rules-" + secrets.token_hex(16) + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(data) + "\n")
-        if exclusive:
-            os.link(tmp, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
-        else:
-            os.replace(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
-    finally:
-        os.unlink(tmp, dir_fd=parent)
+    safefile.write_atomic(name, json.dumps(data) + "\n", dir_fd=parent, mode=mode, fsync=False,
+                          overwrite=not exclusive, temp=lambda _name: ".rules-" + secrets.token_hex(16) + ".tmp")
 
 
 def _write_mark(path: Path, data: dict) -> None:

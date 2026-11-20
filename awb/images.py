@@ -26,7 +26,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from awb import codes, config
+from awb import codes, config, safefile
 
 QUARANTINE = "quarantine"
 MANIFEST = "manifest.json"
@@ -126,9 +126,7 @@ def pictures(src: Path, kind: str) -> tuple[list[tuple[str, bytes]], int]:
 
 
 def _write_private(path: Path, data: bytes) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(data)
+    safefile.write_new(path, data, mode=0o600)
 
 
 def _save_manifest(where: Path, manifest: dict) -> None:
