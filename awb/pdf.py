@@ -1,6 +1,6 @@
 """One PDF writer for every project, standard library only: a Markdown or HTML deliverable as an A4 PDF.
 
-    awb pdf FILE [--out PDF] [--title T] [--replace]
+    awb pdf FILE [--out PDF] [--title T] [--unicode] [--replace]
 
 The host has no office suite, so this is the one route from a text deliverable to a PDF; no project writes its own.
 The writer uses the four standard fonts every reader carries (Helvetica, Helvetica-Bold, Helvetica-Oblique, Courier)
@@ -22,13 +22,18 @@ private (0600), published atomically; concurrent conversions may replace each ot
 Names and secrets in source, parsed text, links, paths and metadata refuse publication. Input lines and joined
 Markdown paragraphs are limited to 16384 characters, tables to 100000 rectangular cells and output to 1000 pages.
 A character the standard fonts cannot show (outside WinAnsi, Cyrillic for example) is never
-dropped silently: the command refuses with the first line that holds one and the count, unless --replace is given,
-which writes "?" for each and says how many. Exit codes: 0 written, 1 refused for such characters, 2 usage or error.
+dropped silently: the command refuses with the first line that holds one and the count, unless --unicode or --replace
+is given. --unicode embeds a TrueType font of the host instead of the standard fonts (Liberation Sans and Mono,
+the metrics of the standard fonts, else DejaVu; awb/pdffont.py), only the glyphs the document uses, with a ToUnicode
+map: Russian, German umlauts and Latin in one document, the text selectable and read back by pdftotext as it was
+written. --replace writes "?" for each character the fonts cannot show and says how many. Exit codes: 0 written,
+1 refused for such characters, 2 usage or error (2 also when --unicode finds no font file on the host).
 
 Used by `awb howto render --pdf` and by `awb dataset build` for its HOW-TO.pdf (`render`).
 """
 from __future__ import annotations
 
+import contextvars
 import html
 import io
 import os
@@ -41,6 +46,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote
 
+from awb import pdffont
 from awb.labclient import SCRATCH
 
 AUTHOR = "Architect Workbench"
@@ -73,6 +79,21 @@ _BOLD = ([278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 
 _WIDE = {0x85: 1000, 0x89: 1000, 0x8C: 1000, 0x97: 1000, 0x99: 1000, 0xC6: 1000, 0xA0: 278}
 
 
+# the embedded fonts of the document being rendered (--unicode), None for the standard fonts
+_EMBEDDED: contextvars.ContextVar = contextvars.ContextVar("awb_pdf_embedded", default=None)
+
+
+def unicode_fonts() -> "pdffont.FontSet":
+    """The embedded font set of the host, or PdfError when a style has no font file."""
+    files = pdffont.find()
+    if files is None:
+        raise PdfError("--unicode: no Liberation or DejaVu font file on this host")
+    try:
+        return pdffont.FontSet(files)
+    except (OSError, pdffont.FontError):
+        raise PdfError("--unicode: a font file of the host cannot be read") from None
+
+
 class PdfError(Exception):
     """A file that cannot become a PDF: the one line of the refusal."""
 
@@ -103,11 +124,14 @@ def plain(kind: str, text: str) -> Block:
 
 # --------------------------------------------------------------------------- characters
 
-def _showable(ch: str) -> bool:
+def _showable(ch: str, fonts=None) -> bool:
     if ch in "\t\n\r":
         return True
     if ord(ch) < 32 or ord(ch) == 127:
         return False
+    fonts = fonts or _EMBEDDED.get()
+    if fonts is not None:
+        return fonts.showable(ch)
     try:
         ch.encode("cp1252")
     except UnicodeEncodeError:
@@ -115,11 +139,12 @@ def _showable(ch: str) -> bool:
     return True
 
 
-def unshowable(text: str) -> list[tuple[int, int]]:
-    """[(line number, count)] of the lines that hold characters outside WinAnsi, which the standard fonts lack."""
+def unshowable(text: str, fonts=None) -> list[tuple[int, int]]:
+    """[(line number, count)] of the lines that hold characters the fonts lack: outside WinAnsi for the standard
+    fonts, outside the character map of every embedded font with `fonts`."""
     out = []
     for n, line in enumerate(text.split("\n"), start=1):
-        bad = sum(1 for ch in line if not _showable(ch))
+        bad = sum(1 for ch in line if not _showable(ch, fonts))
         if bad:
             out.append((n, bad))
     return out
@@ -129,7 +154,14 @@ def _encode(text: str) -> bytes:
     return "".join(ch if _showable(ch) else "?" for ch in text).encode("cp1252", "replace")
 
 
+def _shown(text: str) -> str:
+    return "".join(ch if _showable(ch) else "?" for ch in text)
+
+
 def _width(text: str, font: str, size: float) -> float:
+    fonts = _EMBEDDED.get()
+    if fonts is not None:
+        return fonts.width(font, _shown(text)) * size / 1000.0
     if font == "c":
         return 0.6 * size * len(text)
     table = _BOLD if font == "b" else _HELVETICA
@@ -141,6 +173,14 @@ def _width(text: str, font: str, size: float) -> float:
 
 def _string(data: bytes) -> bytes:
     return b"(" + data.replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)") + b")"
+
+
+def _show(font: str, text: str) -> bytes:
+    """The string operand of Tj: WinAnsi bytes for the standard fonts, glyph numbers for embedded ones."""
+    fonts = _EMBEDDED.get()
+    if fonts is not None:
+        return fonts.show(font, _shown(text))
+    return _string(_encode(text))
 
 
 def _info_string(text: str) -> bytes:
@@ -177,7 +217,7 @@ class _Pages:
 
     def text(self, x: float, y: float, font: str, size: float, text: str) -> None:
         self.ops[-1].append(b"BT /%s %g Tf %.2f %.2f Td %s Tj ET" % (FONTS[font][0].encode(), size, x, y,
-                                                                     _string(_encode(text))))
+                                                                     _show(font, text)))
 
     def link(self, x1: float, y1: float, x2: float, y2: float, url: str) -> None:
         uri = quote(url, safe=":/?#[]@!$&'()*+,;=%~-._")
@@ -471,8 +511,17 @@ def layout(blocks: list[Block]) -> _Pages:
     return pages
 
 
-def render(blocks: list[Block], title: str, author: str = AUTHOR) -> bytes:
-    """The PDF of the blocks: A4, the standard fonts, a page number on every page, title and author in the info."""
+def render(blocks: list[Block], title: str, author: str = AUTHOR, unicode: bool = False) -> bytes:
+    """The PDF of the blocks: A4, the standard fonts (or with `unicode` the embedded fonts of the host), a page
+    number on every page, title and author in the info."""
+    token = _EMBEDDED.set(unicode_fonts() if unicode else None)
+    try:
+        return _render(blocks, title, author)
+    finally:
+        _EMBEDDED.reset(token)
+
+
+def _render(blocks: list[Block], title: str, author: str) -> bytes:
     # Check the text after parsing too: formatting and entities can join a private value.
     values = [title, author]
     for block in blocks:
@@ -485,15 +534,20 @@ def render(blocks: list[Block], title: str, author: str = AUTHOR) -> bytes:
     for n, ops in enumerate(pages.ops, start=1):
         label = "%d / %d" % (n, total)
         ops.append(b"BT /F1 8 Tf %.2f %d Td %s Tj ET" % ((PAGE_W - _width(label, "r", 8)) / 2, MARGIN // 2,
-                                                         _string(label.encode("ascii"))))
+                                                         _show("r", label)))
     objs: list[bytes] = []
 
     def add(body: bytes) -> int:
         objs.append(body)
         return len(objs)
 
-    font_ids = {key: add(b"<< /Type /Font /Subtype /Type1 /BaseFont /%s /Encoding /WinAnsiEncoding >>"
-                         % name.encode()) for key, name in FONTS.values()}
+    embedded = _EMBEDDED.get()
+    if embedded is not None:
+        ids = embedded.objects(add)
+        font_ids = {FONTS[key][0]: ids[key] for key in FONTS}
+    else:
+        font_ids = {key: add(b"<< /Type /Font /Subtype /Type1 /BaseFont /%s /Encoding /WinAnsiEncoding >>"
+                             % name.encode()) for key, name in FONTS.values()}
     res = b"<< /Font << " + b" ".join(b"/%s %d 0 R" % (k.encode(), v) for k, v in font_ids.items()) + b" >> >>"
     pages_id = len(objs) + 1 + sum(2 + len(a) for a in pages.annots)
     page_ids = []
@@ -998,7 +1052,7 @@ def _publish(target: Path, data: bytes) -> None:
 
 
 def convert(path: Path, out: Path | None = None, title: str | None = None, replace: bool = False,
-            start: Path | None = None, author: str = AUTHOR) -> tuple[Path, int, int]:
+            start: Path | None = None, author: str = AUTHOR, unicode: bool = False) -> tuple[Path, int, int]:
     """Write a checked, private PDF atomically; (PDF, pages, replaced character count)."""
     try:
         path = Path(path)
@@ -1018,14 +1072,19 @@ def convert(path: Path, out: Path | None = None, title: str | None = None, repla
         if any(len(line) > MAX_LINE for line in text.split("\n")):
             raise PdfError("input line is too long")
         _screen(text)
-        bad = unshowable(html.unescape(text) if kind == "html" else text)
+        fonts = unicode_fonts() if unicode else None
+        bad = unshowable(html.unescape(text) if kind == "html" else text, fonts)
         count = sum(n for _, n in bad)
         if bad and not replace:
+            if fonts is not None:
+                raise PdfRefused("line %d: %d character(s) the embedded fonts cannot show, %d in %d line(s) in all; "
+                                 "nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
+                                                                                         count, len(bad)))
             raise PdfRefused("line %d: %d character(s) the standard fonts cannot show (outside WinAnsi), %d in %d line(s) "
-                             "in all; nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
-                                                                                             count, len(bad)))
+                             "in all; nothing written; give --unicode to embed a font that shows them (Cyrillic) or "
+                             "--replace to write ? for them" % (bad[0][0], bad[0][1], count, len(bad)))
         blocks, found = from_html(text) if kind == "html" else from_markdown(text)
-        data = render(blocks, title or found or path.stem, author)
+        data = render(blocks, title or found or path.stem, author, unicode)
         _publish(target, data)
         return target, len(re.findall(rb"(?m)^<< /Type /Page /Parent \d+ 0 R /MediaBox", data)), count
     except (OSError, ValueError, RecursionError):
@@ -1041,15 +1100,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=None, metavar="PDF", help="the PDF (default: FILE with .pdf, next to it); inside the project "
                                                 "folder or the session scratch folder")
     ap.add_argument("--title", default=None, metavar="T", help="the title in the document info (default: the first heading)")
+    ap.add_argument("--unicode", action="store_true",
+                    help="embed a TrueType font of the host (Liberation, else DejaVu) so Cyrillic and every other "
+                         "character it has show as selectable text (default: the standard fonts, WinAnsi only)")
     ap.add_argument("--replace", action="store_true",
-                    help="write ? for a character the standard fonts cannot show (default: refuse)")
+                    help="write ? for a character the fonts cannot show (default: refuse)")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return 0 if exc.code == 0 else 2
     try:
         out, pages, replaced = convert(Path(args.file), Path(args.out) if args.out else None, args.title,
-                                       args.replace)
+                                       args.replace, unicode=args.unicode)
     except PdfRefused as err:
         print("awb pdf: %s" % err, file=sys.stderr)
         return 1
@@ -1061,5 +1123,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print("pdf: %s, %d page(s)" % (out, pages))
     if replaced:
-        print("pdf: %d character(s) the standard fonts cannot show written as ?" % replaced)
+        print("pdf: %d character(s) the %s fonts cannot show written as ?"
+              % (replaced, "embedded" if args.unicode else "standard"))
     return 0
