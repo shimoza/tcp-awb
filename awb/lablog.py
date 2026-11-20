@@ -23,6 +23,7 @@ import re
 import secrets
 import stat
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -49,6 +50,27 @@ _END_RE = re.compile(rb"^## " + _STAMP.encode() + rb" end of run ")
 
 class LabLogError(OSError):
     """A log place that is no regular file of one link or a folder that is a link."""
+
+
+@contextmanager
+def _directory(path: Path, create: bool = False):
+    """Pin every ancestor; never follow a directory link between checking and opening. The same walk as
+    awb/labclient.py, kept here so that a unit that imports the gate never imports the lab client (command only)."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        for part in path.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd
+    finally:
+        os.close(fd)
 
 
 def _open(parent: int, name: str, flags: int) -> int:
@@ -130,8 +152,6 @@ def _merge(parent: int, full: int, name: str) -> None:
 
 def ignore(root: Path, folder: str) -> None:
     """`<folder>/full/` in the project's .gitignore, before the full log lands there."""
-    from awb.labclient import _directory
-
     line = str(PurePosixPath(folder) / FULL) + "/"
     with _directory(root) as top:
         fd = _open(top, ".gitignore", os.O_RDWR | os.O_CREAT)
@@ -159,8 +179,6 @@ def ignore(root: Path, folder: str) -> None:
 def append(root: Path, path: Path, text: str) -> Path:
     """Append `text` to the lab log `path` (inside the project folder `root`) and return where it went: the log
     itself or its full log once it moved there. Raises OSError (LabLogError for a link or a special file)."""
-    from awb.labclient import _directory
-
     root = Path(os.path.abspath(root))
     path = Path(os.path.abspath(path))
     folder = path.parent.relative_to(root).as_posix()
@@ -246,8 +264,6 @@ def _refresh_if_old(root: Path, folder: str, parent: int, full: int, name: str) 
 def refresh(root: Path, path: Path) -> Path | None:
     """Write the summary of a lab log whose full text left git (the end of a lab run calls it); the summary path,
     or None for a log that is still small and in git."""
-    from awb.labclient import _directory
-
     root = Path(os.path.abspath(root))
     path = Path(os.path.abspath(path))
     folder = path.parent.relative_to(root).as_posix()
