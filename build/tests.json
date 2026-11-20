@@ -28181,8 +28181,92 @@
    "name": "Q-0010 an installed project hook strips the lines and the commit passes",
    "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_an_installed_project_hook_strips_the_lines_and_the_commit_passes",
    "status": "passing"
+  },
+  {
+   "id": "Q05-1",
+   "phase": "T",
+   "name": "Q-0005 hook notes: the footer rule names the Notes: prefix, the join and never a paragraph or above the answer",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_the_rule_names_the_footer_prefix_the_join_and_the_two_never",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-2",
+   "phase": "T",
+   "name": "Q-0005 hook notes: the session start of a project carries the footer rule after the codes line",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_the_session_start_carries_the_footer_rule",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-3",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a start outside a project carries no footer rule",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_start_without_a_project_carries_no_rule",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-4",
+   "phase": "T",
+   "name": "Q-0005 hook notes: the first note of a held stop starts with the footer shape, once",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_the_first_note_of_a_held_stop_carries_the_footer_shape",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-5",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a draft gate line alone keeps its text, beside a note the note carries the shape",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_draft_gate_line_alone_keeps_its_text_and_comes_after_the_shaped_note",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-6",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a stop after a notification adds no note and the note comes at the next stop",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_stop_after_a_notification_adds_no_note_and_the_note_waits",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-7",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a stop after a notification still holds a draft that was not checked",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_stop_after_a_notification_keeps_the_draft_gate",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-8",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a stop after a notification drafts no ledger entry, the next stop does",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_stop_after_a_notification_drafts_no_ledger_entry",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-9",
+   "phase": "T",
+   "name": "Q-0005 hook notes: the prompt of a turn skips tool results, side chains and broken lines",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_the_turn_prompt_skips_tool_results_and_side_chains",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-10",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a notification is the three client shapes and nothing else",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_is_notification_takes_the_three_shapes_and_nothing_else",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-11",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a notification prompt gets no note and the note comes with the next prompt",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_notification_prompt_gets_no_note_and_the_note_waits",
+   "status": "passing"
+  },
+  {
+   "id": "Q05-12",
+   "phase": "T",
+   "name": "Q-0005 hook notes: a notification keeps its data count line and its block",
+   "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_notification_keeps_its_data_line_and_its_block",
+   "status": "passing"
   }
  ],
- "total_tests": 4026,
+ "total_tests": 4038,
  "checked": "2026-11-20"
 }

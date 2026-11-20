@@ -106,6 +106,13 @@ imported only when a hook needs it; a module that is missing or fails makes its 
 a warning and never crashes a hook. The name check is the exception: without it the prompt and the written file
 are refused and the start loads no file.
 
+Hook notes (Q-0005): the session start carries FOOTER_RULE, that every note of the hooks goes into one footer
+line under the answer ("Notes: " and the notes joined with "; "), never a paragraph and never above the answer;
+the first note of a held stop starts with STOP_FOOTER (a draft gate line keeps its own text). A prompt that is an
+interim notification (is_notification: it starts with "<task-notification" or "[SYSTEM NOTIFICATION" or carries
+"<side-sessions-event") gets no note, only the data count line of D-T8, and a stop after such a turn adds none;
+the notes wait for the next prompt or stop. Every check, block and refusal runs as before.
+
 Exit codes follow the client: 0 go on, 2 block. A usage error exits 1, which the client shows without blocking;
 so does an unexpected error of the stop, start and compaction hooks. An unexpected error of a blocking hook
 (BLOCKING_HOOKS) exits 2, and so does input of a write or tool hook that is no JSON object. A hook that runs
@@ -175,6 +182,19 @@ SECRET_CLASSES = ("secret", "private-key", "token")
 """The classes of the gate that a prompt or a written file must not carry either."""
 """Seconds a hook waits and retries while the vault daemon answers with its rate limit."""
 UNLOCK_HINT = "as the owner run awb vault unlock (and awb keys unlock)"
+NOTES_PREFIX = "Notes: "
+"""The fixed start of the one footer line under an answer that carries the notes of the hooks (Q-0005)."""
+FOOTER_RULE = ("Hook notes: every note the Workbench hooks add (a notice, a release line, a receipt, a request, the "
+               "reason a reply was held) goes into one footer line under your answer, \"%s\" and the notes joined "
+               "with \"; \". Never a paragraph of its own and never above the answer. A reply to an interim agent or "
+               "background task notification carries no hook notes." % NOTES_PREFIX.strip())
+"""The standing rule a project session gets at its start (and again after a compaction). The notes of the prompt
+hook keep their exact text, so the rule that shapes them comes once from here (Q-0005)."""
+STOP_FOOTER = ("Act on these, then put them into the one footer line under your answer (\"%s\" and the notes "
+               "joined with \"; \"), never a paragraph of its own and never above the answer: " % NOTES_PREFIX.strip())
+"""The start of the first note the stop hook hands back; a draft gate line alone keeps its own text."""
+NOTIFICATION_STARTS = ("<task-notification", "[SYSTEM NOTIFICATION")
+NOTIFICATION_MARK = "<side-sessions-event"
 
 
 class Unavailable(Exception):
@@ -581,9 +601,22 @@ def _kb_text(data: dict) -> str | None:
         return None
 
 
+def is_notification(text) -> bool:
+    """True for a prompt that is an interim agent or background task notification of the client: it starts with
+    "<task-notification" or "[SYSTEM NOTIFICATION" or it carries "<side-sessions-event" (Q-0005)."""
+    if not isinstance(text, str):
+        return False
+    return text.lstrip().startswith(NOTIFICATION_STARTS) or NOTIFICATION_MARK in text
+
+
 def _rules_notice(data: dict, extra: str | None = None) -> None:
     """Tell a running session once that its rules changed; `extra` is a context line of its own (T8). The block of
-    the knowledge base comes last, when the prompt starts a new task (KF)."""
+    the knowledge base comes last, when the prompt starts a new task (KF). A notification gets `extra` alone and
+    no note: the notes wait for the next prompt (Q-0005)."""
+    if is_notification(data.get("prompt")):
+        if extra:
+            _emit(EVENTS["prompt"], extra)
+        return
     said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data), _dev_requests(data),
                                _handover_notice(data)) if t)
     if said:
@@ -1314,6 +1347,37 @@ def read_turn(transcript) -> _Turn:
     return turn
 
 
+def turn_prompt(transcript) -> str | None:
+    """The text of the user entry that started the current turn: the last user entry of the main thread with
+    text and without a tool result (a notification of the client included, which may be a meta entry). None when
+    the transcript is missing or cannot be read."""
+    if not isinstance(transcript, str) or not transcript:
+        return None
+    try:
+        with open(transcript, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - TRANSCRIPT_TAIL))
+            tail = f.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    found = None
+    for line in tail.splitlines():
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "user" or obj.get("isSidechain"):
+            continue
+        blocks = _blocks(obj)
+        if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocks):
+            continue
+        text = "\n".join(str(b.get("text", "")) for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+        if text.strip():
+            found = text
+    return found
+
+
 def _is_mail_draft(rel: Path) -> bool:
     return any(_MAIL_NAME_RE.search(part) for part in rel.parts)
 
@@ -1467,9 +1531,12 @@ def hook_stop(data: dict) -> int:
     _quietly(questions.record_refusals, config.paths(), root, refusals)
     if root is None:
         return OK
+    # Q-0005: a turn that answers a notification gets no note; the notes and their once-marks wait for the next stop
+    notified = is_notification(turn_prompt(data.get("transcript_path")))
     draft_msg = None
     try:
-        draft_ledger(config.paths(), root)
+        if not notified:
+            draft_ledger(config.paths(), root)
     except Exception as exc:
         from awb import ledger
         if isinstance(exc, ledger.Refused):
@@ -1486,19 +1553,19 @@ def hook_stop(data: dict) -> int:
     harvest_msg = None
     try:
         from awb import harvest
-        harvest_msg = harvest.due(config.paths(), data.get("transcript_path"), data.get("session_id"))
+        harvest_msg = None if notified else harvest.due(config.paths(), data.get("transcript_path"), data.get("session_id"))
     except Exception:
         harvest_msg = None
     contrib_msg = None
     try:
         from awb import packages
-        contrib_msg = packages.due(config.paths(), root, data.get("transcript_path"), data.get("session_id"))
+        contrib_msg = None if notified else packages.due(config.paths(), root, data.get("transcript_path"), data.get("session_id"))
     except Exception:
         contrib_msg = None
     late_msg = None
     try:
         from awb import status as _status
-        late_msg = _status.reminder(root)
+        late_msg = None if notified else _status.reminder(root)
     except Exception:
         late_msg = None
     try:
@@ -1511,11 +1578,20 @@ def hook_stop(data: dict) -> int:
     open_msg = None
     try:
         from awb import opensweep
-        open_msg = opensweep.reminder(root)
+        open_msg = None if notified else opensweep.reminder(root)
     except (OSError, UnicodeError, opensweep.OpenError):
         pass
     # task GT: the stop hook never asks for a review, a tier or a request check
-    said = [m for m in (draft_msg, harvest_msg, contrib_msg, late_msg, drafts_msg, open_msg) if m]
+    said: list[str] = []
+    shaped = False
+    for msg, note in ((draft_msg, True), (harvest_msg, True), (contrib_msg, True), (late_msg, True),
+                      (drafts_msg, False), (open_msg, True)):
+        if not msg:
+            continue
+        if note and not shaped:
+            # Q-0005: the first note carries the footer shape; a draft gate line keeps its own text
+            msg, shaped = STOP_FOOTER + msg, True
+        said.append(msg)
     if said:
         print("\n".join(said), file=sys.stderr)
         return BLOCK
@@ -1789,6 +1865,7 @@ def hook_session_start(data: dict) -> int:
                 return OK
             shown, down = "this project", [str(exc)]
         parts.append("Workbench project %s. Codes only, never a name.\n" % shown)
+        parts.append(FOOTER_RULE + "\n")
         parked = _parked_line(p, root)
         if parked:
             parts.append(parked + "\n")

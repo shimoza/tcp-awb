@@ -1493,6 +1493,11 @@ customer data out of the model as far as it can:
 - Six hooks check every prompt, every written file, every file or shell call and the start and end of every
   session, so that a registered name typed by mistake is stopped before the model sees it. While the name check
   cannot run (a locked vault), every prompt is refused with the time of the lock.
+- Hook notes go into one footer line (Q-0005): the start of a project session tells it to put every note of the
+  hooks (a notice, a release line, a receipt, a request, the reason a reply was held) into one line under its
+  answer, `Notes: ` and the notes joined with `; `, never a paragraph and never above the answer. A prompt that is
+  an interim agent or background task notification gets no note, and neither does the stop after it: the notes
+  wait for the next prompt or stop. The checks and blocks run on a notification as on any prompt.
 - A session on the sealed host starts only when every guard answers: the hooks, the commit gate of the project, the
   vault daemon, the key service, the installed rules and the host mode. Its context opens with "guards: 6 of 6
   active"; a missing guard refuses the start and every prompt with one line that names it. `awb board show` counts
