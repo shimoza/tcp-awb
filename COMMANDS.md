@@ -1046,7 +1046,7 @@ check files for names and structured data
 - `--register REGISTER`: register file (default: the vault register)
 - `--no-register`: run without a register: structured data only, names are not checked
 
-### `awb gate [PATHS...] [--staged] [--pushed] [--remote REMOTE] [--message MESSAGE] [--selftest] [--register REGISTER] [--no-register] [--repo REPO] [--install] [--kb] [--force]`
+### `awb gate [PATHS...] [--staged] [--pushed] [--remote REMOTE] [--message MESSAGE] [--strip-attribution] [--selftest] [--register REGISTER] [--no-register] [--repo REPO] [--install] [--kb] [--force]`
 
 the commit gate
 - `[PATHS...]`
@@ -1054,6 +1054,7 @@ the commit gate
 - `--pushed`: scan every file of every commit a push carries (the pre-push lines on standard input)
 - `--remote REMOTE`: with --pushed: the remote the push goes to (a new branch is new against it only)
 - `--message MESSAGE`: scan a commit message file (the commit-msg hook gives it)
+- `--strip-attribution`: with --message: take a co-author or generator line naming Claude out of the message file first instead of refusing it (the commit-msg hook of a project does the same itself)
 - `--selftest`: prove that every class can be found
 - `--register REGISTER`: register file (default: the vault register)
 - `--no-register`: run without a register: every class but name is checked

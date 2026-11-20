@@ -24,7 +24,7 @@ WINDOWS_PROMPT = "PS C:\\Us" + "ers\\Administrator> dir"
 MAC = "/Us" + "ers/builder/Library/x"
 ROOT_HOME = "/ro" + "ot/.ssh/known_hosts"
 ACRONYM = fixtures.CUSTOMER_FORMS[2]          # a registered short form of three letters
-CO_AUTHOR = "Co-Authored-By: Claude Opus 5.5 <noreply@" + "anthropic.com>"
+CO_AUTHOR = "Co-Authored-By: Claude <noreply@" + "anthropic.com>"
 GENERATED = "\U0001f916 Generated with [Claude " + "Code](https://claude.com/claude-code)"
 
 
@@ -207,7 +207,9 @@ def test_q10_an_installed_project_hook_strips_the_lines_and_the_commit_passes(tm
     assert _git(repo, "init", "-q").returncode == 0
     gate.install_hook(repo, installed=NOT_INSTALLED)
     text = (repo / ".git" / "hooks" / "commit-msg").read_text(encoding="utf-8")
-    assert '--message "$msg" --strip-attribution' in text
+    # the hook strips by itself, so an installed awb without the flag runs it too
+    assert "--strip-attribution" not in text and 'gate --message "$msg" ||' in text
+    assert all(line in text for line in gate.STRIP_STEP)
     assert subprocess.run(["sh", "-n", str(repo / ".git" / "hooks" / "commit-msg")]).returncode == 0
     (repo / "notes.txt").write_text("lab notes\n", encoding="utf-8")
     assert _git(repo, "add", "notes.txt").returncode == 0

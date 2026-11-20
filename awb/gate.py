@@ -1830,14 +1830,33 @@ def hook_script(fallback: str | None = None, *, kb: bool = False, installed: Pat
     return "\n".join(lines) + "\n"
 
 
+_STRIP_AWK = ("BEGIN { n = 0; cut = 0 } "
+              "cut == 0 && /^#/ && index($0, \">8\") { cut = 1 } "
+              "cut == 0 && !/^#/ { l = tolower($0); "
+              "if (l ~ /^[ \t]*co-authored-by:.*(claude|anthropic)/ || index(l, \"generated with claude code\") || "
+              "index(l, \"generated with [claude code\")) { n++; next } } "
+              "{ print > out } END { print n }")
+"""The awk program of the commit-msg hook: the lines of _STRIP_LINE_RE before the scissors line, comment lines
+kept, everything else written to `out`; it prints how many lines went."""
+STRIP_STEP = [
+    "# A co-author or generator line naming Claude is taken out of the message, not refused (Q-0010).",
+    'n=$(awk -v out="$msg.awb-strip" %s "$msg") || n=0' % shlex.quote(_STRIP_AWK),
+    'if [ "${n:-0}" -gt 0 ] 2>/dev/null && [ -f "$msg.awb-strip" ]; then cat "$msg.awb-strip" > "$msg" '
+    '&& echo "%s" >&2; fi' % STRIPPED_LINE.replace("%d", "$n"),
+    'rm -f "$msg.awb-strip"',
+]
+"""The shell lines of the commit-msg hook that strip the attribution lines in the hook itself, before the gate."""
+
+
 def message_hook_script(fallback: str | None = None, *, installed: Path = INSTALLED_AWB) -> str:
     """The text of a commit-msg hook: the self-test of the gate first, then the gate over the commit message
-    (git gives its file as the first argument). A co-author or generator line naming Claude is taken out of the
-    message with one line on stderr (--strip-attribution, Q-0010); any other finding refuses the commit."""
+    (git gives its file as the first argument). Before the gate, the hook itself takes a co-author or generator
+    line naming Claude out of the message with one line on stderr (STRIP_STEP, Q-0010), so it works with whatever
+    awb is installed; any other finding refuses the commit."""
     base = _hook_lines(fallback, installed, "the commit message (its file is $1)", "commit")
     lines = base[:2] + ['msg="$1"'] + base[2:]
-    lines.append('"$@" gate --message "$msg" --strip-attribution || refuse "the commit message carries a finding, '
-                 'see above"')
+    lines.extend(STRIP_STEP)
+    lines.append('"$@" gate --message "$msg" || refuse "the commit message carries a finding, see above"')
     lines.append("exit 0")
     return "\n".join(lines) + "\n"
 
@@ -1965,7 +1984,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="scan a commit message file (the commit-msg hook gives it)")
     ap.add_argument("--strip-attribution", action="store_true",
                     help="with --message: take a co-author or generator line naming Claude out of the message "
-                         "file first (the commit-msg hook of a project) instead of refusing it")
+                         "file first instead of refusing it (the commit-msg hook of a project does the same itself)")
     ap.add_argument("--selftest", action="store_true", help="prove that every class can be found")
     ap.add_argument("--register", type=Path, default=None, help="register file (default: the vault register)")
     ap.add_argument("--no-register", action="store_true",
