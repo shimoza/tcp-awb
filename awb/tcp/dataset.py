@@ -105,6 +105,11 @@ OLD_AFTER_DAYS = 90
 LICENCE = "CC BY 4.0"
 MCPB_LICENCE = "CC-BY-4.0"                           # the SPDX id the manifest asks for
 GITHUB_REPO = "shimoza/tcp-facts"
+WORKBENCH_URL = "https://github.com/shimoza/tcp-awb"
+# The owner's wish of 2026-11-20: the README names the harness that builds the dataset, in this one line only.
+# The facts themselves still name no part of the tooling (_TOOL_LEFT_RE).
+WORKBENCH_LINE = ('A product of the <a href="%s">Architect Workbench</a>, the open source TCP harness that builds '
+                  'and checks these facts' % WORKBENCH_URL)
 COMPILED_BY = "TCP Facts, github.com/%s" % GITHUB_REPO    # the dataset and its address, never a person
 CREDIT = ("Compiled from public sources and live checks. Licence %s: name the dataset and its address when you "
           "reuse it. No warranty: the service description and the price list of the provider are the binding "
@@ -259,7 +264,8 @@ def readme_header(day: str, best_before: str, n_facts: int) -> list[tuple[str, s
                      badge("License: CC BY 4.0", "License", "CC BY 4.0", "licence"),
                      badge("MCP server", "MCP", "server", "mcp", "#" + MCP_HEADING.lower().replace(" ", "-"))])
     return [("p", '<h1 align="center">%s</h1>' % NAME),
-            ("p", '<p align="center"><b>Checked facts about T Cloud Public (TCP) for any AI assistant, dataset of %s</b></p>' % day),
+            ("p", '<p align="center"><b>Checked facts about T Cloud Public (TCP) for any AI assistant, dataset of %s</b>'
+                  '<br>%s</p>' % (day, WORKBENCH_LINE)),
             ("p", DISCLAIMER),
             ("p", '<p align="center">Claude Desktop, one click: <a href="%s">%s</a> (needs Python 3.10 or newer)</p>'
                   % (MCPB_LATEST_URL, kbreview.STABLE_MCPB)),
@@ -1019,7 +1025,7 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
             text = path.read_text(encoding="utf-8")
             if _LEFT_RE.search(text):
                 raise DatasetError("a tenant alias was left in %s; the folder was removed" % path.name)
-            if _TOOL_LEFT_RE.search(text):
+            if _TOOL_LEFT_RE.search(text.replace(WORKBENCH_LINE, "") if path.name == "README.md" else text):
                 raise DatasetError("a name of the tooling was left in %s; the folder was removed" % path.name)
 
     files = sorted(x for x in root.rglob("*") if x.is_file())
