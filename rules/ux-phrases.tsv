@@ -1,0 +1,40 @@
+# The phrases that put a prompt into a friction class (Q-0024, section 3 of the UX review of 2026-11-19).
+# class	phrase (lower case). The prompt hook matches them on the prompt text in memory only and writes the class
+# alone into <shared>/ux/events.tsv, never a word of the prompt. The first line that matches wins. A phrase matches
+# where it stands as whole words; a bare-yes phrase must be the whole prompt (spaces and . ! , ? around it aside).
+# A prompt that matches no line writes nothing. The list is his to check once (Russian words, his habits).
+pasted-block	<pasted_content
+pasted-block	[pasted text
+bare-yes	да
+bare-yes	ок
+bare-yes	ok
+bare-yes	yes
+bare-yes	go
+bare-yes	делай
+bare-yes	давай
+bare-yes	да делай
+bare-yes	да, делай
+nudge	работай дальше
+nudge	продолжай
+nudge	дальше работай
+nudge	go on
+nudge	keep going
+nudge	keep working
+nudge	carry on
+repeated-rule	я же говорил
+repeated-rule	я же сказал
+repeated-rule	сколько раз
+repeated-rule	ещё раз повторяю
+repeated-rule	еще раз повторяю
+repeated-rule	как я уже говорил
+repeated-rule	i told you
+repeated-rule	i said already
+repeated-rule	again and again
+status-question	статус
+status-question	что с очередью
+status-question	где мы
+status-question	что сейчас
+status-question	что готово
+status-question	status?
+status-question	where are we
+status-question	what is done

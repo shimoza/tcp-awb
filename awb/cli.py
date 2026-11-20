@@ -12,7 +12,7 @@ awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, 
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
 awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue, awb open, awb side, awb dev,
-awb handover, awb cost, awb solutions.
+awb handover, awb cost, awb solutions, awb ux.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -903,6 +903,7 @@ DELEGATED = {
     "web": ("tcp.web.publish", "publish the console page with a backup: sudo awb web publish; awb web status"),
     "owner": ("tcp.owner", "what waits on the owner in one list: awb owner status [--mail|--json|--write]"),
     "queue": ("workqueue", "open work on the owner side: add, next, done, list and one-time migrate"),
+    "ux": ("ux", "counted frictions of the sessions: note TEXT, report [--since DATE]"),
     "handover": ("handover", "write a source-only owner hand-over before compaction"),
     "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),
     "side": ("side", "side sessions of a project: start NAME --brief FILE [--model] [--effort], status, take, stop, drop"),

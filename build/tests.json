@@ -28265,8 +28265,169 @@
    "name": "Q-0005 hook notes: a notification keeps its data count line and its block",
    "run": ".venv/bin/pytest tests/test_hook_notes_footer.py::test_a_notification_keeps_its_data_line_and_its_block",
    "status": "passing"
+  },
+  {
+   "id": "Q24-01",
+   "phase": "T",
+   "name": "Q-0024 ux events: the phrase list is lower case and names only phrase classes",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_phrase_list_is_lower_case_and_names_only_phrase_classes",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-02",
+   "phase": "T",
+   "name": "Q-0024 ux events: a prompt gets the class of its first matching phrase",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_a_prompt_gets_the_class_of_its_first_matching_phrase",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-03",
+   "phase": "T",
+   "name": "Q-0024 ux events: a phrase file that cannot be read gives no class",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_a_phrase_file_that_cannot_be_read_gives_no_class",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-04",
+   "phase": "T",
+   "name": "Q-0024 ux events: the prompt hook counts a class and never a word",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_prompt_hook_counts_a_class_and_never_a_word",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-05",
+   "phase": "T",
+   "name": "Q-0024 ux events: a prompt that matches no phrase writes nothing",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_a_prompt_that_matches_no_phrase_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-06",
+   "phase": "T",
+   "name": "Q-0024 ux events: a blocked prompt writes nothing",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_a_blocked_prompt_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-07",
+   "phase": "T",
+   "name": "Q-0024 ux events: the prompt hook makes no vault call for the count",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_prompt_hook_makes_no_vault_call_for_the_count",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-08",
+   "phase": "T",
+   "name": "Q-0024 ux events: the owner prompt hook counts as owner in development",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_owner_prompt_hook_counts_as_owner_in_development",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-09",
+   "phase": "T",
+   "name": "Q-0024 ux events: the pre compact hook counts a compaction at the desk",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_pre_compact_hook_counts_a_compaction_at_the_desk",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-10",
+   "phase": "T",
+   "name": "Q-0024 ux events: the stop hook counts a held reply by its reason",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_stop_hook_counts_a_held_reply_by_its_reason",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-11",
+   "phase": "T",
+   "name": "Q-0024 ux events: a hook count that cannot write never fails the hook",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_a_hook_count_that_cannot_write_never_fails_the_hook",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-12",
+   "phase": "T",
+   "name": "Q-0024 ux events: the folder is 2775 and the file 664",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_folder_is_2775_and_the_file_664",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-13",
+   "phase": "T",
+   "name": "Q-0024 ux events: a link in place of the file is refused",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_a_link_in_place_of_the_file_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-14",
+   "phase": "T",
+   "name": "Q-0024 ux events: appends from many writers keep whole lines",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_appends_from_many_writers_keep_whole_lines",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-15",
+   "phase": "T",
+   "name": "Q-0024 ux events: awb ux note writes a checked note line",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_awb_ux_note_writes_a_checked_note_line",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-16",
+   "phase": "T",
+   "name": "Q-0024 ux events: awb ux note refuses a registered name and writes nothing",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_awb_ux_note_refuses_a_registered_name_and_writes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-17",
+   "phase": "T",
+   "name": "Q-0024 ux events: awb ux note refuses an empty note",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_awb_ux_note_refuses_an_empty_note",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-18",
+   "phase": "T",
+   "name": "Q-0024 ux events: awb ux report counts per week with the change",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_awb_ux_report_counts_per_week_with_the_change",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-19",
+   "phase": "T",
+   "name": "Q-0024 ux events: awb ux report without since shows four weeks",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_awb_ux_report_without_since_shows_four_weeks",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-20",
+   "phase": "T",
+   "name": "Q-0024 ux events: awb ux report with no events and a bad date",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_awb_ux_report_with_no_events_and_a_bad_date",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-21",
+   "phase": "T",
+   "name": "Q-0024 ux events: the owner block shows five lines on a monday only",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_owner_block_shows_five_lines_on_a_monday_only",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-22",
+   "phase": "T",
+   "name": "Q-0024 ux events: the owner status notes carry the block on a monday",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_owner_status_notes_carry_the_block_on_a_monday",
+   "status": "passing"
+  },
+  {
+   "id": "Q24-23",
+   "phase": "T",
+   "name": "Q-0024 ux events: the owner block is empty without events",
+   "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_owner_block_is_empty_without_events",
+   "status": "passing"
   }
  ],
- "total_tests": 4038,
+ "total_tests": 4061,
  "checked": "2026-11-20"
 }

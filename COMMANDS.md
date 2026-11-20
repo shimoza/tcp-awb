@@ -2228,6 +2228,16 @@ list open rows; stale means the next step is unchanged for 24 hours
 
 once: import open rows of QUEUE.md and mark it as the archive
 
+### `awb ux note TEXT`
+
+add a hand-written friction line (class note); the text passes the name and secret checks once
+- `TEXT`
+
+### `awb ux report [--since DATE]`
+
+the count of each class per ISO week and the change against the week before
+- `--since DATE`: the first day, YYYY-MM-DD (default: 4 weeks back)
+
 ### `awb handover write`
 
 write build/HANDOVER.md from open work, git history and default owner status

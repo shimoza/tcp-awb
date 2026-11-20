@@ -613,6 +613,7 @@ def _rules_notice(data: dict, extra: str | None = None) -> None:
     """Tell a running session once that its rules changed; `extra` is a context line of its own (T8). The block of
     the knowledge base comes last, when the prompt starts a new task (KF). A notification gets `extra` alone and
     no note: the notes wait for the next prompt (Q-0005)."""
+    _ux_event("prompt", data)
     if is_notification(data.get("prompt")):
         if extra:
             _emit(EVENTS["prompt"], extra)
@@ -645,6 +646,7 @@ def _handover_notice(data: dict, *, start: bool = False) -> str:
 
 def hook_pre_compact(data: dict) -> int:
     from awb import handover
+    _ux_event("pre-compact", data)
 
     root = handover.repository_root(_session_folder(data))
     if root is None:
@@ -1249,6 +1251,16 @@ def _quietly(fn, *args) -> None:
         pass
 
 
+def _ux_event(hook: str, data, cls: str | None = None) -> None:
+    """Q-0024: one counted line in <shared>/ux/events.tsv (awb/ux.py), never a word of the prompt, no vault call;
+    never fails the hook."""
+    try:
+        from awb import ux
+        ux.hook_event(hook, data, cls)
+    except Exception:
+        pass
+
+
 # --------------------------------------------------------------------------- the draft gate of the stop hook
 
 TRANSCRIPT_TAIL = 4_000_000
@@ -1593,6 +1605,7 @@ def hook_stop(data: dict) -> int:
             msg, shaped = STOP_FOOTER + msg, True
         said.append(msg)
     if said:
+        _ux_event("stop", data, "held-draft" if drafts_msg else "held-note")
         print("\n".join(said), file=sys.stderr)
         return BLOCK
     return OK
@@ -2047,6 +2060,7 @@ def _owner_hook(name: str) -> int:
         try:
             raw = sys.stdin.read() if sys.stdin is not None else ""
             data = json.loads(raw) if raw.strip() else {}
+            _ux_event("prompt", data)
             said = "\n".join(t for t in (_dev_requests(data), _handover_notice(data)) if t) \
                 if isinstance(data, dict) else ""
             if said:

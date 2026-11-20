@@ -1498,6 +1498,13 @@ customer data out of the model as far as it can:
   answer, `Notes: ` and the notes joined with `; `, never a paragraph and never above the answer. A prompt that is
   an interim agent or background task notification gets no note, and neither does the stop after it: the notes
   wait for the next prompt or stop. The checks and blocks run on a notification as on any prompt.
+- The prompt, stop and pre-compact hooks count frictions (Q-0024): one line per event in `<shared>/ux/events.tsv`
+  with the UTC time, the user kind (owner or work), the session kind (project, development or desk), the project
+  code or `-` and a class. A prompt that passed its checks gets the class of the first phrase of
+  `rules/ux-phrases.tsv` it carries (status question, nudge, repeated rule, bare yes, pasted block), matched in
+  memory only; one that matches nothing writes no line. The stop hook writes `held-draft` or `held-note` when it
+  holds a reply, the pre-compact hook `compaction`. A counted line never carries a word of the prompt and calls no
+  vault. See "Counted frictions" below.
 - A session on the sealed host starts only when every guard answers: the hooks, the commit gate of the project, the
   vault daemon, the key service, the installed rules and the host mode. Its context opens with "guards: 6 of 6
   active"; a missing guard refuses the start and every prompt with one line that names it. `awb board show` counts
@@ -1617,6 +1624,23 @@ ASK_FILE is the ask's full path, `notices/dev/FILE` or its basename. ANSWER_FILE
 use `-` to read it from standard input. The answer title and text pass the name and secret checks.
 Only a successfully delivered note closes the matching project's ask, removing it from `--dev`
 and overdue reminders. The project prompt shows the answer note once through the existing note notice.
+
+## Counted frictions
+
+The hooks count frictions into `<shared>/ux/events.tsv` (see "Customer data"); `awb ux` adds and reads them, for
+both users:
+
+```sh
+awb ux note "the dictation gate asked twice for one prompt"
+awb ux report --since 2026-11-02
+```
+
+`note` writes one line of class `note` with the text, after the name and secret checks (a hit refuses, as a dev ask
+does) and the project code of the folder it runs in. `report` prints one row per class with its count in each ISO
+week from `--since` (default: the last four weeks) and the change of the current week against the week before, then
+the notes of the period. On a Monday `awb owner status` and its mail end with five lines on the week that ended
+against the week before. The folder `ux` is 2775 and the file 664, so both sides append to it; each line is one
+append under a lock. The phrase list `rules/ux-phrases.tsv` is a protected path.
 
 ## The open work queue
 

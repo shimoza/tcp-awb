@@ -576,8 +576,16 @@ def notes(path: Path | None = None, now: datetime.datetime | None = None, p: con
           ) -> list[str]:
     """The lines that tell him something without waiting on him: the weekly publish of the last 24 hours, after the
     name check (a line with a hit or a check that cannot run gives nothing), and the documentation hosts added on
-    the host."""
-    return _publish_notes(path, now, p) + doc_host_lines()
+    the host and on a Monday the five lines of the counted frictions of the week before (Q-0024, awb/ux.py)."""
+    return _publish_notes(path, now, p) + doc_host_lines() + _ux_lines(now, p)
+
+
+def _ux_lines(now: datetime.datetime | None, p: config.Paths | None) -> list[str]:
+    try:
+        from awb import ux
+        return ux.owner_lines(now, p)
+    except Exception:
+        return []
 
 
 def _publish_notes(path: Path | None, now: datetime.datetime | None, p: config.Paths | None) -> list[str]:
