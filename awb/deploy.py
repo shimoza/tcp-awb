@@ -35,7 +35,9 @@ and the journal does not record it on the live release. Its release is neither t
 retention would prune it under the running process (the gateway of the web side, socket activated, kept a pruned
 release and the host monitor saw the portal down). It restarts with the same mechanics, waits and results as any
 other unit, `runs an older release` in the plan and the dry run; the build runner keeps its deferral, a timer's
-oneshot its next run, the vault and the key service their own rules.
+oneshot its next run, the vault and the key service their own rules. A service of the web side (one a `restart` line
+of seal/web/install.sh names, `web_side_units`) does not wait for the next deploy: when it is active it restarts in
+this one, `runs the release before this one`, so needrestart is clean right after the deploy.
 
 The build runner (`awb build serve`, presentations/self-build) is never started by a deploy: when it is not running
 it takes the new code at its next start. While an awb-task-* unit is active its restart is deferred and root leaves
@@ -1233,6 +1235,34 @@ def older_release_units(journal: dict | None, live, first: bool, units: dict[str
     return out
 
 
+def web_side_units(install_units: set[str], web: bool, units: dict[str, dict], show: dict[str, dict],
+                   argvs: dict[str, list[str] | None], changed_units: set[str]) -> set[str]:
+    """The active services of the web side that run the release before this one (Q-0002, second step): a service
+    a `restart` line of seal/web/install.sh names (`install_units`, the units `install.sh --only` restarts) whose
+    main process started before this deploy's switch, which is every running one at plan time. It restarts in the
+    same deploy, so needrestart is clean right after it (the gateway started after the last switch and was only
+    caught one deploy later). Only with the web side live; a socket, a daemon of DAEMON_ORDER and the build runner
+    keep their own rules, a timer's oneshot its next run."""
+    if not web:
+        return set()
+    out = set()
+    for u in install_units:
+        if u.endswith(".socket") or u not in units or u in changed_units:
+            continue
+        if daemon_kind(argvs.get(u)) is not None or is_build_runner(argvs.get(u)):
+            continue
+        s = show.get(u) or {}
+        if not is_installed(s) or s.get("ActiveState") != "active":
+            continue
+        try:
+            started = int(s.get("ExecMainStartTimestampMonotonic") or 0)
+        except ValueError:
+            continue
+        if started > 0:
+            out.add(u)
+    return out
+
+
 def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
     """The plan of a deploy, computed as the owner from the repository, the journal, systemd and the daemons. One
     JSON object; root validates it before use."""
@@ -1333,6 +1363,9 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
                         and u not in eff.units:
                     stale.add(u)
     older = older_release_units(journal, live, first, units, show, argvs, set(eff.units))
+    install_units = install_sh_units(tree.read("seal/web/install.sh")) if "seal/web/install.sh" in tree.files() \
+        else set()
+    web_now = web_side_units(install_units, web, units, show, argvs, set(eff.units))
     daemons = (host.daemons or owner_daemon_states)()
     timed = oneshot_units(tree, units)
     held = held_sockets(tree, units)
@@ -1361,6 +1394,8 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
             action, reason = "restart", "started before the last flip"
         elif u in older:
             action, reason = "restart", "runs an older release (started before the switch to %s)" % short(live)
+        elif u in web_now:
+            action, reason = "restart", "runs the release before this one"
         if opts.only:
             if u in opts.only and installed and action != "not installed":
                 if action == "unchanged":
@@ -1422,8 +1457,7 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
         "keep": keep,
         "build_restart_wanted": build_wanted,
         "build_busy": active_task_units(run),
-        "install_units": sorted(install_sh_units(tree.read("seal/web/install.sh"))
-                                if "seal/web/install.sh" in tree.files() else ()),
+        "install_units": sorted(install_units),
     }
 
 

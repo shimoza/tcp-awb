@@ -27719,8 +27719,36 @@
    "name": "Q-0001 recheck folder: the refresh writes its requests into a 2775 folder",
    "run": ".venv/bin/pytest tests/test_recheck_folder_mode.py::test_the_refresh_writes_its_requests_into_a_2775_folder",
    "status": "passing"
+  },
+  {
+   "id": "Q02-8",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: a service of the web side started after the last switch restarts in this deploy, runs the release before this one",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_the_web_side_started_after_the_last_switch_restarts_in_this_deploy",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-9",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: the web side rule needs the web side live and follows the restart lines of install.sh",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_the_web_side_rule_needs_the_web_side_live_and_follows_install_sh",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-10",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: --only and the build runner keep their rules on the web side",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_only_and_the_build_runner_keep_their_rules_on_the_web_side",
+   "status": "passing"
+  },
+  {
+   "id": "Q02-11",
+   "phase": "deploy",
+   "name": "Q-0002 deploy: the dry run names the release before this one, the run restarts the gateway through install.sh",
+   "run": ".venv/bin/pytest tests/test_deploy_web_restart.py::test_the_dry_run_names_the_release_before_this_one_and_the_run_restarts_the_gateway",
+   "status": "passing"
   }
  ],
- "total_tests": 3960,
+ "total_tests": 3964,
  "checked": "2026-11-19"
 }

@@ -460,7 +460,9 @@ target (the same checks a commit gets) and refuses on a finding, naming the comm
 shows the verdict as `# gate: ...`.
 The deploy installs the commit as a release of its own and restarts only what the change touched, plus every running
 service that still runs an older release (started before the last deploy switched the release, the console gateway
-for one): the plan and the dry run show it as `runs an older release`. The name check
+for one): the plan and the dry run show it as `runs an older release`. The running services of the web side (those
+the restart lines of `seal/web/install.sh` name) restart in every deploy, `runs the release before this one`, so
+needrestart is clean right after it. The name check
 and the key service move to the new code without a lock, so no session stops and no key is loaded again. Changed
 rules reach every project and every running session, and every daemon that loads a rule file when it starts (the name
 check in the vault daemon reads `rules/allow-domains.txt`): the vault daemon reloads and stays unlocked, the others restart. The run ends with the status of each service. A daemon
