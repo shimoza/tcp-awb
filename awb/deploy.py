@@ -97,6 +97,7 @@ from pathlib import Path
 from typing import Callable
 
 from awb import config
+from awb import events  # Q-0014: the line above stays as it is, a test of the root path plants an import into it
 
 OPT = Path("/opt/tcp-awb")
 BIN = "/usr/local/bin/awb"
@@ -2877,6 +2878,14 @@ def _plan_argv(opts: Options) -> list[str]:
     return out
 
 
+def deploy_board(caller: Caller) -> Path | None:
+    """The board folder of the events file (awb/events.py, Q-0014): `<shared>/build` of the host file's `shared`;
+    None on a host whose paths.conf names no shared side (a plain host, the tests), where the deploy writes no
+    event."""
+    shared = caller.conf.get("shared")
+    return Path(shared) / "build" if shared else None
+
+
 def root_deploy(opts: Options, host: Host) -> int:
     caller = entry_checks(host)
     lock = take_lock(host.run_dir)
@@ -2905,9 +2914,12 @@ def root_deploy(opts: Options, host: Host) -> int:
             raise Refused("an intake holds the vault, deploy later")
         run = Run(host, caller, plan, opts)
         code = 1
+        board = deploy_board(caller)
         try:
             run.wait_build()
             run.start_journal()
+            if board is not None:
+                events.start("deploy", short(run.target), history=True, board=board, create=False)
             run.extract()
             run.install()
             run.daemons()
@@ -2936,6 +2948,8 @@ def root_deploy(opts: Options, host: Host) -> int:
                 run.read_status()
             code = 1
         finally:
+            if run.journal and board is not None:
+                events.end("deploy", short(run.target), "ok" if code == 0 else "red", board=board, create=False)
             if run.journal:
                 for line in status_lines(run.journal, run.status, run.show(
                         [u for u, e in run.journal.get("units", {}).items() if e.get("kind") in DAEMON_ORDER])):

@@ -4122,6 +4122,19 @@ paths:
                           next_changed: "2026-11-20T07:00:00Z"
                           stale: false
                       readable: true
+                    running:
+                      - kind: check
+                        id: C-301
+                        project: null
+                        since: "2026-11-20T09:10:00Z"
+                        eta: "2026-11-20T09:52:00Z"
+                        overdue: false
+                      - kind: lab
+                        id: win1
+                        project: tcp-q7m4
+                        since: "2026-11-20T08:00:00Z"
+                        eta: "2026-11-20T12:00:00Z"
+                        overdue: false
                     written: "2026-10-08T12:00:00Z"
                     stale: false
         "401":
@@ -7204,6 +7217,11 @@ components:
             "$ref": "#/components/schemas/OwnerDevAsk"
         queue:
           "$ref": "#/components/schemas/OwnerQueue"
+        running:
+          type: array
+          description: "What runs now (Q-0014), oldest first, at most 200; empty for a status file without it."
+          items:
+            "$ref": "#/components/schemas/OwnerRunning"
       required:
         - vault
         - keys
@@ -7213,6 +7231,47 @@ components:
         - stale
         - csrf
         - shared_password_active
+    OwnerRunning:
+      type: object
+      description: An item of the events file (awb/events.py) that started and has not ended.
+      properties:
+        kind:
+          type: string
+          description: task, check, deploy, lab or ask.
+          enum:
+            - task
+            - check
+            - deploy
+            - lab
+            - ask
+        id:
+          type: string
+          description: The task or check id, the short commit of a deploy, the lab machine or the dev ask handle.
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"
+        project:
+          type:
+            - string
+            - "null"
+          description: A project code or null.
+        since:
+          type: string
+          description: When it started.
+          format: date-time
+        eta:
+          type:
+            - string
+            - "null"
+          description: "When it is expected to end: the median of the last of its kind, the end of a lab window; null when not known."
+        overdue:
+          type: boolean
+          description: true when the ETA passed.
+      required:
+        - kind
+        - id
+        - project
+        - since
+        - eta
+        - overdue
     UiRun:
       type: object
       properties:

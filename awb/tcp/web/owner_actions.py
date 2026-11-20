@@ -11,7 +11,8 @@ nothing else, holds no key, reaches no vault and runs no command.
     GET /api/owner/state      the vault and the key service (state and since), the deployed release, the page,
                               the open dev asks (dev_asks: code, file, title after the name check, created,
                               blocks) and the open rows of awb queue (queue: readable and rows of id, who, project,
-                              what and next after the name check, created, next_changed, stale), Q-0025
+                              what and next after the name check, created, next_changed, stale), Q-0025; what
+                              runs now (running: kind, id, project, since, eta, overdue; the events file), Q-0014
     GET /api/owner/ui-runs    the newest runs of the UI queue, the one Publish would take marked
     GET /api/ui-runs          the same runs for the UI runs page (T7 part 2): id, state, created, finished,
                               validation and the summary the owner's timer let pass the name check, else withheld
@@ -102,7 +103,8 @@ def answer(route: str, status: dict | None, now: float) -> tuple[int, dict]:
     if route == "/api/owner/state":
         return 200, {"vault": status["vault"], "keys": status["keys"], "deployed": status["deployed"],
                      "page": status["page"], "dev_asks": status.get("dev_asks", []),
-                     "queue": status.get("queue", {"readable": True, "rows": []}), **meta}
+                     "queue": status.get("queue", {"readable": True, "rows": []}),
+                     "running": status.get("running", []), **meta}
     if route == "/api/owner/ui-runs":
         return 200, {"runs": [{k: r[k] for k in OWNER_RUN_KEYS} for r in status["ui_runs"]], **meta}
     if route == "/api/ui-runs":

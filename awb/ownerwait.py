@@ -197,14 +197,16 @@ def validate_status(status: dict) -> None:
 
 
 def _validate_status(status: dict) -> None:
-    """Validate the optional Decisions extension, the optional dev asks and queue (Q-0025) and the original status
-    shape; accept old timer files."""
+    """Validate the optional Decisions extension, the optional dev asks and queue (Q-0025), the optional running
+    items (Q-0014) and the original status shape; accept old timer files."""
     from awb import status_shape
 
     status_shape.validate({k: v for k, v in status.items()
-                           if k not in ("decisions", "decisions_built") + status_shape.LIST_FIELDS})
+                           if k not in ("decisions", "decisions_built") + status_shape.LIST_FIELDS
+                           + status_shape.RUNNING_FIELDS})
     _validate_decisions(status)
     status_shape.validate_lists(status)
+    status_shape.validate_running(status)
 
 
 def _validate_decisions(status: dict) -> None:

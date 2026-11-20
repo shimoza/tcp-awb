@@ -1,7 +1,9 @@
 """The owner level's status file (T9 step 2) and the intake counts behind it.
 
-    awb owner status            one list of everything that waits on the owner, each item with where it is done and a
-                                ready command block (OPEN.md of the live projects, QUEUE.md, the build list)
+    awb owner status            first what runs now (item, since, ETA) and what ended in the last 24 hours, red ones
+                                marked (the events file, awb/events.py, Q-0014); then one list of everything that
+                                waits on the owner, each item with where it is done and a ready command block
+                                (OPEN.md of the live projects, QUEUE.md, the build list)
     awb owner status --mail     the same list as one mail (the owner's timer, 08:00 Europe/Berlin)
     awb owner status --json     the status as the owner-actions service would show it
     awb owner status --write    write it to /var/lib/awb-owner-status/status.json (the timer of the owner, every minute)
@@ -27,7 +29,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from awb import config, ownerwait
+from awb import config, events, ownerwait
 from awb.intake_counts import now_text, read_counts
 from awb.status_shape import DAEMON_STATES, RUN_RE, RUN_STATES, SUMMARY_MAX, TIME_RE, StatusError
 from awb.ownerwait import validate_status as validate
@@ -274,7 +276,8 @@ def collect(p: config.Paths | None = None) -> dict:
     asks, queue, lists_built = _lists(p, REUSE)
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
             "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": decisions,
-            "decisions_built": built, "dev_asks": asks, "queue": queue, "lists_built": lists_built}
+            "decisions_built": built, "dev_asks": asks, "queue": queue, "lists_built": lists_built,
+            "running": events.running_rows(p)}
 
 
 # --------------------------------------------------------------------------- the checks before the write
@@ -336,7 +339,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = SafeParser(prog="awb owner", description="The owner level's status file.")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("status", help="everything that waits on the owner, one line each with a ready command; "
+    s = sub.add_parser("status", help="what runs now with its ETA and what ended in the last 24 hours, then "
+                                      "everything that waits on the owner, one line each with a ready command; "
                                       "--mail sends it, --json and --write give the status of the owner page")
     s.add_argument("--write", action="store_true", help="write the status file for owner-actions")
     s.add_argument("--json", action="store_true", help="print the status of the owner page as JSON")
@@ -363,7 +367,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if word in ("sent", "empty") else 1
             view = "all" if a.all is not None else "dev" if a.dev else "decisions"
             items, parked = ownerwait.collect(view=view, code=a.all or None)
-            print("\n".join(ownerwait.render(items, parked, ownerwait.notes())))
+            print("\n".join(events.status_lines(events.folder()) + [""]
+                            + ownerwait.render(items, parked, ownerwait.notes())))
             return 0
         global REUSE
         REUSE = (Path(a.out) if a.out else STATUS) if a.write else None

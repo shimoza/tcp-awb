@@ -28580,8 +28580,120 @@
    "name": "bytg winlab image check: a plain recheck publishes a kept image without a check request",
    "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_plain_recheck_publishes_a_kept_image_without_a_check_request",
    "status": "passing"
+  },
+  {
+   "id": "Q14-1",
+   "phase": "T",
+   "name": "Q-0014 events: start and end append one checked line each to a group file",
+   "run": ".venv/bin/pytest tests/test_events.py::test_start_and_end_append_one_checked_line_each_to_a_group_file",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2",
+   "phase": "T",
+   "name": "Q-0014 events: a writer refuses free text, follows no link and never raises",
+   "run": ".venv/bin/pytest tests/test_events.py::test_a_writer_refuses_free_text_and_never_raises",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-3",
+   "phase": "T",
+   "name": "Q-0014 events: lines of several writers never mix",
+   "run": ".venv/bin/pytest tests/test_events.py::test_lines_of_several_writers_never_mix",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-4",
+   "phase": "T",
+   "name": "Q-0014 events: a bad line is skipped and only the tail of a large file is read",
+   "run": ".venv/bin/pytest tests/test_events.py::test_a_bad_line_is_skipped_and_only_the_tail_of_a_large_file_is_read",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-5",
+   "phase": "T",
+   "name": "Q-0014 events: running now has the open items with ETA and overdue, ended the rest",
+   "run": ".venv/bin/pytest tests/test_events.py::test_running_now_has_the_open_items_with_eta_and_overdue_and_ended_has_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-6",
+   "phase": "T",
+   "name": "Q-0014 events: a lab window ends by itself at its ETA and a new start renews the ETA",
+   "run": ".venv/bin/pytest tests/test_events.py::test_a_lab_window_ends_by_itself_at_its_eta_and_a_new_start_renews_the_eta",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-7",
+   "phase": "T",
+   "name": "Q-0014 events: the ETA of history is the median of the last of its kind",
+   "run": ".venv/bin/pytest tests/test_events.py::test_the_eta_of_history_is_the_median_of_the_last_of_its_kind",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-8",
+   "phase": "T",
+   "name": "Q-0014 events: the outcome of a build state",
+   "run": ".venv/bin/pytest tests/test_events.py::test_the_outcome_of_a_build_state",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-9",
+   "phase": "T",
+   "name": "Q-0014 events: the owner lines show running now first and mark red",
+   "run": ".venv/bin/pytest tests/test_events.py::test_the_owner_lines_show_running_now_first_and_mark_red",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-10",
+   "phase": "T",
+   "name": "Q-0014 events: awb owner status prints running now before the list",
+   "run": ".venv/bin/pytest tests/test_events.py::test_owner_status_prints_running_now_before_the_list",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-11",
+   "phase": "T",
+   "name": "Q-0014 events: the status file carries running and owner-actions serves it",
+   "run": ".venv/bin/pytest tests/test_events.py::test_the_status_file_carries_running_and_owner_actions_serves_it",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-12",
+   "phase": "T",
+   "name": "Q-0014 events: a running row of another shape is refused on write and read",
+   "run": ".venv/bin/pytest tests/test_events.py::test_a_running_row_of_another_shape_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-13",
+   "phase": "T",
+   "name": "Q-0014 events: the runner writes the start and the end of a task and a check",
+   "run": ".venv/bin/pytest tests/test_events.py::test_the_runner_writes_the_start_and_the_end_of_a_task_and_a_check",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-14",
+   "phase": "T",
+   "name": "Q-0014 events: awb winlab open, extend and close write the window",
+   "run": ".venv/bin/pytest tests/test_events.py::test_winlab_open_extend_and_close_write_the_window",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-15",
+   "phase": "T",
+   "name": "Q-0014 events: a dev ask starts when written and ends when closed",
+   "run": ".venv/bin/pytest tests/test_events.py::test_a_dev_ask_starts_when_written_and_ends_when_closed",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-16",
+   "phase": "T",
+   "name": "Q-0014 events: a deploy writes its start and end only on a host with a shared side",
+   "run": ".venv/bin/pytest tests/test_events.py::test_a_deploy_writes_its_start_and_end_only_on_a_host_with_a_shared_side",
+   "status": "passing"
   }
  ],
- "total_tests": 4083,
+ "total_tests": 4099,
  "checked": "2026-11-20"
 }

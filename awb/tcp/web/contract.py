@@ -571,6 +571,11 @@ OWNER_QUEUE = {"rows": [
      "next_changed": "2026-11-19T10:00:00Z", "stale": True},
     {"id": "Q-0031", "who": "owner", "project": "tcp-q7m4", "what": None, "next": None, "withheld": "name",
      "created": "2026-11-20T07:00:00Z", "next_changed": "2026-11-20T07:00:00Z", "stale": False}], "readable": True}
+OWNER_RUNNING = [
+    {"kind": "check", "id": "C-301", "project": None, "since": "2026-11-20T09:10:00Z", "eta": "2026-11-20T09:52:00Z",
+     "overdue": False},
+    {"kind": "lab", "id": "win1", "project": "tcp-q7m4", "since": "2026-11-20T08:00:00Z",
+     "eta": "2026-11-20T12:00:00Z", "overdue": False}]
 HEALTH_ANSWER = {
     "generated_at": "2026-11-20T09:30:00Z",
     "health": [
@@ -1079,7 +1084,19 @@ def _schemas() -> dict:
             "dev_asks": array(ref("OwnerDevAsk"), "The open dev asks (Q-0025), oldest first, at most 200; empty "
                                                   "for a status file without them."),
             "queue": ref("OwnerQueue"),
+            "running": array(ref("OwnerRunning"), "What runs now (Q-0014), oldest first, at most 200; empty for a "
+                                                  "status file without it."),
         }, required=["vault", "keys", "deployed", "page", "written", "stale", "csrf", "shared_password_active"]),
+        "OwnerRunning": obj({
+            "kind": string("task, check, deploy, lab or ask.", enum=["task", "check", "deploy", "lab", "ask"]),
+            "id": string("The task or check id, the short commit of a deploy, the lab machine or the dev ask "
+                         "handle.", pattern=r"^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"),
+            "project": string("A project code or null.", nullable=True),
+            "since": string("When it started.", format="date-time"),
+            "eta": string("When it is expected to end: the median of the last of its kind, the end of a lab window; "
+                          "null when not known.", nullable=True),
+            "overdue": boolean("true when the ETA passed."),
+        }, description="An item of the events file (awb/events.py) that started and has not ended."),
         "UiRun": obj({
             "id": string("The run id of the UI queue."),
             "state": string(enum=["queued", "running", "ready", "completed", "failed", "cancelled", "unknown"]),
@@ -1874,7 +1891,7 @@ def _owner_paths() -> dict:
                 "page": {"size": 210345, "time": "2026-10-06T15:02:11Z", "backup_time": "2026-10-06T15:02:11Z",
                          "backups": 4},
                 "csrf": "1791892800.<hmac>", "shared_password_active": False,
-                "dev_asks": OWNER_ASKS, "queue": OWNER_QUEUE},
+                "dev_asks": OWNER_ASKS, "queue": OWNER_QUEUE, "running": OWNER_RUNNING},
             "Codes and states only. When the vault is locked the page says so; it is unlocked in the owner's "
             "terminal, never here. csrf and shared_password_active come from the gateway, the rest from the status "
             "file owner-actions reads. dev_asks and queue (Q-0025): the owner's timer reads <shared>/notices/dev/ "

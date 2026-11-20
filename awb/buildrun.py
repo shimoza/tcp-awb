@@ -66,7 +66,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from awb import build, build_probe, config, parts  # noqa: F401 (build_probe: reached through parts.join below)
+from awb import build, build_probe, config, events, parts  # noqa: F401 (build_probe: reached through parts.join)
 from awb.build_checks import (BUNDLE_MAX, CHECK_WAIT, TAIL_LINES, GitFailed, Stop, _fail, _json, _matcher,
                               _plain_path, check_answer, check_books, check_branch_commits, check_client,
                               check_commits, check_gate, check_hollow, check_identity, check_onto_main, check_outdir,
@@ -150,6 +150,19 @@ class Runner:
 
     def phase(self, ctx: Ctx, word: str) -> None:
         _write(ctx.folder / "phase", word + "\n")
+
+    def event_start(self, tid: str) -> None:
+        """The start of a task or check in the events file beside the board (Q-0014), its ETA the median of the
+        last of its kind. Nothing without a board; a failure never stops the run."""
+        h = self.host
+        if h.board is not None:
+            events.start(event_kind(tid), tid, history=True, board=h.board, now=h.now())
+
+    def event_end(self, tid: str, state: str) -> None:
+        h = self.host
+        outcome = events.build_outcome(state)
+        if h.board is not None and outcome is not None:
+            events.end(event_kind(tid), tid, outcome, board=h.board, now=h.now())
 
     def _snapshot_task(self, ctx: Ctx) -> None:
         _write(ctx.folder / "task.md", ctx.task.block())
@@ -395,6 +408,7 @@ class Runner:
                     return
                 build.write_state(run.folder, "running", h.now())
                 run = dataclasses.replace(run, state="running")
+        self.event_start(task.id)
         ctx = Ctx(task, run)
         self.phase(ctx, "prep")
         self._snapshot_task(ctx)
@@ -447,6 +461,7 @@ class Runner:
             if cur is None or cur.n != run.n or cur.state != "answered":
                 return
             build.write_state(run.folder, "running", h.now())
+        self.event_start(task.id)
         ctx = self._ctx(dataclasses.replace(run, state="running"), task)
         self.phase(ctx, "resume")
         session = (_text(run.folder / "session") or "").strip()
@@ -673,6 +688,7 @@ class Runner:
         h = self.host
         with build.task_lock(ctx.tid, h.runs):
             build.write_state(ctx.folder, "running", h.now())
+        self.event_start(ctx.tid)
         if ctx.task is None:
             return self.finish(ctx, "interrupted")
         old = _text(ctx.folder / "checks.log") or ""
@@ -701,6 +717,8 @@ class Runner:
             gone = cur.state == "running"
             if not gone:
                 build.write_state(run.folder, "running", h.now())
+        if not gone:
+            self.event_start(run.id)
         ctx = self._check_ctx(dataclasses.replace(cur, state="running"))
         if gone:
             with contextlib.suppress(Exception):
@@ -761,6 +779,7 @@ class Runner:
         h = self.host
         prev = _text(ctx.folder / "state") or ""
         self.state(ctx, state)
+        self.event_end(ctx.tid, state)
         with contextlib.suppress(FileNotFoundError):
             os.unlink(ctx.folder / "phase")
         if not ctx.lines and os.path.lexists(ctx.folder / "checks.log"):
@@ -995,6 +1014,11 @@ def _suite_line(ctx: Ctx) -> str:
     c = ctx.suite or {}
     t = " (%.0f min)" % ctx.suite_minutes if ctx.suite_minutes is not None else ""
     return "%d passed, %d failed, %d skipped%s" % (c.get("passed", 0), c.get("failed", 0), c.get("skipped", 0), t)
+
+
+def event_kind(tid: str) -> str:
+    """The kind of a run in the events file: `check` for a check of a branch (C-NNN), else `task`."""
+    return "check" if build.CHECK_ID_RE.fullmatch(tid) else "task"
 
 
 def login_note(tid: str) -> str:

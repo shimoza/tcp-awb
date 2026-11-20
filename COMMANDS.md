@@ -2198,7 +2198,7 @@ the logins of the console: add, reset (a new password), remove, projects (the co
 
 ### `awb owner status [--write] [--json] [--mail] [--dev] [--all CODE]`
 
-everything that waits on the owner, one line each with a ready command; --mail sends it, --json and --write give the status of the owner page
+what runs now with its ETA and what ended in the last 24 hours, then everything that waits on the owner, one line each with a ready command; --mail sends it, --json and --write give the status of the owner page
 - `--write`: write the status file for owner-actions
 - `--json`: print the status of the owner page as JSON
 - `--mail`: send the list as one mail (the owner's timer)

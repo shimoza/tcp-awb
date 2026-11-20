@@ -76,7 +76,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from awb import codes, config
+from awb import codes, config, events
 
 FILE_NAME = "winlab.json"
 PORT_MIN, PORT_MAX = 1024, 65535
@@ -417,6 +417,7 @@ def open_(name: str, minutes: int | None, project: str, *, path: Path | None = N
             w["public_image"] = True
         save(machines, path)
         post_notice(name, project, w["end"])
+        events.start("lab", name, project=project, eta=_parse(w["end"]), auto_end=True, now=now)
         if w["end"] == before:
             return "lab machine %s: window of %s kept until %s, it ended later already%s" % (
                 name, project, _shown(before), image)
@@ -427,6 +428,7 @@ def open_(name: str, minutes: int | None, project: str, *, path: Path | None = N
         m["window"]["public_image"] = True
     save(machines, path)
     post_notice(name, project, m["window"]["end"])
+    events.start("lab", name, project=project, eta=end, auto_end=True, now=now)
     return "lab machine %s: window open for %s until %s (%d min)%s" % (
         name, project, _shown(m["window"]["end"]), minutes, image)
 
@@ -443,6 +445,7 @@ def close(name: str, *, path: Path | None = None, now: datetime.datetime | None 
         save(machines, path)
     if not w:
         return "lab machine %s: no open window" % name
+    events.end("lab", name, "ok", project=w["project"], now=now)
     return "lab machine %s: window of %s closed" % (name, w["project"])
 
 
@@ -454,6 +457,8 @@ def remove(name: str, *, path: Path | None = None, now: datetime.datetime | None
     w = open_window(_get(machines, name), now)
     del machines[name]
     save(machines, path)
+    if w:
+        events.end("lab", name, "ok", project=w["project"], now=now)
     return "lab machine %s removed%s" % (name, ", its window of %s closed" % w["project"] if w else "")
 
 

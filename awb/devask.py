@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from awb import codes, config
+from awb import codes, config, events
 
 FOLDER = "notices/dev"
 MAX_BYTES = 128 * 1024
@@ -206,6 +206,7 @@ def write(p: config.Paths, text: str, blocks: bool = False, command: str = "not 
                             follow_symlinks=False)
                 except FileExistsError:
                     continue
+                events.start("ask", path.name[:-3], project=pr.code, board=p.shared / "build", now=now)
                 return path
     raise AskError("too many requests today")
 
@@ -273,6 +274,7 @@ def _close(p: config.Paths, path: Path, title, text, *, code: str | None = None,
                 os.replace(temp, path.name, src_dir_fd=directory, dst_dir_fd=directory)
     except (OSError, UnicodeError, ValueError):
         raise AskError("the development answer cannot be stored") from None
+    events.end("ask", path.name[:-3], "ok", project=data["project"], board=p.shared / "build")
     return note, data
 
 

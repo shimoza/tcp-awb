@@ -430,7 +430,11 @@ listed until its end) and a deploy that runs or waits. Codes, ids and fixed word
 projects gets no strip. The owner page also lists the open dev asks (project code, title, age, blocks or not) and the
 open rows of `awb queue` (id, who, what and next step, age, a stale mark after 24 hours without a new next step),
 both from the status file of `awb owner status --write`, rebuilt at most every five minutes, every text through the
-name check and withheld with its class on a finding. They are read only for now. Each project has a chat that reads
+name check and withheld with its class on a finding. They are read only for now. `awb owner status` opens with
+"Running now" (each build task, check, deploy, lab window and dev ask that started and has not ended, with its start
+and ETA, overdue when the ETA passed) and "Ended in the last 24 h" (red, stopped and needs-you in capitals), both
+from the events file `<shared>/build/events.jsonl` that the runner, `sudo awb deploy`, `awb winlab` and the dev asks
+append to; the status file and `GET /api/owner/state` carry the running items as `running`. Each project has a chat that reads
 its sanitised inputs. The Ask page answers
 a general question in plain words only from the knowledge base, the live price API and the tenant snapshots.
 Ask runs on `claude-opus-5-5` (`AWB_ASK_MODEL` changes it). Thinking is always on there, so `AWB_ASK_EFFORT` sets
