@@ -443,10 +443,14 @@ projects gets no strip. The owner page also lists the open dev asks (project cod
 open rows of `awb queue` (id, who, what and next step, age, a stale mark after 24 hours without a new next step),
 both from the status file of `awb owner status --write`, rebuilt at most every five minutes, every text through the
 name check and withheld with its class on a finding. They are read only for now. `awb owner status` opens with
-"Running now" (each build task, check, deploy, lab window and dev ask that started and has not ended, with its start
-and ETA, overdue when the ETA passed) and "Ended in the last 24 h" (red, stopped and needs-you in capitals), both
-from the events file `<shared>/build/events.jsonl` that the runner, `sudo awb deploy`, `awb winlab` and the dev asks
-append to; the status file and `GET /api/owner/state` carry the running items as `running`. Each project has a chat that reads
+"Running now" (each build task, check, deploy, lab window, dev ask, lab run and timer job that started and has not
+ended, with its start and ETA, overdue when the ETA passed, and the vault or the key service while locked and the
+Claude login of the build user while lapsed) and "Ended in the last 24 h" (red, stopped and needs-you in capitals),
+both from the events file `<shared>/build/events.jsonl` that the runner, `sudo awb deploy`, `awb winlab`, the dev
+asks, `awb lab run` and the owner's minute timer append to; the status file and `GET /api/owner/state` carry them as
+`running` and `ended`. The minute timer mails one push per event that needs you (a red end, an end that needs you,
+a lock, a lapsed login, a blocking dev ask answered) through the path of the 08:00 mail, each once and codes and
+fixed words only. Each project has a chat that reads
 its sanitised inputs. The Ask page answers
 a general question in plain words only from the knowledge base, the live price API and the tenant snapshots.
 Ask runs on `claude-opus-5-5` (`AWB_ASK_MODEL` changes it). Thinking is always on there, so `AWB_ASK_EFFORT` sets

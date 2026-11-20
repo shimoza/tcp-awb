@@ -575,7 +575,19 @@ OWNER_RUNNING = [
     {"kind": "check", "id": "C-301", "project": None, "since": "2026-11-20T09:10:00Z", "eta": "2026-11-20T09:52:00Z",
      "overdue": False},
     {"kind": "lab", "id": "win1", "project": "tcp-q7m4", "since": "2026-11-20T08:00:00Z",
-     "eta": "2026-11-20T12:00:00Z", "overdue": False}]
+     "eta": "2026-11-20T12:00:00Z", "overdue": False},
+    {"kind": "vault", "id": "vault", "project": None, "since": "2026-11-20T09:20:00Z", "eta": None,
+     "overdue": False}]
+OWNER_ENDED = [
+    {"kind": "job", "id": "awb-refresh-weekly", "project": None, "start": "2026-11-20T06:00:00Z",
+     "end": "2026-11-20T06:41:00Z", "outcome": "red"},
+    {"kind": "labrun", "id": "run-20261120-071500-ab2c", "project": "tcp-q7m4", "start": "2026-11-20T07:15:00Z",
+     "end": "2026-11-20T08:02:00Z", "outcome": "ok"}]
+EVENT_KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login")
+EVENT_KINDS_TEXT = ("task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of "
+                    "an awb timer unit), vault or keys (the daemon locked or down) or login (a lapsed Claude login).")
+EVENT_ID_TEXT = ("The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab "
+                 "run, the timer unit without .service, vault, keys or build-user.")
 HEALTH_ANSWER = {
     "generated_at": "2026-11-20T09:30:00Z",
     "health": [
@@ -1086,17 +1098,28 @@ def _schemas() -> dict:
             "queue": ref("OwnerQueue"),
             "running": array(ref("OwnerRunning"), "What runs now (Q-0014), oldest first, at most 200; empty for a "
                                                   "status file without it."),
+            "ended": array(ref("OwnerEnded"), "What ended in the last 24 hours (Q-0014 phase 2), oldest first, at "
+                                              "most 200; empty for a status file without it."),
         }, required=["vault", "keys", "deployed", "page", "written", "stale", "csrf", "shared_password_active"]),
         "OwnerRunning": obj({
-            "kind": string("task, check, deploy, lab or ask.", enum=["task", "check", "deploy", "lab", "ask"]),
-            "id": string("The task or check id, the short commit of a deploy, the lab machine or the dev ask "
-                         "handle.", pattern=r"^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"),
+            "kind": string(EVENT_KINDS_TEXT, enum=list(EVENT_KINDS)),
+            "id": string(EVENT_ID_TEXT, pattern=r"^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"),
             "project": string("A project code or null.", nullable=True),
-            "since": string("When it started.", format="date-time"),
+            "since": string("When it started; for vault, keys and login when the lock or the lapse was seen.",
+                            format="date-time"),
             "eta": string("When it is expected to end: the median of the last of its kind, the end of a lab window; "
                           "null when not known.", nullable=True),
             "overdue": boolean("true when the ETA passed."),
         }, description="An item of the events file (awb/events.py) that started and has not ended."),
+        "OwnerEnded": obj({
+            "kind": string(EVENT_KINDS_TEXT, enum=list(EVENT_KINDS)),
+            "id": string(EVENT_ID_TEXT, pattern=r"^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"),
+            "project": string("A project code or null.", nullable=True),
+            "start": string("When it started; null when its start is not in the events file.", nullable=True),
+            "end": string("When it ended; for vault, keys and login when it was unlocked or back.",
+                          format="date-time"),
+            "outcome": string("ok, red, stopped or needs-you.", enum=["ok", "red", "stopped", "needs-you"]),
+        }, description="An item of the events file (awb/events.py) that ended in the last 24 hours."),
         "UiRun": obj({
             "id": string("The run id of the UI queue."),
             "state": string(enum=["queued", "running", "ready", "completed", "failed", "cancelled", "unknown"]),
@@ -1891,13 +1914,15 @@ def _owner_paths() -> dict:
                 "page": {"size": 210345, "time": "2026-10-06T15:02:11Z", "backup_time": "2026-10-06T15:02:11Z",
                          "backups": 4},
                 "csrf": "1791892800.<hmac>", "shared_password_active": False,
-                "dev_asks": OWNER_ASKS, "queue": OWNER_QUEUE, "running": OWNER_RUNNING},
+                "dev_asks": OWNER_ASKS, "queue": OWNER_QUEUE, "running": OWNER_RUNNING, "ended": OWNER_ENDED},
             "Codes and states only. When the vault is locked the page says so; it is unlocked in the owner's "
             "terminal, never here. csrf and shared_password_active come from the gateway, the rest from the status "
             "file owner-actions reads. dev_asks and queue (Q-0025): the owner's timer reads <shared>/notices/dev/ "
             "(awb dev ask) and queue.tsv (awb queue) at most every five minutes and lets each title, what and next "
             "through the name check; a text with a finding is withheld with its class. Read only: closing an ask "
-            "and archiving a row stay commands of a session or a terminal.")},
+            "and archiving a row stay commands of a session or a terminal. running and ended (Q-0014): the items "
+            "of the events file, a lock of the vault or the key service and a lapsed login of the build user "
+            "among them as items that run until they are gone.")},
         "/api/owner/ui-runs": {"get": owner_op(
             "listOwnerUiRuns", "The newest runs of the UI queue.", "UiRuns", {"runs": [
                 {"id": "ui-20261008-001", "state": "completed", "finished": "2026-10-08T11:20:04+00:00",

@@ -138,12 +138,14 @@ def validate_lists(status: dict) -> None:
 
 # --------------------------------------------------------------------------- what runs now (Q-0014)
 
-RUNNING_KINDS = ("task", "check", "deploy", "lab", "ask")                                       # awb.events.KINDS
+RUNNING_KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login")  # events.KINDS
 RUNNING_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$")                               # awb.events.ID_RE
 RUNNING_KEYS = {"kind", "id", "project", "since", "eta", "overdue"}
-RUNNING_FIELDS = ("running",)
-"""The optional field of the status with the open items of the events file (awb/events.py); an older status file
-has none and stays valid."""
+RUNNING_FIELDS = ("running", "ended")
+"""The optional fields of the status with the open and the ended items of the events file (awb/events.py); an older
+status file has none and stays valid."""
+ENDED_KEYS = {"kind", "id", "project", "start", "end", "outcome"}
+ENDED_OUTCOMES = ("ok", "red", "stopped", "needs-you")                                         # awb.events.OUTCOMES
 
 
 def validate_running(status: dict) -> None:
@@ -162,4 +164,25 @@ def validate_running(status: dict) -> None:
                 or not isinstance(row["since"], str) or not TIME_RE.match(row["since"])
                 or not (row["eta"] is None or (isinstance(row["eta"], str) and TIME_RE.match(row["eta"])))
                 or not isinstance(row["overdue"], bool)):
+            bad()
+    validate_ended(status)
+
+
+def validate_ended(status: dict) -> None:
+    """The items of the events file that ended in the last 24 hours (Q-0014 phase 2): kind, id, project code or
+    None, start or None, end, outcome."""
+    def bad():
+        raise StatusError("the status field ended has an unexpected shape")
+
+    rows = status.get("ended", [])
+    if not isinstance(rows, list) or len(rows) > LIST_MAX:
+        bad()
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) != ENDED_KEYS or row["kind"] not in RUNNING_KINDS
+                or not isinstance(row["id"], str) or not RUNNING_ID_RE.fullmatch(row["id"])
+                or not (row["project"] is None or (isinstance(row["project"], str)
+                                                   and PROJECT_CODE_RE.match(row["project"])))
+                or not (row["start"] is None or (isinstance(row["start"], str) and TIME_RE.match(row["start"])))
+                or not isinstance(row["end"], str) or not TIME_RE.match(row["end"])
+                or row["outcome"] not in ENDED_OUTCOMES):
             bad()

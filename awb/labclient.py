@@ -902,6 +902,20 @@ def run_main(argv: list[str]) -> int:
         return EXIT_REFUSED
 
 
+def _event(word: str, run: str, project: str) -> None:
+    """The start or the end (ok, red) of the lab run in the events file of the board (awb/events.py, Q-0014 phase
+    2): kind labrun, the run id and the project code. A run whose deletes failed ends red. Never fails the run."""
+    try:
+        from awb import events
+
+        if word == "start":
+            events.start("labrun", run, project=project, history=True)
+        else:
+            events.end("labrun", run, word, project=project)
+    except Exception:
+        pass
+
+
 @_boundary
 @_locked
 def _start(root: Path | None, project: str, tenant: str, note: str) -> int:
@@ -918,6 +932,7 @@ def _start(root: Path | None, project: str, tenant: str, note: str) -> int:
             _write(fd, _marker(root, tenant).name, run + "\n")
         log(root, run, ["# lab run %s of %s on %s, opened %s" % (run, project, tenant, answer.get("started")),
                         "note: %s" % note if note else "note: -"])
+    _event("start", run, project)
     _print("run %s open on %s for %s: scripts call through awb.labclient, then awb lab run end" % (run, tenant, project))
     _print("run a script with %s (plain python3 has no awb module)" % (sys.executable or "/opt/tcp-awb/venv/bin/python3"))
     return EXIT_OK
@@ -982,6 +997,7 @@ def _end(root: Path | None, project: str, tenant: str | None) -> int:
                     os.unlink(_marker(root, tenant).name, dir_fd=fd)
             except FileNotFoundError:
                 pass
+    _event("red" if failed else "ok", run, project)
     _print("run %s ended on %s: created %d, removed %d, failed %d, kept %d" % (
         run, tenant, answer.get("created", 0), len(answer.get("removed") or []), len(failed),
         len(answer.get("kept") or [])))

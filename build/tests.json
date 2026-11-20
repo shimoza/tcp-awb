@@ -29371,8 +29371,127 @@
    "name": "run log place: a move onto an existing full log appends to it",
    "run": ".venv/bin/pytest tests/test_bytg_run_log_place.py::test_bytg_the_move_onto_an_existing_full_log_appends_to_it",
    "status": "passing"
+  },
+  {
+   "id": "Q14-2-1",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the new kinds are written and a lock or login id is a fixed word",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_new_kinds_are_written_and_a_lock_or_login_id_is_a_fixed_word",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-2",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the lock of the vault and the key service opens once and ends on unlock",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_lock_of_the_vault_and_the_key_service_opens_once_and_ends_on_unlock",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-3",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the login of the build user lapses from the held run and comes back",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_login_of_the_build_user_lapses_from_the_held_run_and_comes_back",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-4",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the timer jobs come from systemctl without the owner timer itself",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_timer_jobs_come_from_systemctl_without_the_owner_timer_itself",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-5",
+   "phase": "T",
+   "name": "Q-0014 phase 2: a timer job is written when it runs long or ends red and the first tick only learns",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_a_timer_job_is_written_when_it_runs_long_or_ends_red_and_the_first_tick_only_learns",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-6",
+   "phase": "T",
+   "name": "Q-0014 phase 2: a lab run writes its start and a red end when a delete failed",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_a_lab_run_writes_its_start_and_a_red_end_when_a_delete_failed",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-7",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the owner lines name the lock and the login in plain words",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_owner_lines_name_the_lock_and_the_login_in_plain_words",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-8",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the push mails each event that needs him once and nothing else",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_push_mails_each_event_that_needs_him_once_and_nothing_else",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-9",
+   "phase": "T",
+   "name": "Q-0014 phase 2: a lock that is gone before the mail is never pushed",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_a_lock_that_is_gone_before_the_mail_is_never_pushed",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-10",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the first tick marks what is there and mails nothing",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_first_tick_marks_what_is_there_and_mails_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-11",
+   "phase": "T",
+   "name": "Q-0014 phase 2: a mail that did not go out is tried again and an old event never",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_a_mail_that_did_not_go_out_is_tried_again_and_an_old_event_never",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-12",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the name check withholds a push and a locked vault lets only fixed words out",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_name_check_withholds_a_push_and_a_locked_vault_lets_only_fixed_words_out",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-13",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the push state is a private file and a bad one is an empty state",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_push_state_is_a_private_file_and_a_bad_one_is_an_empty_state",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-14",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the minute tick writes the lock mails it and refreshes the status",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_minute_tick_writes_the_lock_mails_it_and_refreshes_the_status",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-15",
+   "phase": "T",
+   "name": "Q-0014 phase 2: a blocking ask is found from its file",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_a_blocking_ask_is_found_from_its_file",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-16",
+   "phase": "T",
+   "name": "Q-0014 phase 2: the status carries ended and the new kinds and owner actions serves them",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_the_status_carries_ended_and_the_new_kinds_and_owner_actions_serves_them",
+   "status": "passing"
+  },
+  {
+   "id": "Q14-2-17",
+   "phase": "T",
+   "name": "Q-0014 phase 2: an ended row of another shape is refused",
+   "run": ".venv/bin/pytest tests/test_events_phase2.py::test_an_ended_row_of_another_shape_is_refused",
+   "status": "passing"
   }
  ],
- "total_tests": 4196,
+ "total_tests": 4213,
  "checked": "2026-11-20"
 }

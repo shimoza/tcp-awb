@@ -7,6 +7,10 @@
     awb owner status --mail     the same list as one mail (the owner's timer, 08:00 Europe/Berlin)
     awb owner status --json     the status as the owner-actions service would show it
     awb owner status --write    write it to /var/lib/awb-owner-status/status.json (the timer of the owner, every minute)
+                                and first writes the lock of the vault and the key service, the lapsed login of the
+                                build user and the runs of the timer jobs to the events file and mails one push per
+                                new red end, needs-you end, lock, lapsed login and answered blocking dev ask
+                                (push_tick, Q-0014 phase 2)
 
 The owner-actions service runs as its own system user and reads this one file and nothing else, so everything the
 owner page shows comes from here: the state of the vault and of the key service from their pings, the deployed
@@ -277,7 +281,84 @@ def collect(p: config.Paths | None = None) -> dict:
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
             "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": decisions,
             "decisions_built": built, "dev_asks": asks, "queue": queue, "lists_built": lists_built,
-            "running": events.running_rows(p)}
+            "running": events.running_rows(p), "ended": events.ended_rows(p)}
+
+
+# --------------------------------------------------------------------------- the push of the minute timer (Q-0014)
+
+PUSH_STATE = "events-push.json"
+"""Beside the status file: the keys of the events already pushed and where each timer job stands (mode 600)."""
+
+
+def login_lapsed(runs: Path | None = None) -> bool | None:
+    """True when the newest run of a build task is held for a missing login of the build user (the runner's
+    `held: login missing`, awb/buildrun.py LOGIN_HELD), False when none is, None when the runs cannot be read. The run
+    folders are read directly, as ownerwait.build_items does."""
+    import os
+
+    runs = Path(runs) if runs else Path(os.environ.get("AWB_BUILD_RUNS") or config.build_root() / "runs")
+    try:
+        ids = [n for n in os.listdir(runs) if re.fullmatch(r"B-[0-9]{3,4}", n)]
+    except OSError:
+        return None
+    for tid in ids:
+        try:
+            nums = sorted(int(n) for n in os.listdir(runs / tid) if re.fullmatch(r"[1-9][0-9]*", n))
+            raw = ownerwait._read_text(runs / tid / str(nums[-1]) / "state", 512)
+        except (OSError, ValueError, IndexError):
+            continue
+        if raw.split("\t", 1)[0].strip() == "held: login missing":
+            return True
+    return False
+
+
+def ask_blocks(p: config.Paths):
+    """`blocking(handle)` of events.push: True when the dev ask HANDLE of <shared>/notices/dev blocked its
+    project."""
+    from awb import devask
+
+    def blocking(handle: str) -> bool:
+        try:
+            return devask.read(devask.folder(p) / (handle + ".md"))["blocks"] is True
+        except Exception:
+            return False
+    return blocking
+
+
+def push_check(text: str) -> str:
+    """The name check of a push: "passed", "unavailable" or "found"."""
+    try:
+        return name_check(text)
+    except StatusError:
+        return "found"
+
+
+def push_tick(status: dict, p: config.Paths | None = None, state_path: Path | None = None, send=None,
+              units=None, now=None) -> dict:
+    """What the owner's minute timer adds to `awb owner status --write`: the lock of the vault and the key
+    service from STATUS, the login of the build user, the runs of the timer jobs, then one mail per new event that
+    needs him (events.push). STATUS gets `running` and `ended` again after the writes. Returns the counts of the
+    push; never raises."""
+    try:
+        p = p or config.paths()
+        state_path = state_path or STATUS.parent / PUSH_STATE
+        if send is None:
+            from awb.tcp import keys
+
+            send = lambda subject, body: keys.send_mail(subject, body) == "sent"   # noqa: E731
+        board = events.folder(p)
+        state = events.read_state(state_path)
+        events.observe_locks({"vault": status.get("vault"), "keys": status.get("keys")}, board=board, now=now)
+        events.observe_login(login_lapsed(), board=board, now=now)
+        jobs = events.observe_jobs(events.job_units() if units is None else units,
+                                   None if state is None else state.get("jobs"), board=board, now=now)
+        sent, counts = events.push(state, send, check=push_check, blocking=ask_blocks(p), board=board, now=now)
+        events.write_state(state_path, {"sent": sent["sent"], "jobs": jobs})
+        status["running"] = events.running_rows(p, now)
+        status["ended"] = events.ended_rows(p, now)
+        return counts
+    except Exception:
+        return {"new": 0, "sent": 0, "held": 0, "withheld": 0}
 
 
 # --------------------------------------------------------------------------- the checks before the write
@@ -373,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
         global REUSE
         REUSE = (Path(a.out) if a.out else STATUS) if a.write else None
         status = collect()
+        if a.write and not a.out:
+            push_tick(status)
         if a.write:
             result = write(status, Path(a.out) if a.out else STATUS)
             print("written: %d runs, %d customers, name check %s" % (len(status["ui_runs"]), len(status["intake"]),
