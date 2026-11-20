@@ -1419,7 +1419,7 @@ compute with exact decimals and record it in the project: every total an offer s
 ### `awb hook NAME`
 
 entry points for the client hooks of working sessions
-- `NAME`: (one of prompt, pre-write, pre-tool, post-write, stop, session-start, pre-compact, selftest)
+- `NAME`: (one of prompt, pre-write, pre-tool, post-write, stop, session-start, compact, pre-compact, selftest)
 
 ### `awb images list [CUST]`
 

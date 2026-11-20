@@ -149,9 +149,11 @@ def _set_evidence(claims: Path, evidence: str) -> int:
     return n
 
 
-def test_release2_end_to_end_with_the_tool_guard(places, daemon, monkeypatch, capsys):
-    """Replaces test_release2_end_to_end, which pinned one PreToolUse entry: a spawned project carries the
-    knowledge base guard (pre-write) and the place guard (pre-tool) under PreToolUse."""
+def test_release2_end_to_end_with_the_tool_guard_and_compact(places, daemon, monkeypatch, capsys):
+    """Replaces test_release2_end_to_end_with_the_tool_guard (Q-0006, 2026-11-20), which pinned the hook events
+    without PreCompact: a spawned project carries PreCompact with `compact` as well. Kept from the replaced test
+    (itself the replacement of test_release2_end_to_end): the knowledge base guard (pre-write) and the place guard
+    (pre-tool) under PreToolUse."""
     con = Console(capsys)
     cust, pers = fx.CUSTOMER_CODE, fx.PERSON_CODE
 
@@ -213,7 +215,7 @@ def test_release2_end_to_end_with_the_tool_guard(places, daemon, monkeypatch, ca
     cust = pr.customer        # the customer of this project: its own code from here on
     settings = json.loads((project / ".claude" / "settings.json").read_text(encoding="utf-8"))
     events = {"UserPromptSubmit": "prompt", "PreToolUse": "pre-write", "PostToolUse": "post-write", "Stop": "stop",
-              "SessionStart": "session-start"}
+              "SessionStart": "session-start", "PreCompact": "compact"}
     assert set(settings["hooks"]) == set(events)
     for event, name in events.items():
         commands = [h["command"] for e in settings["hooks"][event] for h in e["hooks"]]

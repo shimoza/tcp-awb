@@ -75,7 +75,7 @@ yes or no from the vault and a signed call from the key service, never a name an
 |---|---|
 | the vault daemon | the register of codes and names, encrypted at rest; a session asks it whether a text carries a name and gets a yes or no |
 | the key service | holds the keys and secrets of the test tenants in memory and signs the calls a session sends; since week 42 it is also the owner's one door to the bucket (`awb bucket`, `awb import`, `awb fetch`, `awb dataset put`), so no bucket key lives in the environment |
-| the project sessions | Claude Code as the work user, one folder per project, six hooks, a tool guard, an egress filter that refuses every host outside the list |
+| the project sessions | Claude Code as the work user, one folder per project, seven hooks, a tool guard, an egress filter that refuses every host outside the list |
 | the knowledge base | checked facts with a grade and an expiry; the fact-check service checks an expired fact again on a test tenant (a check block per fact, a weekly read run, a monthly write run, a watchdog) |
 | the console | the web side behind a sign-in: the projects, the board, the tenants, the project chat and Ask; its page reads the knowledge base, the price lookup and the usage from the reader service (`/api/kb`, `/api/price`, `/api/usage`); the old read-only portal is gone |
 | the build runner and `awb pr take` | the Workbench builds itself: a task runs as the build user in sandboxed units, a pull request of a cloud session is checked in the same sandbox and taken in with one command, `sudo awb deploy` brings a release live |
@@ -390,7 +390,18 @@ hook asks for that line in the reply once per local calendar day per project, st
 at 21 items; its marker lives in the shared ledger's `.open-sweep/` folder.
 
 Every project keeps its status in the first two lines of `STATE.md` (`Status:` and `Next:`). A session cannot end
-a reply while its commits are newer than that status. Each of the two lines stays at most 300 characters and says no sentence twice; the stop hook holds a reply whose lines break that (with the two counts: move the detail below the two lines), `awb projects sync` lists the projects that do, and the board cuts a longer line at 300 characters with `...`. `awb board show` turns the status of every active project into
+a reply while its commits are newer than that status. Each of the two lines stays at most 300 characters and says no sentence twice; the stop hook holds a reply whose lines break that (with the two counts: move the detail below the two lines), `awb projects sync` lists the projects that do, and the board cuts a longer line at 300 characters with `...`.
+
+Under the two lines `STATE.md` keeps a pinned block, the heading `## Pinned` with one line per standing fact:
+`- Language:` for the replies, `- Limit:` for a standing limit he set, `- Deliverable:` with its bucket path and
+`- Chain:` for a running chain. A new project starts with the block; the start of a project without one asks for it
+in its checks. Before a compaction the PreCompact hook (`awb hook compact`) hands the two status lines and the block
+to the summary as plain text and the start after the compaction (source `compact`) prints them again before every
+file, so the session neither asks him again nor switches language. Both are checked like `STATE.md`: a name, other
+structured data, a bidi override or a name check that cannot run withholds the block with one line. The block stays
+within the first 40 lines, at most 12 lines and 1500 characters with every entry of one of the four kinds; the stop
+hook holds a reply whose block breaks that, with the counts. The owner's own PreCompact hook (`pre-compact`, the
+hand-over below) is a separate command, so the managed settings never run it twice. `awb board show` turns the status of every active project into
 one page for management: what each project waits on, its open items, its deliverables by review state and its live
 resources, with codes only. It also carries the wipe mode as the last refresh measured it: `awb refresh` runs the
 red-team pack of wipe mode through the installed intake and keeps its leaks and losses in `refresh/wipe.tsv`.
@@ -886,7 +897,7 @@ claude plugin install awb@tcp-awb
 | `/awb:azure-to-tcp` | Azure machines to TCP in phases, from the inventory to a reviewed plan |
 | `/awb:drafting` | texts in the architect's own voice (the style is the author's: replace it with yours) |
 | workers | `migration-worker-files` (files only) and `migration-worker-shell` (files and `awb` commands), one phase each |
-| hooks | six checkpoints: every prompt, before a write, before every file or shell call (the session stays in its project), after a write, the start and the end of a session |
+| hooks | seven checkpoints: every prompt, before a write, before every file or shell call (the session stays in its project), after a write, the start and the end of a session and the compaction (the pinned block of `STATE.md`) |
 
 On a sealed host (below) the seal installs the hooks for the work user already. Do not install the plugin there as
 well: every hook would run twice.

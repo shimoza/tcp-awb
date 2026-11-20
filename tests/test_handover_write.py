@@ -190,14 +190,20 @@ def test_session_start_prints_existing_handover_time(desk, monkeypatch, capsys):
     assert "hand-over:" not in run_hook("session-start", root, monkeypatch, capsys)
 
 
-def test_owner_settings_include_all_three_hooks(desk):
+def test_owner_settings_include_all_three_hooks_and_the_work_side_never_runs_the_handover(desk):
+    """Replaces test_owner_settings_include_all_three_hooks (Q-0006, 2026-11-20): the client settings of the work
+    side now carry a PreCompact entry, which runs `compact` (the pinned block of a project) and never
+    `pre-compact`, the owner's hand-over. Kept from the replaced test: the owner's three hooks."""
     from awb import handover
     assert callable(getattr(handover, "main", None))
     settings = hooks.owner_client_settings("awb hook")["hooks"]
     for event, name in (("PreCompact", "pre-compact"), ("SessionStart", "session-start"),
                         ("UserPromptSubmit", "prompt")):
         assert settings[event][0]["hooks"][0]["command"] == "awb hook " + name
-    assert "PreCompact" not in hooks.client_settings("awb hook")["hooks"]
+    work = hooks.client_settings("awb hook")["hooks"]
+    assert [h["command"] for e in work["PreCompact"] for h in e["hooks"]] == ["awb hook compact"]
+    assert not any(h["command"] == "awb hook pre-compact" for entries in work.values() for e in entries
+                   for h in e["hooks"])
 
 
 def test_owner_only_and_linked_output_refused(desk, monkeypatch):

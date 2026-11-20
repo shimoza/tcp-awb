@@ -617,13 +617,15 @@ def _settings(pr) -> dict:
     return json.loads((Path(pr.path) / ".claude" / "settings.json").read_text(encoding="utf-8"))
 
 
-def test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool(home, register_path):
-    """Replaces test_spawn_writes_client_settings_whose_tool_guard_takes_the_shell_tools (PD3, 2026-10-22): the
-    place guard (pre-tool) takes every file tool, both shell tools and the Workflow tool."""
+def test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool_and_compact(home, register_path):
+    """Replaces test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool (Q-0006, 2026-11-20):
+    the settings of a new project carry PreCompact as well, which runs `compact` (the pinned block of STATE.md).
+    Kept from the replaced test: the place guard (pre-tool) takes every file tool, both shell tools and the
+    Workflow tool."""
     pr = _spawn(home, register_path)
     settings = _settings(pr)
     assert set(settings) == {"hooks"}
-    assert set(settings["hooks"]) == set(HOOK_EVENTS)
+    assert set(settings["hooks"]) == set(HOOK_EVENTS) | {"PreCompact"}
     got = {event: [(e.get("matcher"), h["type"], h["command"].rsplit(" -m awb hook ", 1)[-1])
                    for e in entries for h in e["hooks"]] for event, entries in settings["hooks"].items()}
     write = "Write|Edit|MultiEdit|NotebookEdit"
@@ -635,6 +637,7 @@ def test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool(h
         "PostToolUse": [(write, "command", "post-write")],
         "Stop": [(None, "command", "stop")],
         "SessionStart": [(None, "command", "session-start")],
+        "PreCompact": [(None, "command", "compact")],
     }
     for entries in settings["hooks"].values():
         for e in entries:

@@ -2,7 +2,7 @@
 
 An independent, open-source harness for work on T Cloud Public (TCP). Not a product of the operator; it speaks for nobody but its author.
 
-The Architect Workbench as a Claude Code plugin: seven skills, two workers and the six checkpoints of a working
+The Architect Workbench as a Claude Code plugin: seven skills, two workers and the seven checkpoints of a working
 session.
 
 | part | what |

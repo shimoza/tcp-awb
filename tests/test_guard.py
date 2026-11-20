@@ -178,10 +178,11 @@ def test_seal_check_runs_the_self_test_of_the_guard(home, tmp_path, monkeypatch)
     assert [r.ok for r in seal.run_checks(home, tmp_path) if r.what == what] == [False]
 
 
-def test_client_settings_guard_the_workflow_tool_and_the_work_user_denies_the_rest_but_workflow():
-    """Replaces test_client_settings_guard_every_file_and_shell_tool_and_the_work_user_denies_the_rest (PD3,
-    2026-10-22): the place guard takes Workflow next to every file and shell tool, and the work user's settings
-    still deny every tool they denied but Workflow, which the guard limits to the Workbench's own workflows."""
+def test_client_settings_guard_the_workflow_tool_and_run_the_pinned_block_at_compaction():
+    """Replaces test_client_settings_guard_the_workflow_tool_and_the_work_user_denies_the_rest_but_workflow
+    (Q-0006, 2026-11-20): the same settings carry a PreCompact entry that runs `compact`, the pinned block of a
+    project. Kept from the replaced test: the place guard takes Workflow next to every file and shell tool and the
+    work user's settings still deny every tool they denied but Workflow."""
     s = hooks.client_settings("/usr/local/bin/awb hook")
     got = {event: [(e.get("matcher"), h["command"]) for e in entries for h in e["hooks"]]
            for event, entries in s["hooks"].items()}
@@ -193,6 +194,7 @@ def test_client_settings_guard_the_workflow_tool_and_the_work_user_denies_the_re
         "PostToolUse": [("Write|Edit|MultiEdit|NotebookEdit", "/usr/local/bin/awb hook post-write")],
         "Stop": [(None, "/usr/local/bin/awb hook stop")],
         "SessionStart": [(None, "/usr/local/bin/awb hook session-start")],
+        "PreCompact": [(None, "/usr/local/bin/awb hook compact")],
     }
     assert set(hooks.SHELL_TOOLS) <= set(hooks.GUARD_TOOLS) and "Workflow" in hooks.GUARD_TOOLS
     assert not set(hooks.GUARD_TOOLS) & set(hooks.DENIED_TOOLS)

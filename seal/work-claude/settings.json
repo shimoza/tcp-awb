@@ -60,6 +60,16 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/awb hook compact"
+          }
+        ]
+      }
     ]
   },
   "permissions": {

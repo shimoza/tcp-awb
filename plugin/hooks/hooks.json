@@ -60,6 +60,16 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "awb hook compact"
+          }
+        ]
+      }
     ]
   }
 }

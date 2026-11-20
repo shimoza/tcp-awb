@@ -320,14 +320,16 @@ def test_the_units_declare_notify_and_reload(unit, command):
     assert "Supervising process N which is not our child" in path.read_text(encoding="utf-8")
 
 
-def test_work_settings_carry_the_hooks_and_deny_every_tool_the_guard_does_not_see():
-    """Replaces test_work_settings_carry_the_five_hooks_and_deny_connectors (finding 9 of the review of 2026-10-10):
-    the deny list carries the connectors and every tool of the client that reaches a file, a command or work
-    elsewhere outside the guard."""
+def test_work_settings_carry_the_hooks_with_precompact_and_deny_every_tool_the_guard_does_not_see():
+    """Replaces test_work_settings_carry_the_hooks_and_deny_every_tool_the_guard_does_not_see (Q-0006,
+    2026-11-20): the work user's settings carry PreCompact as well, the pinned block of a project. Kept from the
+    replaced test: the deny list carries the connectors and every tool of the client that reaches a file, a
+    command or work elsewhere outside the guard."""
     data = json.loads(WORK_SETTINGS.read_text(encoding="utf-8"))
     assert set(data) == {"hooks", "permissions"}
     assert data["hooks"] == hooks.client_settings("/usr/local/bin/awb hook")["hooks"]
-    assert set(data["hooks"]) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart"}
+    assert set(data["hooks"]) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionStart",
+                                  "PreCompact"}
     assert data["permissions"] == {"deny": list(hooks.DENIED_TOOLS)}
     assert data["permissions"]["deny"][0] == "mcp__*" and "PowerShell" in data["permissions"]["deny"]
 

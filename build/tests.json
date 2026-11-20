@@ -2502,8 +2502,8 @@
   {
    "id": "TG-13",
    "phase": "T-guard",
-   "name": "client settings guard every file and shell tool and Workflow (PD3), the work user denies every tool the guard does not see; the test of the old deny list replaced",
-   "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_guard_the_workflow_tool_and_the_work_user_denies_the_rest_but_workflow",
+   "name": "client settings guard every file and shell tool and Workflow (PD3) and run compact at PreCompact (Q-0006), the work user denies every tool the guard does not see; the tests of the old deny list and of the settings without PreCompact replaced",
+   "run": ".venv/bin/pytest tests/test_guard.py::test_client_settings_guard_the_workflow_tool_and_run_the_pinned_block_at_compaction",
    "status": "passing"
   },
   {
@@ -10783,8 +10783,8 @@
   {
    "id": "pd23-14",
    "phase": "pd23",
-   "name": "spawn writes client settings whose tool guard takes the Workflow tool (the shell tools test replaced)",
-   "run": ".venv/bin/pytest tests/test_projects.py::test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool",
+   "name": "spawn writes client settings whose tool guard takes the Workflow tool and whose PreCompact runs compact (Q-0006; the shell tools test and the test without PreCompact replaced)",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool_and_compact",
    "status": "passing"
   },
   {
@@ -11301,8 +11301,8 @@
   {
    "id": "ux13-9",
    "phase": "ux13",
-   "name": "hand-over: owner settings include all three hooks",
-   "run": ".venv/bin/pytest tests/test_handover_write.py::test_owner_settings_include_all_three_hooks",
+   "name": "hand-over: owner settings include all three hooks, the work side runs compact and never the hand-over at PreCompact (Q-0006, replaces the test without PreCompact)",
+   "run": ".venv/bin/pytest tests/test_handover_write.py::test_owner_settings_include_all_three_hooks_and_the_work_side_never_runs_the_handover",
    "status": "passing"
   },
   {
@@ -29203,8 +29203,134 @@
    "name": "tcp-ui5o: the session sees the HTTP status and the error code only",
    "run": ".venv/bin/pytest tests/test_tms_domain.py::test_the_session_sees_status_and_code_only",
    "status": "passing"
+  },
+  {
+   "id": "Q6-1",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the block is read from its heading to the next heading",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_block_is_read_from_its_heading_to_the_next_heading",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-2",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the block text carries the two lines and the entries",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_block_text_carries_the_two_lines_and_the_entries",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-3",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a block over its size is cut for the compaction",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_block_over_its_size_is_cut_for_the_compaction",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-4",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a block that lost its shape is named with its counts",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_block_that_lost_its_shape_is_named_with_its_counts",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-5",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a block below the head of state is held",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_block_below_the_head_of_state_is_held",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-6",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a new project starts with a block in shape",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_new_project_starts_with_a_block_in_shape",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-7",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the stop hook holds a reply while the block lost its shape",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_stop_hook_holds_a_reply_while_the_block_lost_its_shape",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-8",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the compaction gets the two lines and the block as plain text",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_compaction_gets_the_two_lines_and_the_block_as_plain_text",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-9",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a block with a name is withheld from the compaction",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_block_with_a_name_is_withheld_from_the_compaction",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-10",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a block is withheld when the name check cannot run",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_block_is_withheld_when_the_name_check_cannot_run",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-11",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a bidi override withholds the block",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_bidi_override_withholds_the_block",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-12",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the compaction hook is silent outside a project and for the owner",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_compaction_hook_is_silent_outside_a_project_and_for_the_owner",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-13",
+   "phase": "T",
+   "name": "Q-0006 pinned block: a broken state file never blocks the compaction",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_a_broken_state_file_never_blocks_the_compaction",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-14",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the start after a compaction prints the block first",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_start_after_a_compaction_prints_the_block_first",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-15",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the start without a compaction has no extra block",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_start_without_a_compaction_has_no_extra_block",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-16",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the start after a compaction withholds a block with a name",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_start_after_a_compaction_withholds_a_block_with_a_name",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-17",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the start asks for a block when state has none",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_start_asks_for_a_block_when_state_has_none",
+   "status": "passing"
+  },
+  {
+   "id": "Q6-18",
+   "phase": "T",
+   "name": "Q-0006 pinned block: the client settings run compact at precompact and never the owner handover",
+   "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_client_settings_run_compact_at_precompact_and_never_the_owner_handover",
+   "status": "passing"
   }
  ],
- "total_tests": 4172,
+ "total_tests": 4190,
  "checked": "2026-11-20"
 }

@@ -88,7 +88,16 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        makes the whole context one line naming it (never a path), and every
                                        prompt is refused with that line until the guards pass. An owner session
                                        gets the receipt line alone, without the project repository, and is not
-                                       refused. Each start is a line in <shared>/sessions/receipts.tsv
+                                       refused. Each start is a line in <shared>/sessions/receipts.tsv. A
+                                       start with source `compact` puts the pinned section (below) before
+                                       the files
+    compact         PreCompact         plain text on stdout, which the client adds to the instructions of the
+                                       summary: the Status: and Next: lines and the `## Pinned` block of
+                                       STATE.md (reply language, standing limits, deliverables with their
+                                       bucket paths, running chains; awb/status.py), checked like STATE.md
+                                       and withheld when the check finds anything or cannot run (Q-0006).
+                                       Never blocks a compaction; silent for the owner and outside a project.
+                                       `pre-compact` is the owner's hand-over (awb/handover.py)
 
 The platform of a project (tcp or hcs, which decides whether vendor names block in a deliverable) comes from
 the prefix of its project code, the name of its folder. A line in SCOPE.md cannot change it.
@@ -150,7 +159,8 @@ from awb.toolguard import (BLOCK, BUILD_HOOKS, ERROR, GUARD_MATCHER, HOST_FILE, 
                            hook_pre_tool, project_root, refusals, selftest)
 
 
-HOOKS = ("prompt", "pre-write", "pre-tool", "post-write", "stop", "session-start", "pre-compact", "selftest")
+HOOKS = ("prompt", "pre-write", "pre-tool", "post-write", "stop", "session-start", "compact", "pre-compact",
+         "selftest")
 EVENTS = {
     "prompt": "UserPromptSubmit",
     "pre-write": "PreToolUse",
@@ -158,6 +168,7 @@ EVENTS = {
     "post-write": "PostToolUse",
     "stop": "Stop",
     "session-start": "SessionStart",
+    "compact": "PreCompact",
     "pre-compact": "PreCompact",
 }
 WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit"
@@ -215,8 +226,10 @@ class Unavailable(Exception):
 # --------------------------------------------------------------------------- client settings
 
 def client_settings(prefix: str) -> dict:
-    """The `hooks` block of a client settings file: the six hooks, each command `<prefix> <name>`; PreToolUse
-    carries two entries, the knowledge base guard of the write tools and the place guard of every file tool."""
+    """The `hooks` block of a client settings file: the seven hooks, each command `<prefix> <name>`; PreToolUse
+    carries two entries, the knowledge base guard of the write tools and the place guard of every file tool.
+    PreCompact runs `compact`, the pinned block of a project (Q-0006), never `pre-compact`, the owner's hand-over:
+    the managed settings run for the owner too and would count his compactions twice."""
     def entry(name: str, matcher: str | None = None) -> list[dict]:
         item: dict = {}
         if matcher:
@@ -231,6 +244,7 @@ def client_settings(prefix: str) -> dict:
             EVENTS["post-write"]: entry("post-write", WRITE_MATCHER),
             EVENTS["stop"]: entry("stop"),
             EVENTS["session-start"]: entry("session-start"),
+            EVENTS["compact"]: entry("compact"),
         }
     }
 
@@ -1762,6 +1776,70 @@ def _section(root: Path, name: str, max_lines: int | None, notes: list[str], dow
     return "## %s\n\n%s\n" % (title, text.strip())
 
 
+PIN_TITLE = "## Pinned state of this project (STATE.md, kept across the compaction)"
+COMPACT_LEAD = ("Keep the following standing facts of this Workbench project in the summary word for word: the "
+                "Status: and Next: lines of STATE.md and its pinned block (reply language, standing limits, "
+                "deliverables with their bucket paths, running chains). After the compaction work by them and do "
+                "not ask the owner for them again.")
+
+
+def _pinned_section(root: Path, down: list[str] | None = None) -> str | None:
+    """The two status lines and the pinned block of STATE.md (awb/status.py pin_text) as a section, checked like
+    STATE.md is at the start: withheld with one line when it carries a bidi override or any hit of the name check
+    or when the check cannot run. None when STATE.md is missing or has neither the lines nor the block."""
+    from awb import status
+
+    text = _project_text(root, status.STATE)
+    block = status.pin_text(text) if text is not None else None
+    if not block:
+        return None
+    if _has_override(block):
+        return "%s\n\n(withheld: it carries a bidi override. Take it out of STATE.md.)\n" % PIN_TITLE
+    try:
+        if down:
+            raise Unavailable(down[0])
+        hits = name_hits(block)
+    except Unavailable as exc:
+        if down is not None and not down:
+            down.append(str(exc))
+        return ("%s\n\n(withheld: the name check did not run. Read the Status: and Next: lines and the %s block "
+                "of STATE.md yourself once the check is back.)\n" % (PIN_TITLE, status.PIN_HEADING))
+    if hits:
+        return ("%s\n\n(withheld: it carries %s. Run `awb check STATE.md` and replace it with codes.)\n"
+                % (PIN_TITLE, _counts(hits)))
+    return "%s\n\n%s\n" % (PIN_TITLE, block)
+
+
+def _pin_notes(root: Path) -> list[str]:
+    """A check line when STATE.md has no pinned block (Q-0006): the projects made before it get one from their
+    session. Never fails the start."""
+    from awb import status
+
+    try:
+        text = _project_text(root, status.STATE)
+        if text is None or status.pinned(text) is not None:
+            return []
+    except Exception:
+        return []
+    return ["STATE.md has no %s block: add one after Status: and Next: (within its first %d lines) with one "
+            "line each (- Language:, - Limit:, - Deliverable: with its bucket path, - Chain:), so a compaction "
+            "keeps the reply language, his standing limits, the deliverables and the running chains"
+            % (status.PIN_HEADING, status.HEAD_LINES)]
+
+
+def hook_compact(data: dict) -> int:
+    """PreCompact of a project session (Q-0006): the two status lines and the pinned block of STATE.md go to the
+    compaction as its instructions. The client takes the plain text a PreCompact hook prints as added summary
+    instructions (JSON is no answer there), so this hook prints text, never JSON. It never blocks a compaction."""
+    root = project_root(_session_folder(data))
+    if root is None:
+        return OK
+    section = _pinned_section(root)
+    if section:
+        print("%s\n\n%s" % (COMPACT_LEAD, section.rstrip()))
+    return OK
+
+
 def _project_notes(p: config.Paths, root: Path, sid, shown: str | None = None) -> list[str]:
     """The claim of the project for this session (T-62), an idle project (T-24) and a STATE.md over its size
     (T-22). Never fails the hook. `shown` is the name of the project as the context may show it."""
@@ -1886,6 +1964,11 @@ def hook_session_start(data: dict) -> int:
                 _emit(EVENTS["session-start"], LOCKED_START % (exc.since or "unknown"))
                 return OK
             shown, down = "this project", [str(exc)]
+        if data.get("source") == "compact":
+            # Q-0006: after a compaction the standing facts come first, before every file
+            pin = _pinned_section(root, down)
+            if pin:
+                parts.append(pin)
         parts.append("Workbench project %s. Codes only, never a name.\n" % shown)
         parts.append(FOOTER_RULE + "\n")
         parked = _parked_line(p, root)
@@ -1895,6 +1978,7 @@ def hook_session_start(data: dict) -> int:
         parts.append(_section(root, "STATE.md", STATE_LINES, notes, down))
         parts.append(_section(root, "OPEN.md", None, notes, down))
         notes += _project_notes(p, root, data.get("session_id"), shown)
+        notes += _pin_notes(root)
         notes += _preflight_notes(p, root, data.get("session_id"))
     expired = _kb_expired(p)
     if expired is not None:
@@ -1964,6 +2048,7 @@ HANDLERS = {
     "post-write": hook_post_write,
     "stop": hook_stop,
     "session-start": hook_session_start,
+    "compact": hook_compact,
     "pre-compact": hook_pre_compact,
 }
 
