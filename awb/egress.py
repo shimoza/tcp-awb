@@ -7,6 +7,9 @@
     sudo awb egress enforce [--accept CLASS]...   the owner with sudo: refused unless 24 hours of counts allow it
     sudo awb egress count                         the owner with sudo: back to counting
     sudo awb egress --ask-mode count|enforce      the owner with sudo: the verdict of the Ask uid's chain alone
+    awb egress allow HOST --project CODE --until DATE --why TEXT
+                                                  the owner, no sudo: one host for the work user for a limited
+                                                  time (awb/egressgrant.py); allow --list, revoke HOST --project CODE
 
 The table `inet awb_egress` (seal/egress/work-egress.nft) sends every packet of the work user's uid (work_user of
 /etc/awb/paths.conf) through a chain of its own; every other uid passes the base chain untouched: the key service,
@@ -72,7 +75,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from awb import config
+from awb import config, egressgrant
 
 TABLE = "awb_egress"
 MODES = ("count", "enforce")
@@ -157,6 +160,8 @@ class Host:
     boot_id: Callable = lambda: _boot_id()    # the id of this boot (the tests set one)
     chown_root: bool = True             # a root write gives the file to root:root (the tests run as a user)
     conntrack: Callable | None = None   # None: _conntrack, the real conntrack as root
+    grants: Path | None = None          # None: ~/.config/awb/egress-grants.tsv of the owner of the host file
+    grants_uid: int | None = None       # the uid that must own `grants` (None: the current uid)
 
     @property
     def conf_path(self) -> Path:
@@ -875,6 +880,9 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     if template is None or allow_text is None:
         raise EgressError("seal/egress of the installed release cannot be read")
     entries = read_allow(allow_text)
+    now = host.now()
+    granted, grant_counts = _granted(host, text, {e.dest for e in _rows(allow_text)}, now)
+    entries += [Entry(h, "tcp 443", "allow") for h in granted]
     ask_entries = read_ask(allow_text) if with_ask else []
     ask_template = _read(host.source_dir / ASK_TEMPLATE) if with_ask else None
     if with_ask and (not ask_entries or ask_template is None):
@@ -883,7 +891,7 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     digest = hashlib.sha256(rules.encode("utf-8")).hexdigest()
     host.state_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
     st = _read_json(host.state_dir / "status.json", strict=True)
-    now = host.now()
+    st["grants"] = grant_counts
     cache, missing = update_cache(_read_json(host.state_dir / "addresses.json", strict=True), entries + ask_entries,
                                   host.resolve or _resolve, now)
     _atomic_write(host.state_dir / "addresses.json", json.dumps(cache, indent=1, sort_keys=True) + "\n", host)
@@ -936,6 +944,22 @@ def load(host: Host, *, force_reload: bool = False) -> dict:
     st["window"] = window(read_history(host), now, _parse_time(st.get("count_since")))
     _save_status(host, st)
     return {"action": action, "mode": mode_word, "unanswered": missing}
+
+
+def _granted(host: Host, conf_text: str, listed: set[str], now: float) -> tuple[list[str], dict[str, int]]:
+    """The hosts of the owner's active grants (awb egress allow, awb/egressgrant.py) and their counts. A grants
+    file that is not safe to trust adds no host and counts as refused; the load goes on with the shared list."""
+    if host.grants is not None:
+        found = (Path(host.grants), host.grants_uid if host.grants_uid is not None else os.getuid())
+    else:
+        found = egressgrant.owner_file(conf_value(conf_text, "owner"))
+    if found is None:
+        return [], {"active": 0, "expired": 0, "left_out": 0}
+    try:
+        text = egressgrant.read_trusted(*found)
+    except egressgrant.GrantError:
+        return [], {"active": 0, "expired": 0, "left_out": 0, "refused": 1}
+    return egressgrant.active_hosts(text, now, listed)
 
 
 def _save_status(host: Host, st: dict) -> None:
@@ -1082,7 +1106,8 @@ def status(host: Host | None = None) -> dict:
             "ask_line": has_ask_line(host),
             "ask_host_mode": parse_mode(_read(host.conf_path), "ask_mode")[0],
             "ask_mode": ast.get("mode") if ast.get("mode") in MODES else None,
-            "ask": _public_counts(ast.get("window"), ASK_CLASSES + (ALLOWED,))}
+            "ask": _public_counts(ast.get("window"), ASK_CLASSES + (ALLOWED,)),
+            "grants": _public_counts(st.get("grants"), ("active", "expired", "left_out", "refused"))}
 
 
 def ask_lines(host: Host | None = None) -> list[str]:
@@ -1127,6 +1152,12 @@ def status_lines(host: Host | None = None) -> list[str]:
     lines.append("egress: last 24 hours%s: allowed %s; counted outside the list: %s" % (
         "" if w.get("covered") else " (%s)" % (w.get("why") or "no history yet"),
         w.get("allowed", 0), counted or "none"))
+    g = s["grants"] or {}
+    if g.get("refused"):
+        lines.append("egress: the owner's grants file is not a private file of the owner: no grant is loaded")
+    elif g.get("active") or g.get("left_out"):
+        lines.append("egress: %d host(s) granted for a limited time%s (awb egress allow --list)"
+                     % (g.get("active", 0), ", %d grant line(s) left out" % g["left_out"] if g.get("left_out") else ""))
     return lines
 
 
@@ -1141,7 +1172,34 @@ def check(host: Host | None = None) -> tuple[bool, str] | None:
                                                                                                or "no mode")
 
 
-def main(argv: list[str] | None = None, host: Host | None = None) -> int:
+def _grant_command(args, owner: egressgrant.Owner) -> int:
+    """awb egress allow|revoke: the owner's grants (awb/egressgrant.py); exit 1 when the reason fails the name
+    check, 2 for every other refusal."""
+    try:
+        if args.command == "revoke":
+            print(egressgrant.revoke(owner, args.host, args.project))
+        elif args.list:
+            if args.host or args.project or args.until or args.why:
+                raise egressgrant.GrantError("--list stands alone: awb egress allow --list")
+            print("\n".join(egressgrant.listing(owner)))
+        else:
+            if not (args.host and args.project and args.until and args.why):
+                raise egressgrant.GrantError("awb egress allow HOST --project CODE --until DATE --why TEXT")
+            print(egressgrant.allow(owner, args.host, args.project, args.until, args.why))
+        return 0
+    except egressgrant.GrantRefused as err:
+        print("awb egress: %s" % err, file=sys.stderr)
+        return 1
+    except egressgrant.GrantError as err:
+        print("awb egress: %s" % err, file=sys.stderr)
+        return 2
+    except OSError:
+        print("awb egress: the grants file could not be read or written safely", file=sys.stderr)
+        return 2
+
+
+def main(argv: list[str] | None = None, host: Host | None = None,
+         owner: egressgrant.Owner | None = None) -> int:
     from awb.cli import SafeParser
 
     class EgressParser(SafeParser):
@@ -1162,6 +1220,16 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
     en = sub.add_parser("enforce", help="the owner with sudo: refuse every connection outside the list")
     en.add_argument("--accept", nargs="+", default=[], metavar="CLASS", help="a class you expect to lose")
     sub.add_parser("count", help="the owner with sudo: count again, refuse nothing")
+    al = sub.add_parser("allow", help="the owner, no sudo: grant one host to the work user for one project and a "
+                                      "limited time (awb/egressgrant.py)")
+    al.add_argument("host", nargs="?", default=None, metavar="HOST", help="one host name")
+    al.add_argument("--project", default=None, metavar="CODE", help="the project that asked (tcp-xxxx)")
+    al.add_argument("--until", default=None, metavar="DATE", help="the last day, YYYY-MM-DD, at most 30 days ahead")
+    al.add_argument("--why", default=None, metavar="TEXT", help="the reason, with codes, never a name")
+    al.add_argument("--list", action="store_true", help="every grant, active or expired")
+    rv = sub.add_parser("revoke", help="the owner, no sudo: end a grant before its date")
+    rv.add_argument("host", metavar="HOST")
+    rv.add_argument("--project", required=True, metavar="CODE")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -1191,6 +1259,8 @@ def main(argv: list[str] | None = None, host: Host | None = None) -> int:
         if args.command == "count":
             print(count(host))
             return 0
+        if args.command in ("allow", "revoke"):
+            return _grant_command(args, owner or egressgrant.Owner())
     except Refused as err:
         print("awb egress: %s" % err, file=sys.stderr)
         return 1

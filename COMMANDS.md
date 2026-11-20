@@ -1414,7 +1414,7 @@ run the checks that need no root for the current user, PASS or FAIL per line
 
 ### `awb egress [--ask-mode count|enforce]`
 
-the egress filter of the work user and the Ask uid: status; sudo awb egress load|enforce|count|--ask-mode
+the egress filter of the work user and the Ask uid: status; sudo awb egress load|enforce|count|--ask-mode; awb egress allow|revoke (the owner: one host for a limited time)
 - `--ask-mode count|enforce`: the owner with sudo: the verdict of the Ask uid's chain (count refuses nothing)
 
 ### `awb egress status [--json]`
@@ -1434,6 +1434,21 @@ the owner with sudo: refuse every connection outside the list
 ### `awb egress count`
 
 the owner with sudo: count again, refuse nothing
+
+### `awb egress allow [HOST] [--project CODE] [--until DATE] [--why TEXT] [--list]`
+
+the owner, no sudo: grant one host to the work user for one project and a limited time (awb/egressgrant.py)
+- `[HOST]`: one host name
+- `--project CODE`: the project that asked (tcp-xxxx)
+- `--until DATE`: the last day, YYYY-MM-DD, at most 30 days ahead
+- `--why TEXT`: the reason, with codes, never a name
+- `--list`: every grant, active or expired
+
+### `awb egress revoke HOST --project CODE`
+
+the owner, no sudo: end a grant before its date
+- `HOST`
+- `--project CODE`
 
 ### `awb bucket sync`
 
@@ -1748,13 +1763,14 @@ one self-contained HTML file of a draft
 - `--internal`: allow a draft with images; the page says "internal, never publish" at the top
 - `--pdf`: also a PDF of the page next to it, as awb pdf writes it
 
-### `awb pdf FILE [--out PDF] [--title T] [--replace]`
+### `awb pdf FILE [--out PDF] [--title T] [--unicode] [--replace]`
 
-a PDF of a Markdown or HTML deliverable, next to it: standard fonts, selectable text
+a PDF of a Markdown or HTML deliverable, next to it: standard fonts, selectable text; --unicode embeds a font for Cyrillic
 - `FILE`: the Markdown (.md) or HTML (.html) file
 - `--out PDF`: the PDF (default: FILE with .pdf, next to it); inside the project folder or the session scratch folder
 - `--title T`: the title in the document info (default: the first heading)
-- `--replace`: write ? for a character the standard fonts cannot show (default: refuse)
+- `--unicode`: embed a TrueType font of the host (Liberation, else DejaVu) so Cyrillic and every other character it has show as selectable text (default: the standard fonts, WinAnsi only)
+- `--replace`: write ? for a character the fonts cannot show (default: refuse)
 
 ### `awb xchg put FILE [--as NAME] [--image] [--reason REASON] [--internal-image] [--kind WORD] [--lang XX]`
 

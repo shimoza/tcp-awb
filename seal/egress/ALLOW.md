@@ -5,6 +5,10 @@ may reach on the network. `awb egress load` (root) reads the rows in backticks f
 names and puts their addresses into the sets of `work-egress.nft`. Every other new connection of the work user is
 counted by class and, in the mode enforce, refused. Measured on 2026-10-11 on the sealed host; how is at the end.
 
+A row here is a development commit. A host one project needs for a while is no row: the owner grants it with
+`awb egress allow HOST --project CODE --until DATE --why TEXT` (at most 30 days, `awb/egressgrant.py`) and the load
+adds it to the allowed set until its last day.
+
 ## Allowed: a new connection on tcp 443 passes
 
 | destination | port | set | why |

@@ -973,7 +973,7 @@ copies the newest pass to `/srv/tcp-mirrors/console/<date>/` (folders 0750, file
 
 ## A PDF of a deliverable
 
-The host has no office suite, so `awb pdf FILE [--out PDF] [--title T]` is the one route from a Markdown or HTML
+The host has no office suite, so `awb pdf FILE [--out PDF] [--title T] [--unicode]` is the one route from a Markdown or HTML
 deliverable to a PDF, for every project and for you; no project writes its own. It writes next to FILE unless
 `--out` names another file (inside the project folder or the session scratch folder only) and runs as the work
 user in a project session. The PDF is A4 with the standard fonts, so the text stays selectable: headings,
@@ -982,9 +982,14 @@ drawn arrow, never cut, so a copied command is the command), Markdown pipe table
 row repeated on every page, column widths fitted to the page, text wrapped inside its cell, the alignment of the
 separator row), HTML tables as aligned text, links with their URL, page
 numbers and the title (the first heading unless `--title`) in the document info. A character the standard fonts
-cannot show (Cyrillic for example) is never dropped silently: the command refuses with its line and the count;
-`--replace` writes `?` for it and says how many. `awb howto render --pdf` and the HOW-TO.pdf of the dataset
-use the same writer (`awb/pdf.py`).
+cannot show (Cyrillic for example) is never dropped silently: the command refuses with its line and the count.
+`--unicode` embeds a TrueType font of the host instead (Liberation Sans and Mono, the metrics of the standard fonts,
+else DejaVu; `awb/pdffont.py`), only the glyphs the document uses and with a ToUnicode map, so Russian, German umlauts
+and Latin share one document and pdftotext gives the text back as it was written. `--replace` writes `?` for a
+character the fonts cannot show and says how many. `awb howto render --pdf` and the HOW-TO.pdf of the dataset
+use the same writer (`awb/pdf.py`). A project that misses something here (another file format, a font, a package)
+asks with `awb dev ask` and never builds its own writer or installs a package: development decides what is installed
+for all projects.
 
 ## A typical day
 
@@ -1597,6 +1602,16 @@ a host outside `seal/egress/ALLOW.md` (the model API, the client's login, update
 price API), by class. It ships counting and refuses nothing. After a day of counts with nothing unexpected,
 `sudo awb egress enforce` makes it refuse; `awb egress status` and `awb deploy status` show the mode and the counts,
 `sudo awb egress count` goes back. A second table, `inet awb_egress_ask` (`seal/egress/ask-egress.nft`), holds a chain for the Ask uid (`ask_user` of the host file, `awb-ask` without the line) with a list of its own in `ALLOW.md` (the model endpoint and the price host; loopback and so the host's resolver pass): every other new connection of that uid is counted in `ask_dns`, `ask_web` or `ask_other` and passes in the mode count or is refused in the mode enforce. Its mode is `ask_mode` of the host file (count by default); `sudo awb egress --ask-mode enforce` sets it and `awb egress status` and `awb egress count` print its counts as a block of their own. The work user's table does not change with it, and the Ask table is loaded when the host file carries an `ask_mode` line (the seal writes it). An established connection passes only when the list allowed it: in enforce a connection opened outside the list while the filter counted is refused at its next packet. So is every answer of a listener of `awb` to a connection from outside. The switch also deletes those connections from conntrack when the `conntrack` tool is installed; without it they are refused all the same. The test tenants stay reachable through the key service, which runs as you. When the table is missing within the same boot (a restart of nftables removes it) the next load puts it back, restarts the count window and the status says so.
+
+A project that needs a host off the list asks with `awb dev ask`. The desk or development grants it as the owner
+user, without sudo and never from a project folder: `awb egress allow HOST --project CODE --until DATE --why TEXT`
+(one host name, a last day at most 30 days ahead, a reason with codes), `awb egress allow --list` and `awb egress
+revoke HOST --project CODE`. The grant goes into `~/.config/awb/egress-grants.tsv` (0600), a line into
+`~/.config/awb/egress-grants.log` and an entry into the ledger. The next `awb egress load` (the timer within 5
+minutes, at once with `sudo awb egress load`) adds the host to the allowed set of the work user and drops it after
+its last day or a revoke. The filter knows uids, not projects: a granted host is open to every session of the work
+user, and the project code says who asked. A host of `seal/egress/ALLOW.md` takes no grant, and a lasting addition
+stays a development commit of that file.
 Things you want no commit to carry (names of other workspaces, a naming scheme) go into a local blocklist, one regular expression per
 line: `/etc/awb/blocklist.txt` or `~/.config/awb/blocklist.txt`. It never enters the repository.
 
