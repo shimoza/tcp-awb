@@ -560,6 +560,26 @@ USAGE_ANSWER = {"source": "calls to the TCP API", "month": "2026-10",
                          {"day": "2026-10-16", "calls": 12, "throttled": 2, "errors": 0, "waited_seconds": 3.1,
                           "services": [{"service": "ecs", "calls": 12}]}],
                 "total": {"calls": 53, "throttled": 2, "errors": 1}}
+HEALTH_ANSWER = {
+    "generated_at": "2026-11-20T09:30:00Z",
+    "health": [
+        {"id": "vault", "label": "Vault", "state": "ok", "value": "unlocked", "detail": None},
+        {"id": "keys", "label": "Key service", "state": "bad", "value": "locked", "detail": "no tenant key is loaded"},
+        {"id": "runner", "label": "Build runner", "state": "ok", "value": "running C-301",
+         "detail": "state of 2026-11-20T09:28:41Z"},
+        {"id": "release", "label": "Live release", "state": "warn", "value": "1111111",
+         "detail": "main 2222222, 2 not deployed"},
+        {"id": "disk", "label": "Disk free", "state": "ok", "value": "41%", "detail": "41.0 GB of 100 GB"},
+        {"id": "web", "label": "awb-web", "state": "ok", "value": "live release", "detail": "1111111"}],
+    "now": [
+        {"kind": "check", "id": "C-301", "state": "running", "start": "2026-11-20T09:12:05Z", "end": None,
+         "note": None},
+        {"kind": "task", "id": "B-077", "state": "queued", "start": "2026-11-20T09:20:00Z", "end": None,
+         "note": None},
+        {"kind": "lab", "id": "tcp-q7m4", "state": "ends soon", "start": None, "end": "2026-11-20T10:10:00Z",
+         "note": "window as opened"},
+        {"kind": "deploy", "id": "2222222", "state": "pending", "start": None, "end": None,
+         "note": "2 commits on main, live 1111111"}]}
 
 
 def _schemas() -> dict:
@@ -1109,6 +1129,57 @@ def _schemas() -> dict:
         }, closed=True),
         "OwnerItems": obj({"items": array(ref("OwnerItem"), "Project decisions in owner status order and limits."),
                            "written": string(format="date-time"), "stale": boolean()}),
+        "OwnerDevAsk": obj({
+            "code": ref("ProjectCode"),
+            "file": string("The file of the ask in <shared>/notices/dev/.",
+                           pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-tcp-[a-z2-7]{4}-[1-9][0-9]{0,3}\.md$"),
+            "title": string("The title after the name check; null when withheld.", nullable=True, maxLength=120),
+            "withheld": string("The classes that withheld the title or unavailable; null when shown.",
+                               nullable=True),
+            "created": string(format="date-time"),
+            "blocks": boolean("The project is blocked until development answers."),
+        }),
+        "OwnerDevAsks": obj({"asks": array(ref("OwnerDevAsk"), "The open asks, oldest first, at most 200."),
+                             "written": string(format="date-time"), "stale": boolean()}),
+        "OwnerQueueRow": obj({
+            "id": string("The row id of awb queue.", pattern=r"^[A-Za-z][A-Za-z0-9-]{0,39}$"),
+            "who": string("owner, desk, development or session:CODE."),
+            "project": string("A project code or null.", nullable=True),
+            "what": string("The work after the name check, cut to 240 characters; null when withheld.",
+                           nullable=True, maxLength=300),
+            "next": string("The next step after the name check, cut to 240 characters; null when withheld.",
+                           nullable=True, maxLength=300),
+            "withheld": string("The classes that withheld the texts or unavailable; null when shown.",
+                               nullable=True),
+            "created": string(format="date-time"),
+            "next_changed": string("When the next step last changed.", format="date-time"),
+            "stale": boolean("The next step is unchanged for 24 hours, as awb queue list marks it."),
+        }),
+        "OwnerQueue": obj({"rows": array(ref("OwnerQueueRow"), "The open rows, oldest first, at most 200."),
+                           "readable": boolean("false when the owner's timer could not read the queue."),
+                           "written": string(format="date-time"), "stale": boolean()}),
+        "HealthTile": obj({
+            "id": string(enum=["vault", "keys", "runner", "release", "disk", "web"]),
+            "label": string("The label of the tile."),
+            "state": string(enum=["ok", "warn", "bad", "unknown"]),
+            "value": string("A fixed word with an id, a short hash or a number."),
+            "detail": string("One more fixed line or null.", nullable=True),
+        }),
+        "NowItem": obj({
+            "kind": string(enum=["task", "check", "lab", "deploy"]),
+            "id": string("A task or check id, a project code (lab) or a short hash (deploy)."),
+            "state": string("The state word: running, queued, hung, held, asked, answered, widened, green (a task "
+                            "or check), open or ends soon (lab), the journal state or pending (deploy)."),
+            "start": string("When it started, UTC; null when not known or not meant.", nullable=True,
+                            format="date-time"),
+            "end": string("When it ends, UTC; a lab window only.", nullable=True, format="date-time"),
+            "note": string("One fixed line or null.", nullable=True),
+        }),
+        "Health": obj({
+            "generated_at": string(format="date-time"),
+            "health": array(ref("HealthTile"), "The six tiles in a fixed order."),
+            "now": array(ref("NowItem"), "Running first, then by start; the lab windows by end; the deploys last."),
+        }, description="The health strip and the Now block of both console pages (Q-0026)."),
         "ChatTurn": obj({
             "id": ref("RequestId"),
             "project": ref("ProjectCode"),
@@ -1516,6 +1587,20 @@ def _reference_paths() -> dict:
                            "from the Workbench's own record of its calls. No tenant alias, no path, no id.",
                 state="deployed"),
         },
+        "/api/health": {
+            "get": operation("getHealth", "reference", "The health strip and what runs now.", {
+                "200": answer("The tiles and the items.", ref("Health"), {"sample": HEALTH_ANSWER}),
+                "404": gateway("A reader whose login is limited to some projects.", "Not found."),
+                "503": refusal("The answer could not be built.",
+                               "The health of the Workbench could not be read. Try again shortly."),
+            }, description="On both hosts, from the console data service, kept 15 seconds. It answers while the "
+                           "vault is locked: that is a tile. The vault and the key service by their pings, the "
+                           "build runner and the open tasks and checks from <shared>/build/state.tsv, the live "
+                           "release and the deploy journal of /opt/tcp-awb, the free disk, the console gateway "
+                           "against the switch of the last deploy and the lab windows from the notices of awb "
+                           "winlab. Ids, codes, short hashes, numbers and fixed words only. Nothing runs a "
+                           "command.", state="repository"),
+        },
     }
 
 
@@ -1817,6 +1902,26 @@ def _owner_paths() -> dict:
             "From the status file written by awb owner status --write, including the checked app line. "
             "Owner-actions reads no project files. Old status files return an empty items list. "
             "The page posts code and item to take-default only when has_default is true.")},
+        "/api/owner/dev-asks": {"get": owner_op(
+            "listOwnerDevAsks", "The open asks of the projects to development.", "OwnerDevAsks",
+            {"asks": [{"code": "tcp-q7m4", "file": "2026-11-16-tcp-q7m4-1.md", "title": "the import stops at a "
+                       "file of 30 MB", "withheld": None, "created": "2026-11-16T08:02:11Z", "blocks": True},
+                      {"code": "tcp-k2wd", "file": "2026-11-17-tcp-k2wd-2.md", "title": None, "withheld": "name",
+                       "created": "2026-11-17T14:40:00Z", "blocks": False}]},
+            "From the status file: the owner's timer reads <shared>/notices/dev/ (awb dev ask) at most every five "
+            "minutes and lets each title through the name check; a title with a finding is withheld with its "
+            "class. Read only: closing an ask stays a command of a session.")},
+        "/api/owner/queue": {"get": owner_op(
+            "listOwnerQueue", "The open rows of the owner's work queue.", "OwnerQueue",
+            {"rows": [{"id": "Q-0025", "who": "development", "project": None, "what": "dev asks and queue on the "
+                       "owner page", "next": "review the page", "withheld": None, "created": "2026-11-19T10:00:00Z",
+                       "next_changed": "2026-11-19T10:00:00Z", "stale": True},
+                      {"id": "Q-0031", "who": "owner", "project": "tcp-q7m4", "what": None, "next": None,
+                       "withheld": "name", "created": "2026-11-20T07:00:00Z",
+                       "next_changed": "2026-11-20T07:00:00Z", "stale": False}], "readable": True},
+            "From the status file: the owner's timer reads queue.tsv (awb queue) at most every five minutes and "
+            "lets what and next through the name check; a row with a finding is withheld with its class. Read "
+            "only: archiving a row stays awb queue done in a terminal.")},
         "/api/owner/items/take-default": {"post": operation(
             "takeOwnerItemDefault", "owner", "Take the default of a project owner item.", {
                 "200": answer("One project note, its prompt notice and one ledger line; a repeat writes nothing.",

@@ -371,7 +371,8 @@ def build_state(p) -> dict | None:
             if not _CHECK_ID.fullmatch(cid) or cid in seen or word is None:
                 continue
             seen.add(cid)
-            out["checks"].append({"id": cid, "state": word, "time": m.group(1) if m else "",
+            out["checks"].append({"id": cid, "state": word, "since": since if m else "",
+                                  "time": m.group(1) if m else "",
                                   "commit": commit if _SHORT.fullmatch(commit) else ""})
         elif kind in ("live", "main") and len(cells) == 2 and _SHORT.fullmatch(cells[1]):
             out[kind] = cells[1]

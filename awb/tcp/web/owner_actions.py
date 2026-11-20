@@ -15,6 +15,9 @@ nothing else, holds no key, reaches no vault and runs no command.
                               with its class
     GET /api/owner/intake     per customer code the candidates that wait for a review and the time of the report
     GET /api/owner/items      checked project decisions, source indexes, defaults and app lines from the status file
+    GET /api/owner/dev-asks   the open dev asks (Q-0025): code, file, title after the name check, created, blocks
+    GET /api/owner/queue      the open rows of awb queue (Q-0025): id, who, project, what and next after the name
+                              check, created, next_changed, stale; readable false when the timer could not read it
     POST /api/owner/publish   {run_id, code}: Publish (T9 step 3). The TOTP code is checked again here against this
                               service's own copy of the secret (/etc/awb/owner-publish.json, awb-owner 600), fresh
                               and once; then the run id alone goes to the root unit on /run/awb-web-publish.sock,
@@ -105,6 +108,11 @@ def answer(route: str, status: dict | None, now: float) -> tuple[int, dict]:
         return 200, {"runs": [{k: r[k] for k in PAGE_RUN_KEYS} for r in status["ui_runs"]], **meta}
     if route == "/api/owner/items":
         return 200, {"items": status.get("decisions", []), **meta}
+    if route == "/api/owner/dev-asks":
+        return 200, {"asks": status.get("dev_asks", []), **meta}
+    if route == "/api/owner/queue":
+        queue = status.get("queue", {"readable": True, "rows": []})
+        return 200, {"rows": queue["rows"], "readable": queue["readable"], **meta}
     return 200, {"customers": status["intake"], **meta}
 
 

@@ -421,7 +421,17 @@ The console is the web side of the same work, behind a sign-in. Before the sign-
 body. It lists the projects with their status, files and
 deliverables, shows the board and what runs on the test tenants and creates a new query or project with its bucket
 folder. On the owner host it puts files into a project's folder `in/`; the session takes them with "take the files
-from in". Each project has a chat that reads its sanitised inputs. The Ask page answers
+from in". Both pages open with a health strip and a Now block (`GET /api/health`, from the console data service,
+kept 15 seconds): six tiles for the vault, the key service, the build runner with its running check or task, the
+live release with main and how many commits are not deployed, the free disk and whether awb-web runs the live
+release (its process started after the switch of the last deploy), then what runs now: open build checks and tasks
+with their start, lab windows with their end (from the notices of `awb winlab`, so a window closed early stays
+listed until its end) and a deploy that runs or waits. Codes, ids and fixed words only; a reader limited to some
+projects gets no strip. The owner page also lists the open dev asks (project code, title, age, blocks or not) and the
+open rows of `awb queue` (id, who, what and next step, age, a stale mark after 24 hours without a new next step),
+both from the status file of `awb owner status --write`, rebuilt at most every five minutes, every text through the
+name check and withheld with its class on a finding. They are read only for now. Each project has a chat that reads
+its sanitised inputs. The Ask page answers
 a general question in plain words only from the knowledge base, the live price API and the tenant snapshots.
 Ask runs on `claude-opus-5-5` (`AWB_ASK_MODEL` changes it). Thinking is always on there, so `AWB_ASK_EFFORT` sets
 how much the model thinks (`low`, `medium`, `high`, `xhigh` or `max`, default `medium`) and `AWB_ASK_MAX_TOKENS`

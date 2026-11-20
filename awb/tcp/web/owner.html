@@ -34,15 +34,27 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .row>*{flex:1 1 160px}
 .note{margin:8px 0 0;font-size:13px}
 @media (min-width:900px){main{grid-template-columns:1fr 1fr}.wide{grid-column:1/-1}}
+/* Q-0026 and Q-0025: the state of a health tile in its top border; a stale queue row and a blocking ask marked */
+.tile.t-ok{border-top:2px solid var(--ok)}.tile.t-warn{border-top:2px solid var(--warn)}.tile.t-bad{border-top:2px solid var(--bad)}
+.tile span{overflow-wrap:anywhere}
+h3{font-size:13px;margin:14px 0 6px}
+.mark{display:inline-block;padding:0 7px;border:1px solid currentColor;border-radius:999px;font-size:12px;white-space:nowrap}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
 </style>
 </head>
 <body>
 <header><h1>AWB owner level</h1><form method="post" action="/logout" id="logout"><button class="plain" type="submit">Sign out</button></form></header>
 <main>
+<section class="wide" aria-labelledby="h-health"><h2 id="h-health">Health</h2><div class="tiles" id="health"><p class="muted">Loading.</p></div>
+<h3 id="h-now">Now</h3><div class="scroll"><table aria-labelledby="h-now"><thead><tr><th>Kind</th><th>Id</th><th>State</th><th>Start or end</th></tr></thead><tbody id="now"></tbody></table></div><p class="note" id="health-note" role="status"></p></section>
 <section class="wide" aria-labelledby="h-state"><h2 id="h-state">State</h2><div class="tiles" id="state"><p class="muted">Loading.</p></div><p class="note" id="state-note" role="status"></p></section>
 <section class="wide" aria-labelledby="h-decisions"><h2 id="h-decisions">Decisions</h2><div class="scroll"><table><thead><tr><th>Project</th><th>Item</th><th>Action</th></tr></thead><tbody id="decisions"><tr><td colspan="3" class="muted">Loading.</td></tr></tbody></table></div><p class="note" id="decisions-note" role="status"></p></section>
 <section class="wide" aria-labelledby="h-runs"><h2 id="h-runs">UI runs</h2><div class="scroll"><table><thead><tr><th>Run</th><th>State</th><th>Finished</th><th>Validation</th><th>Diff</th><th></th></tr></thead><tbody id="runs"></tbody></table></div><form id="publish" class="row"><div><label for="pub-code">Code of your authenticator app</label><input id="pub-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required></div><div><button type="submit" id="pub-button" disabled>Publish the newest PASS run</button></div></form>
 <p class="note" id="runs-note" role="status"></p></section>
+<!-- Q-0025, read only in this step: the close button of an ask and the archive button of a queue row, each with a
+     code of the authenticator app like Publish, go into the last column of these two tables (owner host only). -->
+<section class="wide" aria-labelledby="h-asks"><h2 id="h-asks">Dev asks</h2><div class="scroll"><table><thead><tr><th>Project</th><th>Title</th><th>Age</th><th>Blocks</th></tr></thead><tbody id="asks"></tbody></table></div><p class="note" id="asks-note" role="status"></p></section>
+<section class="wide" aria-labelledby="h-queue"><h2 id="h-queue">Queue</h2><div class="scroll"><table><thead><tr><th>Id</th><th>Who</th><th>What and next step</th><th>Age</th><th>Next unchanged</th></tr></thead><tbody id="queue"></tbody></table></div><p class="note" id="queue-note" role="status"></p></section>
 <section aria-labelledby="h-intake"><h2 id="h-intake">Intake</h2><table><thead><tr><th>Customer</th><th>Waiting for review</th><th>Last report</th></tr></thead><tbody id="intake"></tbody></table></section>
 <section aria-labelledby="h-customers"><h2 id="h-customers">Customers</h2><table><thead><tr><th>Code</th><th>State</th><th>Projects</th></tr></thead><tbody id="customers"></tbody></table><p class="note muted">New customers are registered in your own terminal.</p></section>
 <section aria-labelledby="h-new"><h2 id="h-new">New project</h2>
@@ -81,6 +93,51 @@ function api(path,opts){
   });
 }
 function tile(parent,label,value,cls){var d=document.createElement("div");d.className="tile";var b=document.createElement("b");b.textContent=label;var s=document.createElement("span");s.textContent=value;if(cls){s.className=cls;}d.appendChild(b);d.appendChild(s);parent.appendChild(d);}
+function age(t){var ms=Date.now()-Date.parse(t||"");if(!(ms>=0)){return "-";}var m=Math.round(ms/60000);if(m<60){return m+" min";}var h=Math.floor(m/60);if(h<48){return h+" h";}return Math.floor(h/24)+" d";}
+function stateTile(parent,t){var cls=t.state==="ok"||t.state==="warn"||t.state==="bad"?t.state:"muted";tile(parent,t.label,t.value+(t.detail?" · "+t.detail:""),cls);var d=parent.children[parent.children.length-1];d.className="tile t-"+cls;}
+function loadHealth(){
+  // Q-0026: the same GET /api/health as the main page, from the console data service
+  return api("/api/health").then(function(d){
+    var box=el("health");clear(box);
+    d.health.forEach(function(t){stateTile(box,t);});
+    var body=el("now");clear(body);
+    if(!d.now.length){empty(body,4,"Nothing runs now: no open check or task, no lab window, no deploy pending.");}
+    d.now.forEach(function(i){
+      var tr=document.createElement("tr");cell(tr,i.kind);cell(tr,i.id,"mono");
+      cell(tr,i.state+(i.note?" · "+i.note:""),i.state==="running"?"ok":/^(hung|held)/.test(i.state)?"bad":i.state==="ends soon"?"warn":"");
+      cell(tr,i.end?"until "+when(i.end):i.start?"since "+when(i.start)+" ("+age(i.start)+")":"-");body.appendChild(tr);
+    });
+    el("health-note").textContent="As of "+when(d.generated_at)+".";
+  }).catch(function(e){el("health-note").textContent=e.message;});
+}
+function loadAsks(){
+  // Q-0025: read only; the close button with a code of the authenticator app goes into a fifth column later
+  return api("/api/owner/dev-asks").then(function(d){
+    var body=el("asks");clear(body);
+    el("asks-note").textContent=d.stale?"The list is older than five minutes ("+when(d.written)+").":"";
+    if(!d.asks.length){empty(body,4,"No open ask.");return;}
+    d.asks.forEach(function(a){
+      var tr=document.createElement("tr");cell(tr,a.code,"mono");
+      cell(tr,a.title!=null?a.title:"withheld by the name check ("+a.withheld+")",a.title!=null?"":"muted");
+      cell(tr,age(a.created));var b=cell(tr,"");if(a.blocks){var s=document.createElement("span");s.className="mark bad";s.textContent="blocks";b.textContent="";b.appendChild(s);}else{b.textContent="no";}
+      body.appendChild(tr);
+    });
+  }).catch(function(e){empty(el("asks"),4,"Dev asks unavailable.");el("asks-note").textContent=e.message;});
+}
+function loadQueue(){
+  // Q-0025: read only; the archive button with a code of the authenticator app goes into a sixth column later
+  return api("/api/owner/queue").then(function(d){
+    var body=el("queue");clear(body);
+    el("queue-note").textContent=!d.readable?"The owner's timer could not read the queue.":d.stale?"The list is older than five minutes ("+when(d.written)+").":"";
+    if(!d.rows.length){empty(body,5,d.readable?"No open row.":"Not available.");return;}
+    d.rows.forEach(function(r){
+      var tr=document.createElement("tr");cell(tr,r.id,"mono");cell(tr,r.who+(r.project?" · "+r.project:""));
+      cell(tr,r.what!=null?r.what+" · next: "+r.next:"withheld by the name check ("+r.withheld+")",r.what!=null?"":"muted");
+      cell(tr,age(r.created));var s=cell(tr,"");if(r.stale){var m=document.createElement("span");m.className="mark warn";m.textContent="stale "+age(r.next_changed);s.textContent="";s.appendChild(m);}else{s.textContent=age(r.next_changed);}
+      body.appendChild(tr);
+    });
+  }).catch(function(e){empty(el("queue"),5,"Queue unavailable.");el("queue-note").textContent=e.message;});
+}
 function daemon(d){if(!d){return ["-",""];}var t=d.state==="unlocked"||d.state==="plain"?"ok":d.state==="locked"?"warn":"bad";return [d.state+(d.since?" since "+when(d.since):""),t];}
 function loadState(){
   return api("/api/owner/state").then(function(s){
@@ -227,8 +284,8 @@ el("publish").addEventListener("submit",publishRun);
 el("new-project").addEventListener("submit",createProject);
 el("m-upload").addEventListener("submit",uploadFiles);
 el("m-project").addEventListener("change",loadHistory);
-loadState().then(function(){loadDecisions();loadRuns();loadIntake();loadCustomers();loadOptions();loadProjects();loadTenants();});
-setInterval(function(){loadState();loadRuns();},60000);
+loadState().then(function(){loadHealth();loadDecisions();loadAsks();loadQueue();loadRuns();loadIntake();loadCustomers();loadOptions();loadProjects();loadTenants();});
+setInterval(function(){loadState();loadHealth();loadRuns();},60000);
 })();
 </script>
 </body>

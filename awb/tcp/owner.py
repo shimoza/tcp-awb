@@ -233,6 +233,36 @@ def _decisions(p: config.Paths, path: Path | None = None) -> tuple[list, int]:
     return ownerwait.page_items(p), int(time.time())
 
 
+def _lists(p: config.Paths, path: Path | None = None) -> tuple[list, dict, int]:
+    """The dev asks and the queue rows (Q-0025) of the status file PATH while they are younger than
+    nowhealth.LISTS_EVERY, else new ones, their texts through the screen of the UI run summaries. Without PATH the
+    lists are always new."""
+    import time
+
+    from awb.status_shape import validate_lists
+    from awb.tcp.web import nowhealth
+
+    now = time.time()
+    if path is not None:
+        try:
+            with ownerwait._regular_file(path) as stream:
+                if not 0 <= now - os.fstat(stream.fileno()).st_mtime < nowhealth.LISTS_EVERY:
+                    raise ValueError("stale status")
+                raw = stream.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024:
+                raise ValueError("status too large")
+            old = json.loads(raw)
+            validate_lists(old)
+            built = old.get("lists_built")
+            if type(built) is int and 0 <= now - built < nowhealth.LISTS_EVERY and "dev_asks" in old \
+                    and "queue" in old:
+                return old["dev_asks"], old["queue"], built
+        except (OSError, ValueError, AttributeError, TypeError, RecursionError, StatusError):
+            pass
+    screen = summary_screen()
+    return nowhealth.ask_rows(p, screen), nowhealth.queue_rows(screen), int(now)
+
+
 REUSE: Path | None = None
 """The file `--write` writes, set by main for the run: its decisions are reused while fresh. None for every other
 caller, which always builds a new list (and never reads the host's status file)."""
@@ -241,9 +271,10 @@ caller, which always builds a new list (and never reads the host's status file).
 def collect(p: config.Paths | None = None) -> dict:
     p = p or config.paths()
     decisions, built = _decisions(p, REUSE)
+    asks, queue, lists_built = _lists(p, REUSE)
     return {"version": 1, "written": now_text(), **daemons(), "deployed": deployed(), "page": page(),
             "ui_runs": ui_runs(screen=summary_screen()), "intake": intake(p), "decisions": decisions,
-            "decisions_built": built}
+            "decisions_built": built, "dev_asks": asks, "queue": queue, "lists_built": lists_built}
 
 
 # --------------------------------------------------------------------------- the checks before the write
@@ -276,6 +307,9 @@ def _status_text(status: dict, checker) -> tuple[str, str]:
             status["decisions_built"] = 0
         status["ui_runs"] = [dict(run, summary=None, withheld="unavailable") if run.get("summary") else run
                              for run in status["ui_runs"]]
+        from awb.tcp.web import nowhealth
+
+        status = nowhealth.withhold_lists(status)
         text = json.dumps(status, sort_keys=True, indent=1) + "\n"
     return text, result
 

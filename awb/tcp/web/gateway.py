@@ -279,6 +279,7 @@ LEVELS = ('reader', 'owner')
 PROJECT_CODE = re.compile(r'tcp-[a-z0-9]{4}')
 PROJECT_PATH = re.compile(r'/api/projects/(tcp-[a-z0-9]{4})(?:/|$)')     # every route of one project
 PROJECT_LISTS = ('/api/projects', '/api/board')                           # the routes that list projects by code
+HEALTH_PATHS = ('/api/health',)       # Q-0026: the health strip and Now of both pages, from the console data service
 SLOT_WAIT = 3.0             # a sign-in waits this long for a free pbkdf2 slot, then answers busy (never counted)
 UNAUTHENTICATED = 64        # requests without a session at once
 PER_ADDRESS = 4             # of them per address key; the next answers 429 before a byte of its body is read
@@ -860,6 +861,8 @@ OWNER_ROUTES = (
     ('GET', '/api/owner/ui-runs', 'owner_socket', False),
     ('GET', '/api/owner/intake', 'owner_socket', False),
     ('GET', '/api/owner/items', 'owner_socket', False),
+    ('GET', '/api/owner/dev-asks', 'owner_socket', False),     # Q-0025: the open dev asks of the status file
+    ('GET', '/api/owner/queue', 'owner_socket', False),        # Q-0025: the open rows of awb queue of the status file
     ('GET', '/api/ui-runs', 'owner_socket', False),
     ('POST', '/api/owner/publish', 'owner_socket', False),
     ('POST', '/api/owner/items/take-default', 'project_socket', False),
@@ -1228,6 +1231,11 @@ class Gateway(BaseHTTPRequestHandler):
             self.refusal = 'project'
             self.reply(404, b'Not found.\n')
             return
+        if allowed and path in HEALTH_PATHS:
+            # Q-0026: the health strip names build ids and the codes of lab windows; a limited reader gets none
+            self.refusal = 'project'
+            self.reply(404, b'Not found.\n')
+            return
         if self.command == 'POST':
             # Cookie sessions require the exact HTTPS origin for submitted questions.
             is_chat = bool(re.fullmatch(r'/api/projects/tcp-[a-z0-9]{4}/chat', path)) or path == '/api/ask'
@@ -1270,7 +1278,7 @@ class Gateway(BaseHTTPRequestHandler):
             return ('tcp', s.ask_port)
         if path == '/api/tenants':
             return ('tcp', s.tenants_port)
-        if re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path) or path in ('/api/board', '/api/kb', '/api/price', '/api/usage'):
+        if re.fullmatch(r'/api/projects(?:/tcp-[a-z0-9]{4})?', path) or path in ('/api/board', '/api/kb', '/api/price', '/api/usage') + HEALTH_PATHS:
             if path == '/api/projects' and self.command == 'POST':
                 return ('unix', s.project_socket)
             return ('tcp', s.projects_port)

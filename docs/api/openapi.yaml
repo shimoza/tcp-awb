@@ -2371,6 +2371,124 @@ paths:
                   value:
                     error: The answer could not be built. Try again shortly.
       x-awb-state: deployed
+  /api/health:
+    get:
+      operationId: getHealth
+      tags:
+        - reference
+      summary: The health strip and what runs now.
+      description: "On both hosts, from the console data service, kept 15 seconds. It answers while the vault is locked: that is a tile. The vault and the key service by their pings, the build runner and the open tasks and checks from <shared>/build/state.tsv, the live release and the deploy journal of /opt/tcp-awb, the free disk, the console gateway against the switch of the last deploy and the lab windows from the notices of awb winlab. Ids, codes, short hashes, numbers and fixed words only. Nothing runs a command."
+      responses:
+        "200":
+          description: The tiles and the items.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Health"
+              examples:
+                sample:
+                  value:
+                    generated_at: "2026-11-20T09:30:00Z"
+                    health:
+                      - id: vault
+                        label: Vault
+                        state: ok
+                        value: unlocked
+                        detail: null
+                      - id: keys
+                        label: Key service
+                        state: bad
+                        value: locked
+                        detail: no tenant key is loaded
+                      - id: runner
+                        label: Build runner
+                        state: ok
+                        value: running C-301
+                        detail: "state of 2026-11-20T09:28:41Z"
+                      - id: release
+                        label: Live release
+                        state: warn
+                        value: "1111111"
+                        detail: main 2222222, 2 not deployed
+                      - id: disk
+                        label: Disk free
+                        state: ok
+                        value: "41%"
+                        detail: "41.0 GB of 100 GB"
+                      - id: web
+                        label: awb-web
+                        state: ok
+                        value: live release
+                        detail: "1111111"
+                    now:
+                      - kind: check
+                        id: C-301
+                        state: running
+                        start: "2026-11-20T09:12:05Z"
+                        end: null
+                        note: null
+                      - kind: task
+                        id: B-077
+                        state: queued
+                        start: "2026-11-20T09:20:00Z"
+                        end: null
+                        note: null
+                      - kind: lab
+                        id: tcp-q7m4
+                        state: ends soon
+                        start: null
+                        end: "2026-11-20T10:10:00Z"
+                        note: window as opened
+                      - kind: deploy
+                        id: "2222222"
+                        state: pending
+                        start: null
+                        end: null
+                        note: "2 commits on main, live 1111111"
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "404":
+          description: A reader whose login is limited to some projects.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                not-found:
+                  value: |
+                    Not found.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The answer could not be built.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-health-of-the-workbench:
+                  value:
+                    error: The health of the Workbench could not be read. Try again shortly.
+      x-awb-state: repository
   "/api/projects/{code}/materials":
     get:
       operationId: listMaterials
@@ -4332,6 +4450,195 @@ paths:
                         text: "owner: review ecs-1."
                         has_default: false
                         app: "app: SSH host awb-test, folder /work/tcp-q7m4"
+                    written: "2026-10-08T12:00:00Z"
+                    stale: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                not-allowed:
+                  value:
+                    error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The owner's timer has not written its status yet, or it cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-status-is-not:
+                  value:
+                    error: The owner status is not available yet.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+  /api/owner/dev-asks:
+    get:
+      operationId: listOwnerDevAsks
+      tags:
+        - owner
+      summary: The open asks of the projects to development.
+      description: "From the status file: the owner's timer reads <shared>/notices/dev/ (awb dev ask) at most every five minutes and lets each title through the name check; a title with a finding is withheld with its class. Read only: closing an ask stays a command of a session."
+      responses:
+        "200":
+          description: From the status file of the owner's timer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OwnerDevAsks"
+              examples:
+                sample:
+                  value:
+                    asks:
+                      - code: tcp-q7m4
+                        file: "2026-11-16-tcp-q7m4-1.md"
+                        title: the import stops at a file of 30 MB
+                        withheld: null
+                        created: "2026-11-16T08:02:11Z"
+                        blocks: true
+                      - code: tcp-k2wd
+                        file: "2026-11-17-tcp-k2wd-2.md"
+                        title: null
+                        withheld: name
+                        created: "2026-11-17T14:40:00Z"
+                        blocks: false
+                    written: "2026-10-08T12:00:00Z"
+                    stale: false
+        "401":
+          description: No valid session. Sign in first.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                sign-in-to-open-the:
+                  value:
+                    error: Sign in to open the project data.
+        "403":
+          description: "The request did not come through the gateway's owner host. The owner host refused a request whose Sec-Fetch-Site is there and neither same-origin nor none: the main host is the same site, so its page could send the owner cookie."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                not-allowed:
+                  value:
+                    error: Not allowed.
+            text/html:
+              schema:
+                type: string
+              examples:
+                open-the-owner-page-directly:
+                  value: |
+                    Open the owner page directly.
+        "502":
+          description: The backend did not answer, or its answer was too large.
+          content:
+            text/html:
+              schema:
+                type: string
+              examples:
+                the-awb-service-is-temporarily:
+                  value: |
+                    The AWB service is temporarily unavailable.
+                the-response-was-too-large:
+                  value: |
+                    The response was too large.
+        "503":
+          description: The owner's timer has not written its status yet, or it cannot be read.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+              examples:
+                the-owner-status-is-not:
+                  value:
+                    error: The owner status is not available yet.
+      x-awb-state: repository
+      security:
+        - owner: []
+      servers:
+        - url: "https://{owner_host}/"
+          description: "The owner host (D-HOST): owner_host of /etc/awb/paths.conf, one level under the zone of the site."
+          variables:
+            owner_host:
+              default: owner.example.com
+  /api/owner/queue:
+    get:
+      operationId: listOwnerQueue
+      tags:
+        - owner
+      summary: The open rows of the owner's work queue.
+      description: "From the status file: the owner's timer reads queue.tsv (awb queue) at most every five minutes and lets what and next through the name check; a row with a finding is withheld with its class. Read only: archiving a row stays awb queue done in a terminal."
+      responses:
+        "200":
+          description: From the status file of the owner's timer.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/OwnerQueue"
+              examples:
+                sample:
+                  value:
+                    rows:
+                      - id: Q-0025
+                        who: development
+                        project: null
+                        what: dev asks and queue on the owner page
+                        next: review the page
+                        withheld: null
+                        created: "2026-11-19T10:00:00Z"
+                        next_changed: "2026-11-19T10:00:00Z"
+                        stale: true
+                      - id: Q-0031
+                        who: owner
+                        project: tcp-q7m4
+                        what: null
+                        next: null
+                        withheld: name
+                        created: "2026-11-20T07:00:00Z"
+                        next_changed: "2026-11-20T07:00:00Z"
+                        stale: false
+                    readable: true
                     written: "2026-10-08T12:00:00Z"
                     stale: false
         "401":
@@ -7329,6 +7636,226 @@ components:
         - items
         - written
         - stale
+    OwnerDevAsk:
+      type: object
+      properties:
+        code:
+          "$ref": "#/components/schemas/ProjectCode"
+        file:
+          type: string
+          description: The file of the ask in <shared>/notices/dev/.
+          pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}-tcp-[a-z2-7]{4}-[1-9][0-9]{0,3}\\.md$"
+        title:
+          type:
+            - string
+            - "null"
+          description: "The title after the name check; null when withheld."
+          maxLength: 120
+        withheld:
+          type:
+            - string
+            - "null"
+          description: "The classes that withheld the title or unavailable; null when shown."
+        created:
+          type: string
+          format: date-time
+        blocks:
+          type: boolean
+          description: The project is blocked until development answers.
+      required:
+        - code
+        - file
+        - title
+        - withheld
+        - created
+        - blocks
+    OwnerDevAsks:
+      type: object
+      properties:
+        asks:
+          type: array
+          description: The open asks, oldest first, at most 200.
+          items:
+            "$ref": "#/components/schemas/OwnerDevAsk"
+        written:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+      required:
+        - asks
+        - written
+        - stale
+    OwnerQueueRow:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The row id of awb queue.
+          pattern: "^[A-Za-z][A-Za-z0-9-]{0,39}$"
+        who:
+          type: string
+          description: "owner, desk, development or session:CODE."
+        project:
+          type:
+            - string
+            - "null"
+          description: A project code or null.
+        what:
+          type:
+            - string
+            - "null"
+          description: "The work after the name check, cut to 240 characters; null when withheld."
+          maxLength: 300
+        next:
+          type:
+            - string
+            - "null"
+          description: "The next step after the name check, cut to 240 characters; null when withheld."
+          maxLength: 300
+        withheld:
+          type:
+            - string
+            - "null"
+          description: "The classes that withheld the texts or unavailable; null when shown."
+        created:
+          type: string
+          format: date-time
+        next_changed:
+          type: string
+          description: When the next step last changed.
+          format: date-time
+        stale:
+          type: boolean
+          description: The next step is unchanged for 24 hours, as awb queue list marks it.
+      required:
+        - id
+        - who
+        - project
+        - what
+        - next
+        - withheld
+        - created
+        - next_changed
+        - stale
+    OwnerQueue:
+      type: object
+      properties:
+        rows:
+          type: array
+          description: The open rows, oldest first, at most 200.
+          items:
+            "$ref": "#/components/schemas/OwnerQueueRow"
+        readable:
+          type: boolean
+          description: false when the owner's timer could not read the queue.
+        written:
+          type: string
+          format: date-time
+        stale:
+          type: boolean
+      required:
+        - rows
+        - readable
+        - written
+        - stale
+    HealthTile:
+      type: object
+      properties:
+        id:
+          type: string
+          enum:
+            - vault
+            - keys
+            - runner
+            - release
+            - disk
+            - web
+        label:
+          type: string
+          description: The label of the tile.
+        state:
+          type: string
+          enum:
+            - ok
+            - warn
+            - bad
+            - unknown
+        value:
+          type: string
+          description: A fixed word with an id, a short hash or a number.
+        detail:
+          type:
+            - string
+            - "null"
+          description: One more fixed line or null.
+      required:
+        - id
+        - label
+        - state
+        - value
+        - detail
+    NowItem:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum:
+            - task
+            - check
+            - lab
+            - deploy
+        id:
+          type: string
+          description: A task or check id, a project code (lab) or a short hash (deploy).
+        state:
+          type: string
+          description: "The state word: running, queued, hung, held, asked, answered, widened, green (a task or check), open or ends soon (lab), the journal state or pending (deploy)."
+        start:
+          type:
+            - string
+            - "null"
+          description: "When it started, UTC; null when not known or not meant."
+          format: date-time
+        end:
+          type:
+            - string
+            - "null"
+          description: "When it ends, UTC; a lab window only."
+          format: date-time
+        note:
+          type:
+            - string
+            - "null"
+          description: One fixed line or null.
+      required:
+        - kind
+        - id
+        - state
+        - start
+        - end
+        - note
+    Health:
+      type: object
+      description: The health strip and the Now block of both console pages (Q-0026).
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        health:
+          type: array
+          description: The six tiles in a fixed order.
+          items:
+            "$ref": "#/components/schemas/HealthTile"
+        now:
+          type: array
+          description: "Running first, then by start; the lab windows by end; the deploys last."
+          items:
+            "$ref": "#/components/schemas/NowItem"
+      required:
+        - generated_at
+        - health
+        - now
     ChatTurn:
       type: object
       properties:

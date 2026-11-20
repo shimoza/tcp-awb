@@ -27978,8 +27978,134 @@
    "name": "Q-0021 too large is a gate class the board and the dataset know",
    "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_too_large_is_a_gate_class_the_board_and_the_dataset_know",
    "status": "passing"
+  },
+  {
+   "id": "Q26-01",
+   "phase": "T",
+   "name": "Q-0026 health: vault and key tiles say the state, no answer is bad",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_vault_and_key_tiles_say_the_state_and_no_answer_is_bad",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-02",
+   "phase": "T",
+   "name": "Q-0026 health: the runner tile reads held, hung, running and idle from state.tsv",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_runner_tile_reads_held_hung_running_and_idle_from_state_tsv",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-03",
+   "phase": "T",
+   "name": "Q-0026 health: release tile with main and not deployed, disk tile with its thresholds",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_release_and_disk_tiles",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-04",
+   "phase": "T",
+   "name": "Q-0026 health: awb-web on the live release by its start against the switch of the last deploy",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_web_tile_compares_the_gateway_start_with_the_switch_of_the_last_deploy",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-05",
+   "phase": "T",
+   "name": "Q-0026 now: open build work with its start, lab windows by end (codes only), a pending deploy",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_now_lists_open_build_work_lab_windows_by_end_and_a_pending_deploy",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-06",
+   "phase": "T",
+   "name": "Q-0026 health: files and pings only, the answer kept fifteen seconds",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_health_reads_files_and_pings_only_and_is_kept_fifteen_seconds",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-07",
+   "phase": "T",
+   "name": "Q-0026 health: the console data service answers while the vault is locked, 503 on a failure",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_data_service_answers_health_while_the_vault_is_locked",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-08",
+   "phase": "T",
+   "name": "Q-0026 gateway: /api/health on both hosts, never for a reader limited to some projects",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_health_goes_to_the_data_service_on_both_hosts_and_never_to_a_limited_reader",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-09",
+   "phase": "T",
+   "name": "Q-0025 gateway: the dev asks and the queue routes are owner host only",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_owner_routes_of_the_lists_are_owner_only",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-10",
+   "phase": "T",
+   "name": "Q-0025 dev asks: codes and screened titles, oldest first, closed asks left out",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_dev_asks_carry_codes_and_screened_titles_oldest_first",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-11",
+   "phase": "T",
+   "name": "Q-0025 queue: stale mark, cut texts, a text with a finding withheld, a named row unreadable",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_queue_rows_carry_the_stale_mark_and_withhold_a_text_with_a_finding",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-12",
+   "phase": "T",
+   "name": "Q-0025 screen: one name check call for all texts, one each only after a finding",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_one_screen_call_for_all_texts_and_one_each_only_after_a_finding",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-13",
+   "phase": "T",
+   "name": "Q-0025 status: the lists pass the shape, owner-actions serves them, unavailable check withholds",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_status_carries_the_lists_through_the_shape_and_owner_actions_serves_them",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-14",
+   "phase": "T",
+   "name": "Q-0025 status: a dev ask or queue row of another shape is refused on write and read",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_a_list_of_another_shape_is_refused_on_write_and_read",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-15",
+   "phase": "T",
+   "name": "Q-0026 contract: /api/health and the two owner lists, openapi.yaml written from it",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_contract_carries_health_and_the_two_owner_lists",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-16",
+   "phase": "T",
+   "name": "Q-0026 main page: health strip and Now from /api/health, tokens only, hidden on 404",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_main_page_draws_the_strip_and_now_from_health",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-17",
+   "phase": "T",
+   "name": "Q-0025 owner page: health, Now, dev asks and queue drawn by the real script",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_owner_page_shows_health_now_dev_asks_and_the_queue",
+   "status": "passing"
+  },
+  {
+   "id": "Q26-18",
+   "phase": "T",
+   "name": "Q-0025 owner page: its rules kept, a note where the close and archive buttons go",
+   "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_owner_page_keeps_its_rules_and_marks_where_the_buttons_go",
+   "status": "passing"
   }
  ],
- "total_tests": 3997,
- "checked": "2026-11-19"
+ "total_tests": 4015,
+ "checked": "2026-11-20"
 }

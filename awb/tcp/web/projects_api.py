@@ -325,6 +325,12 @@ class Handler(BaseHTTPRequestHandler):
             try:status,data=reader_api.ROUTES[path](config.paths(),query)
             except Exception:status,data=503,{'error':'The answer could not be built. Try again shortly.'}
             self.reply(status,data);return
+        if path=='/api/health':
+            # Q-0026: the health strip and Now of both pages; answers while the vault is locked, that is a tile
+            from awb.tcp.web import nowhealth
+            try:self.reply(200,nowhealth.cached_health(config.paths()))
+            except Exception:self.reply(503,{'error':'The health of the Workbench could not be read. Try again shortly.'})
+            return
         if path!='/api/board' and not re.fullmatch(r'/api/projects(?:/'+codes.TCP_PROJECT_WIDE+r')?',path):
             self.reply(404,{'error':'No such project endpoint.'});return
         try:

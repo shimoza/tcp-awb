@@ -71,3 +71,65 @@ def validate(status: dict) -> None:
         if set(row) != {"customer", "waiting", "time"} or not CUSTOMER_RE.match(row["customer"]) or not \
                 count_or_none(row["waiting"]) or not time_or_none(row["time"]):
             bad("intake")
+
+
+# --------------------------------------------------------------------------- the dev asks and the queue (Q-0025)
+
+ASK_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-(?:tcp|hcs)-[a-z2-7]{4}-[1-9][0-9]{0,3}\.md$")   # awb.devask.FILE_RE
+PROJECT_CODE_RE = re.compile(r"^(?:tcp|hcs)-[a-z0-9]{4}$")
+QUEUE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,39}$")                                       # awb.workqueue.HANDLE
+QUEUE_WHO_RE = re.compile(r"^(?:owner|desk|development|session:[A-Za-z][A-Za-z0-9-]{0,39})$")
+TITLE_MAX = 120
+LIST_MAX = 200
+ASK_KEYS = {"code", "file", "title", "withheld", "created", "blocks"}
+QUEUE_KEYS = {"id", "who", "project", "what", "next", "withheld", "created", "next_changed", "stale"}
+LIST_FIELDS = ("dev_asks", "queue", "lists_built")
+"""The optional fields of the status that the owner page shows as Dev asks and Queue (Q-0025). An older status file
+has none of them and stays valid."""
+
+
+def _text_ok(text, withheld, top: int) -> bool:
+    if withheld is not None:
+        return text is None and isinstance(withheld, str) and bool(WITHHELD_RE.match(withheld))
+    return text is None or (isinstance(text, str) and 0 < len(text) <= top and text.isprintable())
+
+
+def validate_lists(status: dict) -> None:
+    """The dev asks and the queue rows of the status, each field in its fixed shape or StatusError. A free text is
+    one printable line that passed the name check or None with the classes that withheld it."""
+    def bad(field):
+        raise StatusError("the status field %s has an unexpected shape" % field)
+
+    def time_ok(v):
+        return isinstance(v, str) and bool(TIME_RE.match(v))
+
+    built = status.get("lists_built", 0)
+    if type(built) is not int or built < 0:
+        bad("lists_built")
+    asks = status.get("dev_asks", [])
+    if not isinstance(asks, list) or len(asks) > LIST_MAX:
+        bad("dev_asks")
+    for row in asks:
+        if (not isinstance(row, dict) or set(row) != ASK_KEYS or not isinstance(row["code"], str)
+                or not PROJECT_CODE_RE.match(row["code"]) or not isinstance(row["file"], str)
+                or not ASK_FILE_RE.match(row["file"]) or not row["file"][11:].startswith(row["code"] + "-")
+                or not _text_ok(row["title"], row["withheld"], TITLE_MAX) or not time_ok(row["created"])
+                or not isinstance(row["blocks"], bool)):
+            bad("dev_asks")
+    queue = status.get("queue", {"readable": True, "rows": []})
+    if (not isinstance(queue, dict) or set(queue) != {"readable", "rows"} or not isinstance(queue["readable"], bool)
+            or not isinstance(queue["rows"], list) or len(queue["rows"]) > LIST_MAX):
+        bad("queue")
+    seen = set()
+    for row in queue["rows"]:
+        if (not isinstance(row, dict) or set(row) != QUEUE_KEYS or not isinstance(row["id"], str)
+                or not QUEUE_ID_RE.match(row["id"]) or row["id"] in seen or not isinstance(row["who"], str)
+                or not QUEUE_WHO_RE.match(row["who"])
+                or not (row["project"] is None or (isinstance(row["project"], str)
+                                                   and PROJECT_CODE_RE.match(row["project"])))
+                or not _text_ok(row["what"], row["withheld"], SUMMARY_MAX)
+                or not _text_ok(row["next"], row["withheld"], SUMMARY_MAX)
+                or not time_ok(row["created"]) or not time_ok(row["next_changed"])
+                or not isinstance(row["stale"], bool)):
+            bad("queue")
+        seen.add(row["id"])
