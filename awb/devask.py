@@ -18,10 +18,20 @@ from awb import codes, config
 FOLDER = "notices/dev"
 MAX_BYTES = 128 * 1024
 FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}-" + codes.PROJECT + r"-[1-9][0-9]*\.md")
+HANDLE_RE = re.compile(r"(?<![0-9A-Za-z])(\d{4}-\d{2}-\d{2}-" + codes.PROJECT + r"-[1-9][0-9]{0,3})(?![0-9A-Za-z])")
+"""The handle of an ask: its file name without `.md` (2026-11-19-tcp-q7m4-5). A commit that names it closes the ask
+when the deploy that makes the commit live ends well (Q-0007)."""
+NEW_HOURS = 24
+"""The prompt hook shows an ask to an owner session only while it is new, the first hours after it was written; an
+older open ask stays in `awb owner status`, the hand-over and the console (Q-0007)."""
 
 
 class AskError(Exception):
     """A safe refusal with no argument values."""
+
+
+class AskClosed(AskError):
+    """The ask is closed already or belongs to another project."""
 
 
 def screen(p: config.Paths, text: str) -> None:
@@ -224,8 +234,6 @@ def open_asks(p: config.Paths) -> list[tuple[Path, dict]]:
 
 def answer(p: config.Paths, code: str, file: str, title: str, text: str) -> Path:
     """Deliver the checked note first; only a successfully delivered note closes the ask."""
-    from awb import devnote
-
     if not codes.is_project_code(code):
         raise AskError("give a project code")
     target = folder(p)
@@ -236,29 +244,97 @@ def answer(p: config.Paths, code: str, file: str, title: str, text: str) -> Path
         path = p.shared / path
     if Path(os.path.abspath(path.parent)) != Path(os.path.abspath(target)) or not FILE_RE.fullmatch(path.name):
         raise AskError("the answer must name a development ask file")
+    return _close(p, path, title, text, code=code)[0]
+
+
+def _close(p: config.Paths, path: Path, title, text, *, code: str | None = None,
+           extra: dict | None = None) -> tuple[Path, dict]:
+    """Write the note into the asking project, then mark the ask closed with the note (and `extra`). `title` and
+    `text` may be functions of the ask's header. Returns the note and the header."""
+    from awb import devnote
+
     try:
         with _notices_directory(p) as directory:
             # Lock the directory, not the request inode which closing replaces.
             fcntl.flock(directory, fcntl.LOCK_EX)
             content = _bytes(Path(path.name), dir_fd=directory)
             data = read(path, text=content)
-            if data["project"] != code or data["state"] != "open":
-                raise AskError("the ask is closed or belongs to another project")
+            if (code is not None and data["project"] != code) or data["state"] != "open":
+                raise AskClosed("the ask is closed or belongs to another project")
+            title = title(data) if callable(title) else title
+            text = text(data) if callable(text) else text
             screen(p, content + "\n" + json.dumps(data, ensure_ascii=False))
             screen(p, title + "\n" + text)
             body = content.partition("\n")[2]
-            note = devnote.write(p, code, title, text)
+            note = devnote.write(p, data["project"], title, text)
             data.update(state="closed", answer=devnote.FOLDER + "/" + note.name,
-                        answered=datetime.now(timezone.utc).isoformat())
+                        answered=datetime.now(timezone.utc).isoformat(), **(extra or {}))
             with _staged(directory, "<!-- %s -->\n%s" % (json.dumps(data), body)) as temp:
                 os.replace(temp, path.name, src_dir_fd=directory, dst_dir_fd=directory)
     except (OSError, UnicodeError, ValueError):
         raise AskError("the development answer cannot be stored") from None
-    return note
+    return note, data
+
+
+def handles_in(text: str) -> set[str]:
+    """The ask handles a commit message names."""
+    return set(HANDLE_RE.findall(text or ""))
+
+
+def open_handles(p: config.Paths) -> set[str]:
+    """The handles of the open asks, from their headers alone: nothing of their text leaves (the deploy plan)."""
+    out = set()
+    try:
+        with _notices_directory(p) as directory:
+            for name in os.listdir(directory):
+                if not FILE_RE.fullmatch(name):
+                    continue
+                try:
+                    data = read(p.shared / FOLDER / name, text=_bytes(Path(name), dir_fd=directory))
+                except (AskError, OSError, UnicodeError):
+                    continue
+                if data["state"] == "open":
+                    out.add(name[:-3])
+    except (OSError, AskError):
+        return set()
+    return out
+
+
+def released(p: config.Paths, handles, release: str) -> tuple[list[str], bool]:
+    """Close each open ask a released commit names: the note "live in release X" into the asking project, then the
+    state `closed` with the release (Q-0007). An ask that is closed already is passed over. Returns the lines and
+    whether every open ask named was closed."""
+    from awb import devnote
+
+    if not isinstance(release, str) or not re.fullmatch(r"[0-9a-f]{40}", release):
+        raise AskError("give the full commit id of the release")
+    short = release[:7]
+    lines, ok = [], True
+    for handle in sorted(set(handles)):
+        if not HANDLE_RE.fullmatch(handle):
+            lines.append("not a development ask handle: skipped")
+            ok = False
+            continue
+        path = folder(p) / (handle + ".md")
+        try:
+            note, data = _close(
+                p, path, "live in release %s" % short,
+                lambda d: "Your development ask %s/%s (%s) is live in release %s. Check it in this project and "
+                          "close the item." % (FOLDER, path.name, d["title"], short),
+                extra=dict(release=release))
+        except AskClosed:
+            continue
+        except (AskError, devnote.NoteError) as err:
+            lines.append("%s: not closed (%s)" % (handle, err))
+            ok = False
+            continue
+        lines.append("%s: development ask %s live in release %s, note %s/%s" % (
+            data["project"], handle, short, devnote.FOLDER, note.name))
+    return lines, ok
 
 
 def notices(p: config.Paths, cwd: str, session_id: str | None) -> list[str]:
-    """An owner session in a repository checkout sees each open ask once."""
+    """An owner session in a repository checkout sees each open ask once, while it is new (NEW_HOURS)."""
     if config.is_work_user() or config.is_build_user() or not isinstance(session_id, str) or not session_id:
         return []
     root = Path(cwd).resolve()
@@ -270,7 +346,8 @@ def notices(p: config.Paths, cwd: str, session_id: str | None) -> list[str]:
     except UnicodeError:
         return []
     out = []
-    asks = open_asks(p)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=NEW_HOURS)
+    asks = [(path, data) for path, data in open_asks(p) if datetime.fromisoformat(data["created"]) >= cutoff]
     if not asks:
         return out
     # The owner's group may write notices, but not the work user's sessions directory.
@@ -320,7 +397,20 @@ def main(argv: list[str] | None = None) -> int:
     ask.add_argument("--blocks", action="store_true", help="mark the request as blocking the project task")
     ask.add_argument("--command", default="not supplied", help="the command that failed, recorded without running it")
     ask.add_argument("--error", default="not supplied", help="the error text of that command")
+    close = sub.add_parser("close", help="close the open asks a released commit names (the deploy runs it as the "
+                                         "work user)")
+    close.add_argument("--release", required=True, metavar="COMMIT", help="the full commit id of the live release")
+    close.add_argument("handles", nargs="+", metavar="HANDLE", help="an ask file name without .md")
     args = ap.parse_args(argv)
+    if args.cmd == "close":
+        try:
+            lines, ok = released(config.paths(), args.handles, args.release)
+        except (AskError, OSError) as exc:
+            print("awb dev close: %s" % (exc if isinstance(exc, AskError) else type(exc).__name__), file=sys.stderr)
+            return 2
+        for line in lines:
+            print(line)
+        return 0 if ok else 2
     try:
         path = write(config.paths(), args.text, args.blocks, args.command, args.error)
     except (AskError, projects.ProjectError, OSError) as exc:

@@ -1610,7 +1610,8 @@ without those options the fields say `not supplied`. The command is recorded wit
 The name and secret checks run before writing; a hit or an unavailable name check refuses the ask.
 
 An owner-side session in this repository sees `request from tcp-xxxx: TITLE (notices/dev/FILE)`
-once per ask per session at its next prompt. `awb owner status --dev` lists open asks with their
+once per ask per session at its next prompt, while the ask is new (its first 24 hours). An older open ask is not
+shown at the prompt again; it stays in `awb owner status --dev`, the hand-over and the console. `awb owner status --dev` lists open asks with their
 file handles. After 24 hours without an answer, the default status shows one line per project:
 `development owes tcp-xxxx an answer`.
 
@@ -1624,6 +1625,12 @@ ASK_FILE is the ask's full path, `notices/dev/FILE` or its basename. ANSWER_FILE
 use `-` to read it from standard input. The answer title and text pass the name and secret checks.
 Only a successfully delivered note closes the matching project's ask, removing it from `--dev`
 and overdue reminders. The project prompt shows the answer note once through the existing note notice.
+
+A commit closes an ask by itself when its message names the ask's handle, the file name without `.md`
+(`Q-0042: docs filter (2026-11-19-tcp-xxxx-5)`). The deploy plan lists the open asks a commit of the target names.
+A deploy that ends well runs `awb dev close --release COMMIT HANDLE...` as the work user: each asking project gets
+the note "live in release X" and the ask gets `"state": "closed"` with the `release`. An ask that is closed already
+is passed over. A failed close is one line of the deploy's output and never fails the deploy.
 
 ## Counted frictions
 
@@ -1679,8 +1686,8 @@ Review `awb queue list` after migration and close resolved work; the host accept
 ## Session hand-over
 
 `awb handover write` saves `build/HANDOVER.md` in the owner's repository checkout from open queue rows,
-Git history since the last successful write, open build tasks, held release notes, open development asks
-and the default owner status. It uses no model and checks the complete file for names and secrets before
+Git history since the last successful write, open build tasks (not done or stopped), the checks of a branch of the
+last 48 hours that did not pass, held release notes, open development asks and the default owner status. It uses no model and checks the complete file for names and secrets before
 replacing it. A failure keeps the previous hand-over.
 
 Development installs the owner's PreCompact, SessionStart and prompt hooks on his word, using
@@ -1773,7 +1780,8 @@ web units), so its prompt tells the agent to run only the module tests that need
 suite to the runner. Before the first task of an ISO week the runner opens that week's entry in `CHANGELOG.md` on
 `main` of `main.git` as its own commit with your identity (the old week loses `(in progress)`); pull from
 `main.git` before you add a line of your own. Each ended run writes `/srv/awb-build/runs/<ID>/<n>/result.md` (fixed fields only), one line on
-the board (`state.tsv` in `tcp-shared/build`) and one mail. Only an API error before the first tool call is retried
+the board (`state.tsv` in `tcp-shared/build`) and one mail. The board's build line leaves out a task or check
+that is done, stopped or passed 48 hours before the newest row of `state.tsv`. Only an API error before the first tool call is retried
 by itself, once, ten minutes later. A task that waits on you (`asked`, `red: <reason>` or `held: <reason>`) for
 15 minutes with no answer, widen or retry since gets one more mail from `awb build nudge`, which the root owned
 `awb-build-nudge.timer` runs as you every 15 minutes: its body is your next commands (`awb build show ID` then `awb

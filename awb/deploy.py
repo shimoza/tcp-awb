@@ -1428,7 +1428,12 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
                                        um.effects(since).units else "unchanged"}
     keep = sorted({r for r in (journal or {}).get("running", {}).values() if isinstance(r, str)}
                   | {d["release"] for d in daemons.values() if d.get("release")})
+    asks = released_asks(run, repo, target)
+    if asks:
+        notes.append("%d development ask%s named by a commit close when this release is live"
+                     % (len(asks), "" if len(asks) == 1 else "s"))
     return {
+        "asks": asks,
         "version": 1,
         "repo": str(repo),
         "target": target,
@@ -1462,6 +1467,21 @@ def owner_plan(opts: Options, repo: Path, host: Host, tree=None) -> dict:
 
 
 # --------------------------------------------------------------------------- the gate over deployed..target (G2)
+
+
+def released_asks(run: Callable, repo: Path, target: str) -> list[str]:
+    """The handles of the open development asks (awb dev ask) that a commit of the target names in its message; the
+    deploy closes them when it ends well (Q-0007). Read as the owner; nothing of an ask but its handle leaves."""
+    from awb import devask
+
+    try:
+        wanted = devask.open_handles(config.paths())
+        if not wanted:
+            return []
+        named = devask.handles_in(git(run, repo, "log", "--format=%B", target))
+    except (Refused, OSError, ValueError, devask.AskError):
+        return []
+    return sorted(wanted & named)
 
 
 def owner_gate(repo: Path, deployed: str | None, target: str, register_path: Path | None = None) -> dict:
@@ -1686,6 +1706,11 @@ def validate_plan(plan, allowed_units: set[str]) -> dict:
     for key in ("changed", "unmapped", "notes", "pending_last", "keep"):
         if not isinstance(plan.get(key), list) or not all(_plain(x) for x in plan[key]):
             bad(key)
+    from awb import devask
+
+    asks = plan.get("asks", [])
+    if not isinstance(asks, list) or not all(isinstance(x, str) and devask.HANDLE_RE.fullmatch(x) for x in asks):
+        bad("asks")
     if not all(COMMIT_RE.match(x) or x == PRE_DEPLOY for x in plan["keep"]):
         bad("keep")
     for key in ("target_time", "journal", "sync_reason", "repo"):
@@ -2392,6 +2417,29 @@ class Run:
                 self.mark(u, "failed")
                 self.failed.append(u)
 
+    def close_asks(self) -> None:
+        """The development asks a commit of this release names (plan `asks`) close as the work user with `awb dev close
+        --release TARGET HANDLE...`, which writes the note "live in release X" into each asking project (Q-0007).
+        Only after a deploy that ended well; a failure is one line and never fails the deploy."""
+        handles = self.plan.get("asks") or []
+        if not handles or not self.journal.get("notes_ready"):
+            return
+        work = self.caller.work
+        if work is None:
+            say("# no work user on this host: the development asks stay open")
+            return
+        cmd = [self.host.bin, "dev", "close", "--release", self.target, *handles]
+        say("+ %s   # as %s, the asks a released commit names" % (cmdline(cmd), work.pw_name))
+        try:
+            res = as_user(self.host.runner, cmd, work, self.host.environ, work.pw_dir, self.host.getgrouplist,
+                          capture_output=True, text=True, timeout=120)
+            out, code = res.stdout or "", res.returncode
+        except (OSError, subprocess.TimeoutExpired):
+            out, code = "", 1
+        self.note_lines.extend(printable(line, 300) for line in str(out).splitlines() if line.strip())
+        if code != 0:
+            say("# awb dev close failed for some asks: they stay open, awb owner status lists them")
+
     def page(self) -> None:
         """The console page of the release goes live when its bytes differ from the live page, through the checks
         (as the owner) and the backup of `awb web publish FILE`, run as `awb web publish --release-page` in a process
@@ -2872,6 +2920,7 @@ def root_deploy(opts: Options, host: Host) -> int:
             run.final_check()
             run.page()
             code = run.finish()
+            run.close_asks()
         except (StepFailed, OSError) as err:
             # an OSError names its errno only: its message can carry a path of the release or the owner's copy
             if isinstance(err, StepFailed):

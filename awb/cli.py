@@ -847,7 +847,7 @@ def _build() -> argparse.ArgumentParser:
 # Commands that live in their own module. Each module has main(argv) -> exit code and parses its own options
 # with cli.SafeParser. The module name is the first value, the help line the second.
 DELEGATED = {
-    "dev": ("devask", "requests from a project to development: ask TEXT [--blocks] [--command TEXT] [--error TEXT]"),
+    "dev": ("devask", "requests from a project to development: ask TEXT [--blocks] [--command TEXT] [--error TEXT], close --release COMMIT HANDLE..."),
     "open": ("opensweep", "owner decisions in this project: sweep, close with defaults"),
     "exit": ("exitpack", "local recovery packs of client memory, transcripts and excluded files (owner side)"),
     "check": ("check", "check files for names and structured data"),

@@ -28426,8 +28426,85 @@
    "name": "Q-0024 ux events: the owner block is empty without events",
    "run": ".venv/bin/pytest tests/test_ux_events.py::test_the_owner_block_is_empty_without_events",
    "status": "passing"
+  },
+  {
+   "id": "Q07-1",
+   "phase": "T",
+   "name": "Q-0007 close the loops: an ask handle is found in a commit message, never inside a longer one",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_a_handle_is_found_in_a_commit_message_and_never_inside_a_longer_one",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-2",
+   "phase": "T",
+   "name": "Q-0007 close the loops: awb dev close writes the live note into the project and closes the ask with the release, once",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_the_close_writes_the_live_note_and_closes_the_ask_with_the_release",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-3",
+   "phase": "T",
+   "name": "Q-0007 close the loops: awb dev close refuses a short release and a handle of another shape",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_the_close_refuses_a_short_release_and_a_foreign_handle",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-4",
+   "phase": "T",
+   "name": "Q-0007 close the loops: the deploy plan lists the open asks a commit of the target names",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_the_plan_lists_the_open_asks_a_commit_of_the_target_names",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-5",
+   "phase": "T",
+   "name": "Q-0007 close the loops: root validates the asks of the plan",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_root_validates_the_asks_of_the_plan",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-6",
+   "phase": "T",
+   "name": "Q-0007 close the loops: a deploy that ends well closes the asks as the work user and says the lines",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_a_deploy_that_ends_well_closes_the_asks_as_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-7",
+   "phase": "T",
+   "name": "Q-0007 close the loops: a deploy without asks or one that failed closes nothing",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_a_deploy_without_asks_or_that_failed_closes_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-8",
+   "phase": "T",
+   "name": "Q-0007 close the loops: a failed close is one line and the deploy stays ok",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_a_failed_close_is_one_line_and_the_deploy_stays_ok",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-9",
+   "phase": "T",
+   "name": "Q-0007 close the loops: the prompt hook shows a new ask once and an old one never",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_the_prompt_hook_shows_a_new_ask_once_and_an_old_one_never",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-10",
+   "phase": "T",
+   "name": "Q-0007 close the loops: the hand-over keeps checks of the last 48 hours that did not pass",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_the_hand_over_keeps_checks_of_48_hours_that_did_not_pass",
+   "status": "passing"
+  },
+  {
+   "id": "Q07-11",
+   "phase": "T",
+   "name": "Q-0007 close the loops: the build line drops tasks and checks that ended 48 hours before the newest row",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_the_build_line_drops_what_ended_48_hours_before_the_newest_row",
+   "status": "passing"
   }
  ],
- "total_tests": 4061,
+ "total_tests": 4072,
  "checked": "2026-11-20"
 }

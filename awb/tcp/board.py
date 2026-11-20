@@ -341,8 +341,9 @@ def build_state_word(state: str) -> str | None:
     return "%s: %s" % (word, reason) if sep and reason in BUILD_REASONS.get(word, ()) else word
 
 
-def build_state(p) -> dict | None:
-    """The rows of state.tsv, each cell matched before use; None without a readable file."""
+def build_state(p, stamps: bool = False) -> dict | None:
+    """The rows of state.tsv, each cell matched before use; None without a readable file. `stamps`: each check also
+    carries its full start as `stamp` (the build line's 48 hours window, Q-0007); the board's data never does."""
     text = _read_small(build_tsv(p), BUILD_TSV_MAX)
     if text is None:
         return None
@@ -373,6 +374,8 @@ def build_state(p) -> dict | None:
             seen.add(cid)
             out["checks"].append({"id": cid, "state": word, "time": m.group(1) if m else "",
                                   "commit": commit if _SHORT.fullmatch(commit) else ""})
+            if stamps:
+                out["checks"][-1]["stamp"] = since if m else ""
         elif kind in ("live", "main") and len(cells) == 2 and _SHORT.fullmatch(cells[1]):
             out[kind] = cells[1]
         elif kind == "not_deployed" and len(cells) == 2 and cells[1].isdigit() and len(cells[1]) <= 4:
@@ -401,12 +404,40 @@ def packages_line(p) -> str:
         return "packages: the register cannot be read"
 
 
+ENDED_HOURS = 48
+ENDED_WORDS = ("done", "stopped", "passed")
+"""A task or check in one of these states leaves the build line once it is ENDED_HOURS older than the newest row of
+state.tsv (Q-0007): the line keeps what runs and what ended lately, not the history of the runner."""
+
+
+def ended_dropped(tasks: list[dict], checks: list[dict]) -> tuple[list[dict], list[dict]]:
+    """The tasks and checks without the ones that ended more than ENDED_HOURS before the newest start in the file. A
+    row without a full start stays."""
+    def at(x, key):
+        try:
+            return dt.datetime.strptime(x.get(key) or "", "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            return None
+
+    rows = [(t, at(t, "since")) for t in tasks] + [(c, at(c, "stamp")) for c in checks]
+    known = [when for _, when in rows if when is not None]
+    if not known:
+        return tasks, checks
+    cutoff = max(known) - dt.timedelta(hours=ENDED_HOURS)
+
+    def keep(x, when):
+        return not (x["state"].split(": ")[0] in ENDED_WORDS and when is not None and when < cutoff)
+
+    return ([t for t in tasks if keep(t, at(t, "since"))], [c for c in checks if keep(c, at(c, "stamp"))])
+
+
 def build_line(p) -> str:
     """The board's build line: the tasks that are not done, the newest done ones, live / main / not deployed, the
-    daemon code behind and a mail that was not sent."""
-    data = build_state(p)
+    daemon code behind and a mail that was not sent. What ended long ago is left out first (ended_dropped)."""
+    data = build_state(p, stamps=True)
     if data is None:
         return "build: no runner state yet"
+    data["tasks"], data["checks"] = ended_dropped(data["tasks"], data["checks"])
     tasks = sorted(data["tasks"], key=lambda t: (t["since"], t["id"]))
     done = [t for t in tasks if t["state"] == "done"]
     shown = [t for t in tasks if t["state"] != "done" or t in done[-DONE_SHOWN:]]

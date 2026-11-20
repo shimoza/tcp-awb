@@ -478,6 +478,34 @@ def _build_lines() -> list[str]:
     return result.stdout.splitlines()
 
 
+CHECK_HOURS = 48
+"""The hand-over lists a check of a branch (C-...) only when it did not pass and its state is of the last 48 hours
+(Q-0007)."""
+
+
+def open_build_lines(lines: list[str], now: dt.datetime | None = None) -> list[str]:
+    """The lines of `awb build list` the hand-over keeps: a task that is not done or stopped and a check that did not
+    pass, of the last CHECK_HOURS hours (a check with no time yet stays)."""
+    now = now or dt.datetime.now()
+    out = []
+    for line in lines:
+        cells = line.split("  ")
+        if len(cells) < 2:
+            continue
+        word = cells[1].split(":", 1)[0]
+        if word in ("done", "stopped"):
+            continue
+        if re.fullmatch(r"C-[0-9]{3,4}", cells[0]):
+            if word == "passed":
+                continue
+            stamp = re.match(r"since (\d{4}-\d{2}-\d{2} \d{2}:\d{2})$", cells[2]) if len(cells) > 2 else None
+            if stamp and now - dt.datetime.strptime(stamp.group(1), "%Y-%m-%d %H:%M") > dt.timedelta(
+                    hours=CHECK_HOURS):
+                continue
+        out.append(line)
+    return out
+
+
 def write(root: Path | None = None) -> Path:
     """Snapshot checked sources atomically. The previous file holds the Git cursor too."""
     from awb import config, devask, ownerwait, projects
@@ -498,9 +526,7 @@ def write(root: Path | None = None) -> Path:
         revision = cursor.group(1) + ".." + head if cursor else head
         history = _git(root, "log", "--format=%h %s", revision, "--").splitlines()
         queue = _queue_lines()
-        tasks = [line for line in _build_lines()
-                 if len(line.split("  ")) > 1 and
-                 line.split("  ")[1].split(":", 1)[0] not in ("done", "stopped")]
+        tasks = open_build_lines(_build_lines())
         commits = projects.note_commits()
         held = ["%s  %s  after %s" % (n["project"], n["file"], n["after"])
                 for n in projects.held_notes(p) if n["after"] not in commits]

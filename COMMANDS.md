@@ -1022,6 +1022,12 @@ write a checked request from the current project
 - `--command COMMAND`: the command that failed, recorded without running it
 - `--error ERROR`: the error text of that command
 
+### `awb dev close HANDLE... --release COMMIT`
+
+close the open asks a released commit names (the deploy runs it as the work user)
+- `HANDLE...`: an ask file name without .md
+- `--release COMMIT`: the full commit id of the live release
+
 ### `awb open sweep`
 
 list open owner items with ages, defaults and proven taken receipts
