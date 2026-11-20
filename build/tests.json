@@ -29140,8 +29140,71 @@
    "name": "clean update: doctor prints the version first and the behind line last",
    "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_doctor_prints_the_version_first_and_the_behind_line_last",
    "status": "passing"
+  },
+  {
+   "id": "TMS-001",
+   "phase": "T",
+   "name": "tcp-ui5o: a TMS read carries X-Domain-Id under the signature, the account read once",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_a_tms_read_carries_the_signed_account_header_read_once",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-002",
+   "phase": "T",
+   "name": "tcp-ui5o: other services get no X-Domain-Id and no account read",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_other_services_get_no_account_header",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-003",
+   "phase": "T",
+   "name": "tcp-ui5o: an X-Domain-Id of the caller is kept",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_a_header_of_the_caller_is_kept",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-004",
+   "phase": "T",
+   "name": "tcp-ui5o: an unreadable account is an error, never a TMS call without it",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_an_unreadable_account_is_an_error_not_a_call_without_it",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-005",
+   "phase": "T",
+   "name": "tcp-ui5o: a lab login call to TMS uses the domain token, ECS the region token",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_a_lab_login_call_to_tms_uses_the_domain_token",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-006",
+   "phase": "T",
+   "name": "tcp-ui5o: a key-signed lab call to TMS names the account, VPC does not",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_a_key_signed_lab_call_to_tms_names_the_account",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-007",
+   "phase": "T",
+   "name": "tcp-ui5o: a 401 of a lab call carries the service code and never its message",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_a_401_carries_the_service_code_and_never_its_message",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-008",
+   "phase": "T",
+   "name": "tcp-ui5o: a 401 without a plain code keeps the old line",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_a_401_without_a_plain_code_keeps_the_old_line",
+   "status": "passing"
+  },
+  {
+   "id": "TMS-009",
+   "phase": "T",
+   "name": "tcp-ui5o: the session sees the HTTP status and the error code only",
+   "run": ".venv/bin/pytest tests/test_tms_domain.py::test_the_session_sees_status_and_code_only",
+   "status": "passing"
   }
  ],
- "total_tests": 4163,
+ "total_tests": 4172,
  "checked": "2026-11-20"
 }

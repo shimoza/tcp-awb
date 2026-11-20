@@ -121,6 +121,32 @@ REASON_MAX = 200
 
 
 STALE_LOGIN_LINE = "HTTP 401; the stored login may be stale: awb keys status"
+DOMAIN_SERVICES = ("iam", "tms")
+"""Global services: a login token for them is scoped to the domain, a key-signed call to tms names the account in
+X-Domain-Id (a project token or a call without it answers 401 TMS.0003, tcp-ui5o 2026-11-20)."""
+_ERROR_CODE_RE = re.compile(r"^[A-Z][A-Za-z]{1,11}\.[0-9]{1,8}$")
+
+
+def error_code(raw: bytes) -> str | None:
+    """The error code of a JSON error answer ({"error": {"error_code": ...}}, {"error_code": ...}, {"code": ...}),
+    only when it reads like TMS.0003; never its message."""
+    try:
+        data = json.loads(raw[:65536]) if raw else None
+    except (ValueError, RecursionError):
+        return None
+    for d in (data.get("error") if isinstance(data, dict) else None, data):
+        if isinstance(d, dict):
+            for key in ("error_code", "code"):
+                v = d.get(key)
+                if isinstance(v, str) and _ERROR_CODE_RE.match(v):
+                    return v
+    return None
+
+
+def stale_line(raw: bytes = b"") -> str:
+    """The line of a 401 of a call: the HTTP status and the service's error code (HTTP 401 TMS.0003; ...)."""
+    code = error_code(raw)
+    return STALE_LOGIN_LINE.replace("HTTP 401", "HTTP 401 " + code, 1) if code else STALE_LOGIN_LINE
 
 
 class LabAdminError(Exception):
@@ -653,7 +679,7 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
     from awb import obs, sign
     from awb.tcp import cloud
 
-    tscope = "domain" if service == "iam" else (scope or auth.region)
+    tscope = "domain" if service in DOMAIN_SERVICES else (scope or auth.region)
     expanded = path
     if "{project_id}" in expanded:
         _, info = auth.token(scope or auth.region)
@@ -683,6 +709,11 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
         url = _base(svc, service, auth.region) + expanded
         q = urllib.parse.urlencode(query or {}, doseq=True)
         url += "?" + q if q else ""
+        if service in DOMAIN_SERVICES and service != "iam" and (held_cred or auth.pair) and not any(
+                k.lower() == "x-domain-id" for k in hdrs):
+            domain = auth.token("domain")[1].get("domain_id")
+            if domain:
+                hdrs["X-Domain-Id"] = domain
         if held_cred:
             hdrs["X-Security-Token"] = held_cred[2]
             hdrs = sign.sign(method, url, hdrs, data or b"", held_cred[0], held_cred[1])
@@ -694,7 +725,7 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
             hdrs["X-Auth-Token"] = auth.token(tscope)[0]
     status, rh, raw = _http(method, url, hdrs, data)
     if status == 401:
-        raise LabAdminError(STALE_LOGIN_LINE)
+        raise LabAdminError(stale_line(raw))
     return status, rh, raw, expanded
 
 
@@ -1012,8 +1043,8 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
                 status, _h, raw, _e = _send(svc, signer, run["id"], d["method"], d["service"], d["path"],
                                             d.get("query") or {}, d.get("body"), {}, None, None, None)
             except LabAdminError as err:
-                if str(err) == STALE_LOGIN_LINE:
-                    c["state"], c["error"] = "failed", STALE_LOGIN_LINE
+                if str(err).startswith("HTTP 401") and str(err).endswith(STALE_LOGIN_LINE.partition("; ")[2]):
+                    c["state"], c["error"] = "failed", str(err)
                     save(p, run)
                     raise
                 status, raw = 0, str(err).encode()

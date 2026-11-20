@@ -144,6 +144,12 @@ def _service_error(answer: dict) -> str:
     # relayed only when the screen leaves them unchanged. Anything else stays generic.
     if isinstance(error, str) and re.fullmatch(r"refused: [^\r\n]{1,300}", error) and _safe_text(error) == error:
         return error
+    # A call the service answered with an error (a 401 of a lab call): its HTTP status and error code (HTTP 401
+    # TMS.0003) are relayed, the rest of the line stays withheld (tcp-ui5o, 2026-11-20).
+    m = re.match(r"HTTP [1-5][0-9]{2}(?: [A-Z][A-Za-z]{1,11}\.[0-9]{1,8})?(?=[;:,) ]|\Z)", error) \
+        if isinstance(error, str) else None
+    if m:
+        return m.group(0)
     return "the key service refused the request"
 
 

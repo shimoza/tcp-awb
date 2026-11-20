@@ -52,6 +52,9 @@ _SERVICE_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 _REGION_RE = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}$")
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _TRANSIENT = (429, 502, 503, 504)
+DOMAIN_HEADER_SERVICES = ("tms",)
+"""Global services whose gateway takes a key-signed call only with the account named in X-Domain-Id: without it TMS
+answers 401 TMS.0003 to a key that holds Tenant Guest (tcp-ui5o, 2026-11-20). IAM needs no header."""
 CUT = 300
 MAX_READ = 16 * 1024 * 1024     # an answer is read up to this bound, the rest is left unread and the answer is cut
 
@@ -102,6 +105,7 @@ class Client:
         self.job = job
         self.token = token or None  # a login token of a read-only tenant (awb/tcp/readonly.py): X-Auth-Token
         self._project_id: str | None = project_id
+        self._domain_id: str | None = None
 
     def clean(self, text: str) -> str:
         for secret, mark in ((self.token, "<token>"), (self.keys.sk, "<sk>"), (self.keys.ak, "<ak>")):
@@ -158,6 +162,9 @@ class Client:
         data = json.dumps(body).encode("utf-8") if body is not None else b""
         hdrs = {"Content-Type": "application/json"} if body is not None or not to_obs else {}
         hdrs.update(headers or {})
+        if service in DOMAIN_HEADER_SERVICES and not self.token and not any(
+                k.lower() == "x-domain-id" for k in hdrs):
+            hdrs["X-Domain-Id"] = self.domain_id()
 
         from awb.tcp import throttle
 
@@ -273,6 +280,19 @@ class Client:
                 raise CloudError("the key reaches %d projects named %s, not one" % (len(found), self.region))
             self._project_id = found[0]["id"]
         return self._project_id
+
+    def domain_id(self) -> str:
+        """The id of the account the key belongs to (IAM, /v3/auth/domains), read once."""
+        if self._domain_id is None:
+            r = self.get("iam", "/v3/auth/domains")
+            if not r.ok:
+                raise CloudError("the account of the key cannot be read: HTTP %d" % r.status, r.status)
+            found = [d.get("id") for d in jobs.dig(r.data, "domains", default=[]) or [] if isinstance(d, dict)
+                     and isinstance(d.get("id"), str) and d.get("id")]
+            if len(found) != 1:
+                raise CloudError("the key reaches %d accounts, not one" % len(found))
+            self._domain_id = found[0]
+        return self._domain_id
 
     def expand(self, path: str) -> str:
         return path.replace("{project_id}", self.project_id())
