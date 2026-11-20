@@ -29014,8 +29014,134 @@
    "name": "awb dev ask refuses a .side folder that is no worktree of its project",
    "run": ".venv/bin/pytest tests/test_bytg_retry_and_side_ask.py::test_dev_ask_refuses_a_side_folder_that_is_no_worktree_of_its_project",
    "status": "passing"
+  },
+  {
+   "id": "CU-001",
+   "phase": "T",
+   "name": "clean update: version line names the short commit and date of the clone",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_version_line_names_the_short_commit_and_date_of_the_clone",
+   "status": "passing"
+  },
+  {
+   "id": "CU-002",
+   "phase": "T",
+   "name": "clean update: version without git comes from the stamp and says unknown without one",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_version_without_git_comes_from_the_stamp_and_says_unknown_without_one",
+   "status": "passing"
+  },
+  {
+   "id": "CU-003",
+   "phase": "T",
+   "name": "clean update: https update writes the stamp only for the commit of the checked tree",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_https_update_writes_the_stamp_only_for_the_commit_of_the_checked_tree",
+   "status": "passing"
+  },
+  {
+   "id": "CU-004",
+   "phase": "T",
+   "name": "clean update: the version line comes first on a terminal and never in a pipe",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_the_version_line_comes_first_on_a_terminal_and_never_in_a_pipe",
+   "status": "passing"
+  },
+  {
+   "id": "CU-005",
+   "phase": "T",
+   "name": "clean update: update names the versions and a second run stays",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_update_names_the_versions_and_a_second_run_stays",
+   "status": "passing"
+  },
+  {
+   "id": "CU-006",
+   "phase": "T",
+   "name": "clean update: an update never touches local changes and keeps the old version",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_an_update_never_touches_local_changes_and_keeps_the_old_version",
+   "status": "passing"
+  },
+  {
+   "id": "CU-007",
+   "phase": "T",
+   "name": "clean update: a clone with its own commit is refused by ff only and stays",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_a_clone_with_its_own_commit_is_refused_by_ff_only_and_stays",
+   "status": "passing"
+  },
+  {
+   "id": "CU-008",
+   "phase": "T",
+   "name": "clean update: update quiet prints nothing and never fails",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_update_quiet_prints_nothing_and_never_fails",
+   "status": "passing"
+  },
+  {
+   "id": "CU-009",
+   "phase": "T",
+   "name": "clean update: a refused update on the terminal says so and names the version",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_a_refused_update_on_the_terminal_says_so_and_names_the_version",
+   "status": "passing"
+  },
+  {
+   "id": "CU-010",
+   "phase": "T",
+   "name": "clean update: the boot update runs once per boot and its result is printed once",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_the_boot_update_runs_once_per_boot_and_its_result_is_printed_once",
+   "status": "passing"
+  },
+  {
+   "id": "CU-011",
+   "phase": "T",
+   "name": "clean update: a boot update cut by the timeout is named and a young one is running",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_a_boot_update_cut_by_the_timeout_is_named_and_a_young_one_is_running",
+   "status": "passing"
+  },
+  {
+   "id": "CU-012",
+   "phase": "T",
+   "name": "clean update: shell adds the boot block once and replaces an older awb path",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_shell_adds_the_boot_block_once_and_replaces_an_older_awb_path",
+   "status": "passing"
+  },
+  {
+   "id": "CU-013",
+   "phase": "T",
+   "name": "clean update: the boot block starts awb in the background once per boot",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_the_boot_block_starts_awb_in_the_background_once_per_boot",
+   "status": "passing"
+  },
+  {
+   "id": "CU-014",
+   "phase": "T",
+   "name": "clean update: the apt hook runs as the user never fails apt and the command writes exactly it",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_the_apt_hook_runs_as_the_user_never_fails_apt_and_the_command_writes_exactly_it",
+   "status": "passing"
+  },
+  {
+   "id": "CU-015",
+   "phase": "T",
+   "name": "clean update: apt hook check says missing installed or different",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_apt_hook_check_says_missing_installed_or_different",
+   "status": "passing"
+  },
+  {
+   "id": "CU-016",
+   "phase": "T",
+   "name": "clean update: doctor says how far behind the public main the clone is",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_doctor_says_how_far_behind_the_public_main_the_clone_is",
+   "status": "passing"
+  },
+  {
+   "id": "CU-017",
+   "phase": "T",
+   "name": "clean update: doctor without git asks the compare of the stamp",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_doctor_without_git_asks_the_compare_of_the_stamp",
+   "status": "passing"
+  },
+  {
+   "id": "CU-018",
+   "phase": "T",
+   "name": "clean update: doctor prints the version first and the behind line last",
+   "run": ".venv/bin/pytest tests/test_clean_update_boot.py::test_doctor_prints_the_version_first_and_the_behind_line_last",
+   "status": "passing"
   }
  ],
- "total_tests": 4145,
+ "total_tests": 4163,
  "checked": "2026-11-20"
 }

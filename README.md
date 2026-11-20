@@ -743,7 +743,25 @@ install. `awb clean register CUST-XXXX` asks the written forms of the customer o
 - `awb clean update` fetches the newest lists of public words (rules/common-words.txt, tech-terms.txt,
   allowed-terms.txt, allow-domains.txt and the other allow lists) from github.com/shimoza/tcp-awb: a
   `git pull --ff-only` of the clone, or for an install without git a download checked against the blob ids of the
-  repository tree. It sends nothing of your files and prints what changed in counts. Run it now and then.
+  repository tree. It sends nothing of your files and prints what changed in counts and the version before and
+  after. It never touches local changes: a clone with changed files or commits of its own is refused by the
+  fast-forward rule, says so and stays on its version.
+- The version line: on a terminal every `awb clean ...` command prints first `awb clean <short commit> (<commit
+  date>)`, from the HEAD of the clone or, for an install without git, from the `rules/VERSION` stamp the HTTPS
+  update writes. `awb clean doctor` ends with how many commits the install is behind the public main.
+- It updates itself at two moments you already have. `awb clean shell` adds a block that starts
+  `awb clean update --boot` at the first shell after a WSL boot: once per boot (the boot id against
+  `~/awb-laptop/boot-update.id`), in the background under `timeout 60`, never in the way of the prompt, its output
+  in `~/awb-laptop/update.log`. The next `awb clean` command prints once what it did: `boot update: updated
+  23dc2c9 -> 3388b32` or `boot update: update failed: <reason>, still on 23dc2c9`. And `awb clean apt-hook` prints
+  the one sudo command that writes `/etc/apt/apt.conf.d/99awb-clean`: after `sudo apt update` it runs
+  `awb clean update --quiet` as your user (never as root), with the proxy of `~/.config/winrelay.sh`, and never
+  fails apt. `awb clean apt-hook --check` says whether it is installed. Once on the laptop:
+
+  ```bash
+  awb clean shell        # then open a new terminal
+  awb clean apt-hook     # prints one sudo command: run it, then awb clean apt-hook --check
+  ```
 - `awb clean fetch tcp-xxxx [--to DIR] [--save] [--again NAME]` brings a finished deliverable to the laptop. On the host `awb bucket put CODE FILE --reveal` puts the file with the real names into `out/` (a Markdown file as `.md` and `.html`, the HTML to paste into a mail) and ends with `get it: Total Commander, bucket awb, folder <YYYY-MM>/tcp-xxxx/out/, or on the laptop: awb clean fetch tcp-xxxx`. On the laptop the command lists only `out/` of the project's bucket folder with your key, downloads the files not fetched yet into DIR (`--save` keeps DIR as the default, for example a folder under `/mnt/c/Users/<you>/`) and prints one line per file, for an HTML file also its Windows path to open. `--to C:\Users\<you>\Downloads` is read as `/mnt/c/Users/<you>/Downloads`. What was fetched is remembered by etag in `~/awb-laptop/vault/fetched.tsv` and not fetched again; `--again NAME` (the file name in `out/`, repeatable) fetches it again and keeps a local file of that name, the new one gets ` (2)`. `in/` is never touched.
 - `awb clean report [--dir DIR] [--save]` brings the codes file of the report workbook to the laptop (section "Report workbook" below).
 - `awb clean inventory ROOT... [--project tcp-xxxx] [--label LABEL] [--put]` lists the files under the folders you name without their content, for the move plan: the full list with the real paths stays in `~/awb-laptop/vault/inventory/` (600), the coded copy (paths coded through the same name machinery, `[withheld]` where one still carries a name, sizes and hashes) is what `--put` sends to `reports/inventory/` of the bucket. The report folder and the report workbook are skipped, a root under OneDrive needs `--include-onedrive`.

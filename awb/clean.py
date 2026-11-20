@@ -17,7 +17,8 @@ lc-laptop-clean, his yes of 2026-10-22).
     awb clean files plan [STAMP|latest]
     awb clean files apply [STAMP] [--go] [--include-onedrive]
     awb clean files undo [STAMP]
-    awb clean update
+    awb clean update [--boot | --quiet]
+    awb clean apt-hook [--check]
     awb clean doctor
 
 The project is named once (task LC4): `awb clean use tcp-xxxx` keeps it as the current project of the laptop and
@@ -91,6 +92,11 @@ the undo from the journal in the vault folder.
 rules/allowed-terms.txt, rules/allow-domains.txt and the other allow lists) from the public repository: a
 `git pull --ff-only` of the clone, or for an install without git a download of those files over HTTPS checked
 against the blob ids of the repository tree. It sends nothing of his files and prints the counts that changed.
+It updates itself without him (awb/cleanupdate.py): `awb clean shell` adds the start of `awb clean update --boot`
+at the first shell after a WSL boot (in the background, once per boot), `awb clean apt-hook` prints the one sudo
+command that makes `sudo apt update` run `awb clean update --quiet` as his user. On a terminal every `awb clean`
+command prints first `awb clean <short commit> (<commit date>)` and once what the last of those updates did; an
+update never touches local changes (ff-only), a refusal keeps the old version.
 
 `awb clean doctor` prints the proxy variables (the host and port only, never a user or a password), sends one HEAD
 request through the environment's proxy to the object storage of the region and to github.com and names the fix
@@ -633,7 +639,8 @@ def _update_git(repo: Path, run=subprocess.run) -> None:
         raise CleanError("git pull --ff-only of the public repository failed (exit %d)" % got.returncode)
 
 
-def _update_https(rules: Path, fetch=_fetch, *, dir_fd: int | None = None) -> None:
+def _update_https(rules: Path, fetch=_fetch, *, dir_fd: int | None = None) -> str | None:
+    """Returns the sha of the tree the lists were checked against, when the answer names it."""
     try:
         tree = json.loads(fetch(TREE_URL).decode("utf-8"))
     except (ValueError, UnicodeError, RecursionError):
@@ -683,11 +690,13 @@ def _update_https(rules: Path, fetch=_fetch, *, dir_fd: int | None = None) -> No
                 os.unlink(tmp, dir_fd=dir_fd)
             except FileNotFoundError:
                 pass
+    sha = tree.get("sha")
+    return sha if isinstance(sha, str) else None
 
 
 def update(rules: Path | None = None, *, run=subprocess.run, fetch=_fetch) -> list[str]:
     """`awb clean update`: the lists of public terms from the public repository. Returns the lines of what changed."""
-    from awb import patterns
+    from awb import cleanupdate, patterns
     import fcntl
 
     rules = Path(rules or patterns.RULES_DIR)
@@ -701,12 +710,16 @@ def update(rules: Path | None = None, *, run=subprocess.run, fetch=_fetch) -> li
             before = _snapshot(rules, dir_fd=fd)
             if (repo / ".git").exists():
                 _no_links(repo / ".git")
+            old = cleanupdate.version(rules)
+            if (repo / ".git").exists():
                 _update_git(repo, run=run)
                 how = "git pull --ff-only of %s" % PUBLIC_REPO
             else:
-                _update_https(rules, fetch=fetch, dir_fd=fd)
+                tree_sha = _update_https(rules, fetch=fetch, dir_fd=fd)
+                cleanupdate.write_stamp(rules, tree_sha, fetch, dir_fd=fd)
                 how = "download over HTTPS, checked against the blob ids of the repository tree"
             changed = _changes(before, _snapshot(rules, dir_fd=fd))
+            new = cleanupdate.version(rules)
         finally:
             os.close(fd)
     except OSError as err:
@@ -715,7 +728,9 @@ def update(rules: Path | None = None, *, run=subprocess.run, fetch=_fetch) -> li
         if isinstance(err, urllib.error.URLError):
             raise
         raise CleanError("the rule lists could not be read or updated safely") from None
-    return ["update: %s" % how] + (changed or ["the lists are up to date: nothing changed"])
+    moved = ("version: updated %s -> %s" % (cleanupdate.short(old), cleanupdate.short(new)) if old != new
+             else "version: still %s" % cleanupdate.short(new))
+    return ["update: %s" % how, moved] + (changed or ["the lists are up to date: nothing changed"])
 
 
 # --------------------------------------------------------------------------- awb clean doctor
@@ -840,7 +855,8 @@ def _parser_files():
 
     ap = SafeParser(prog="awb clean", description="Clean project material on the laptop, offline: docs (office "
                     "and pdf files) or logs (logs, configs, tickets); also awb clean use tcp-xxxx, put, serve, "
-                    "register CUST-XXXX, init, shell, fetch, report, inventory, layout, files, teach, measure, update and doctor.")
+                    "register CUST-XXXX, init, shell, fetch, report, inventory, layout, files, teach, measure, update, apt-hook "
+                    "and doctor.")
     ap.add_argument("files", nargs="+", metavar="FILE", help="the files to clean; the originals are never changed")
     ap.add_argument("--project", default=None, metavar="tcp-xxxx", help="the project code (default: the work "
                     "folder of the current directory, else the project of awb clean use); its customer is CUST- and "
@@ -965,6 +981,12 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
     argv = list(sys.argv[1:] if argv is None else argv)
+    from awb import cleanupdate
+
+    try:
+        cleanupdate.banner(argv)
+    except Exception:  # noqa: BLE001 - the version line never stops a command
+        pass
     try:
         if argv[:1] == ["register"]:
             ap = SafeParser(prog="awb clean register", description="Type the written forms of a customer once, on "
@@ -981,13 +1003,19 @@ def main(argv: list[str] | None = None) -> int:
         if argv[:1] == ["shell"]:
             SafeParser(prog="awb clean shell", description="The PATH line of ~/.local/bin and the source line of "
                        "~/.config/winrelay.sh: a marked block in ~/.bashrc and, when ~/.oh-my-zsh exists, the file "
-                       "awb.zsh of its custom folder; ~/.zshrc is never touched.").parse_args(argv[1:])
-            print("\n".join(laptop.shell_setup()))
+                       "awb.zsh of its custom folder; ~/.zshrc is never touched. Also the start of awb clean update "
+                       "--boot at the first shell after a boot (a second block, awb-update.zsh), in the background "
+                       "with a timeout of 60 s.").parse_args(argv[1:])
+            print("\n".join(laptop.shell_setup() + cleanupdate.boot_setup()))
             return EXIT_OK
+        if argv[:1] == ["apt-hook"]:
+            return cleanupdate.apt_hook_main(argv[1:])
         if argv[:1] == ["doctor"]:
             SafeParser(prog="awb clean doctor", description="The proxy settings and whether the object storage and "
-                       "github.com can be reached through them, with the fix when not.").parse_args(argv[1:])
+                       "github.com can be reached through them, with the fix when not, and how many commits this "
+                       "install is behind the public main.").parse_args(argv[1:])
             lines, code = doctor()
+            lines.append(cleanupdate.behind_line())
             print("\n".join(lines))
             return code
         if argv[:1] == ["fetch"]:
@@ -1017,9 +1045,24 @@ def main(argv: list[str] | None = None) -> int:
         if argv[:1] == ["serve"]:
             return _serve_main(argv[1:])
         if argv[:1] == ["update"]:
-            SafeParser(prog="awb clean update", description="The lists of public terms from the public "
-                       "repository.").parse_args(argv[1:])
-            print("\n".join(update()))
+            ap = SafeParser(prog="awb clean update", description="The lists of public terms (and the clone) from "
+                            "the public repository, ff-only: local changes are never touched.")
+            mode = ap.add_mutually_exclusive_group()
+            mode.add_argument("--boot", action="store_true", help="the start after a boot: once per boot (boot id "
+                              "against ~/awb-laptop/boot-update.id), the result printed once by the next command")
+            mode.add_argument("--quiet", action="store_true", help="the apt hook: no output, exit 0, the result "
+                              "printed once by the next command and in ~/awb-laptop/update.log")
+            args = ap.parse_args(argv[1:])
+            if args.boot:
+                return cleanupdate.boot()
+            if args.quiet:
+                return cleanupdate.run_quiet("apt")
+            try:
+                print("\n".join(update()))
+            except CleanError as err:
+                print("awb clean update: refused: %s; nothing changed, still on %s"
+                      % (err, cleanupdate.short(cleanupdate.version())), file=sys.stderr)
+                return EXIT_ERROR
             return EXIT_OK
         args = _parser_files().parse_args(argv)
     except SystemExit as exc:
