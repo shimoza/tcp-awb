@@ -200,6 +200,7 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/cleaninventory.py": "awb clean inventory, run on the owner's laptop",
     "awb/cleanfiles.py": "awb clean files plan|apply|undo, run on the owner's laptop (task R6)",
     "awb/clean.py": "awb clean, run on the owner's laptop (and awb import --auto reads its name rule)",
+    "awb/cleanupdate.py": "awb clean update --boot|--quiet, apt-hook and the version line, run on the owner's laptop",
     "awb/cleanlm.py": "awb clean --llm, teach and measure, run on the owner's laptop (B-051)",
     "awb/fplearn_cmd.py": "awb check learn and awb check allow, run by the owner's timer and in his own terminal",
     "awb/pastein.py": "awb import --paste, run by the owner in his own terminal",

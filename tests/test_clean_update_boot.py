@@ -112,11 +112,16 @@ def test_https_update_writes_the_stamp_only_for_the_commit_of_the_checked_tree(t
     assert cleanupdate.version_line(rules) == "awb clean c0ffee0 (2026-11-19)"
 
 
-def test_the_version_line_comes_first_on_a_terminal_and_never_in_a_pipe(lap, monkeypatch, capsys):
+def test_the_version_line_comes_first_on_a_terminal_and_never_in_a_pipe(lap, repos, monkeypatch, capsys):
+    from awb import patterns
+
+    _, clone = repos
+    monkeypatch.setattr(patterns, "RULES_DIR", clone / "rules")     # independent of the checkout having a .git
     monkeypatch.setattr(cleanupdate, "interactive", lambda: True)
     assert clean.main(["init"]) == 0
     first = capsys.readouterr().out.splitlines()[0]
-    assert first == cleanupdate.version_line() and first.startswith("awb clean ")
+    day = _git("log", "-1", "--format=%cs", cwd=clone)
+    assert first == "awb clean %s (%s)" % (_short(clone), day)
     monkeypatch.setattr(cleanupdate, "interactive", lambda: False)
     assert clean.main(["init"]) == 0
     assert not capsys.readouterr().out.startswith("awb clean ")
