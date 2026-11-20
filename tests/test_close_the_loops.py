@@ -17,11 +17,17 @@ from tests import fixtures as fx
 from tests import test_dev_ask as da
 from tests.test_deploy import BIN, World, commit, git
 
+ROOT = Path(__file__).resolve().parent.parent
+
 
 @pytest.fixture
 def asks(home, monkeypatch, tmp_path):
     from awb import ownerwait, projects
 
+    # a rules file of the test's own: the quick tier runs this file in a copy of awb/, tests/ and rules/ alone
+    rules = tmp_path / "work-rules.md"
+    rules.write_text("# Work rules\n", encoding="utf-8")
+    monkeypatch.setattr(projects, "RULES_FILE", rules)
     pr = projects.spawn(home, "query", "check the docs", fx.CUSTOMER_CODE, home.register)
     monkeypatch.setattr(config, "paths", lambda: home)
     monkeypatch.setattr(config, "is_work_user", lambda: True)
@@ -116,7 +122,42 @@ def test_root_validates_the_asks_of_the_plan():
 
 @pytest.fixture
 def host(tmp_path):
+    if not (ROOT / "seal").is_dir():
+        pytest.skip("the deploy host copies seal/, which a quick copy of the tree does not hold")
     return World(tmp_path)
+
+
+def test_close_asks_runs_as_the_work_user_only_after_a_deploy_that_ended_well():
+    """The step itself, without a host tree: one call as the work user with the release and the handles, its lines
+    relayed printable, and no call before notes_ready, without asks or without a work user."""
+    calls = []
+
+    def runner(cmd, **kw):
+        calls.append((cmd, kw))
+        return subprocess.CompletedProcess(cmd, 0, "tcp-q7m4: development ask closed\x1b[2J\n", "")
+
+    owner = types.SimpleNamespace(pw_name="owner", pw_uid=1000, pw_gid=1000, pw_dir="/nonexistent/owner",
+                                  pw_shell="/bin/sh")
+    work = types.SimpleNamespace(pw_name="work", pw_uid=1001, pw_gid=1001, pw_dir="/nonexistent/work",
+                                 pw_shell="/bin/sh")
+    hst = types.SimpleNamespace(bin=BIN, runner=runner, environ={"PATH": "/usr/bin"},
+                                getgrouplist=lambda name, gid: [gid])
+    caller = types.SimpleNamespace(owner=owner, work=work, repo=Path("/nonexistent/repo"), conf={})
+    plan = {"target": "b" * 40, "asks": ["2026-11-19-tcp-q7m4-5"]}
+    run = deploy.Run(hst, caller, plan, deploy.Options())
+    run.journal = {"notes_ready": False}
+    run.close_asks()
+    assert calls == []
+    run.journal = {"notes_ready": True}
+    run.close_asks()
+    assert [c for c, _ in calls] == [[BIN, "dev", "close", "--release", "b" * 40, "2026-11-19-tcp-q7m4-5"]]
+    assert calls[0][1]["user"] == 1001 and calls[0][1]["cwd"] == "/nonexistent/work"
+    assert run.note_lines == ["tcp-q7m4: development ask closed?[2J"]
+    calls.clear()
+    deploy.Run(hst, caller, dict(plan, asks=[]), deploy.Options()).close_asks()
+    run.caller = types.SimpleNamespace(owner=owner, work=None, repo=caller.repo, conf={})
+    run.close_asks()
+    assert calls == []
 
 
 def test_a_deploy_that_ends_well_closes_the_asks_as_the_work_user(host, capsys):

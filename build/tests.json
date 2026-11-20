@@ -28503,8 +28503,15 @@
    "name": "Q-0007 close the loops: the build line drops tasks and checks that ended 48 hours before the newest row",
    "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_the_build_line_drops_what_ended_48_hours_before_the_newest_row",
    "status": "passing"
+  },
+  {
+   "id": "Q07-12",
+   "phase": "T",
+   "name": "Q-0007 close the loops: the close step runs as the work user only after a deploy that ended well",
+   "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_close_asks_runs_as_the_work_user_only_after_a_deploy_that_ended_well",
+   "status": "passing"
   }
  ],
- "total_tests": 4072,
+ "total_tests": 4073,
  "checked": "2026-11-20"
 }
