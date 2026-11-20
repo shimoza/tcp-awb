@@ -1167,6 +1167,12 @@ the bookkeeping on your side: which machines exist and when a project may use on
 connect the laptop to the host and take it off again. Part 3 gives a project session its commands there. Part 4 is
 the lab broker, which holds the key and is the one way to the laptop.
 
+The lab is for tests with a Windows machine, that is for a Windows migration. A project spawned with Windows and a
+migration in its tags or goal (the tags `windows` and `migration`, or the words of the goal) gets one sentence about
+the lab machines in its CLAUDE.md. Every other project may use them on your word but is never offered them: its
+CLAUDE.md names no winlab and the work rules say "winlab: only for a Windows migration test; do not offer it
+otherwise."
+
 ```bash
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
 awb winlab open lab-1 --minutes 60 --project tcp-xxxx

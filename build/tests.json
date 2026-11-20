@@ -28797,8 +28797,50 @@
    "name": "ux10 assistant session: register add is refused in a session and writes nothing",
    "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_register_add_is_refused_in_a_session_and_writes_nothing",
    "status": "passing"
+  },
+  {
+   "id": "WLO-001",
+   "phase": "T",
+   "name": "winlab offer: a project that is no Windows migration is not one (no Windows, no migration or neither)",
+   "run": ".venv/bin/pytest tests/test_winlab_offer.py::test_a_project_that_is_no_windows_migration_is_not_one",
+   "status": "passing"
+  },
+  {
+   "id": "WLO-002",
+   "phase": "T",
+   "name": "winlab offer: a Windows migration is one: the tags windows and migration or the words of the goal",
+   "run": ".venv/bin/pytest tests/test_winlab_offer.py::test_a_windows_migration_is_one",
+   "status": "passing"
+  },
+  {
+   "id": "WLO-003",
+   "phase": "T",
+   "name": "winlab offer: the CLAUDE.md of a project that is no Windows migration names no winlab",
+   "run": ".venv/bin/pytest tests/test_winlab_offer.py::test_the_claude_md_of_a_project_that_is_no_windows_migration_names_no_winlab",
+   "status": "passing"
+  },
+  {
+   "id": "WLO-004",
+   "phase": "T",
+   "name": "winlab offer: the CLAUDE.md of a Windows migration offers the lab machines on the kind line, no extra line",
+   "run": ".venv/bin/pytest tests/test_winlab_offer.py::test_the_claude_md_of_a_windows_migration_offers_the_lab_machines",
+   "status": "passing"
+  },
+  {
+   "id": "WLO-005",
+   "phase": "T",
+   "name": "winlab offer: the work rules carry the one neutral winlab sentence and no other winlab word",
+   "run": ".venv/bin/pytest tests/test_winlab_offer.py::test_the_work_rules_carry_the_one_neutral_sentence_and_no_other_winlab_word",
+   "status": "passing"
+  },
+  {
+   "id": "WLO-006",
+   "phase": "T",
+   "name": "winlab offer: the awb help names winlab for Windows migration tests only",
+   "run": ".venv/bin/pytest tests/test_winlab_offer.py::test_the_awb_help_names_winlab_for_windows_migration_tests_only",
+   "status": "passing"
   }
  ],
- "total_tests": 4114,
+ "total_tests": 4120,
  "checked": "2026-11-20"
 }

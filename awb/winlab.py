@@ -113,6 +113,25 @@ WARNING = ("lab window of %s for %s ends at %s (%d min left): ask him to extend 
            "%s --minutes N --project %s (or --until HH:MM)")
 
 
+NOT_OFFERED = "winlab: only for a Windows migration test; do not offer it otherwise."
+"""The owner's rule of 2026-11-20: the lab machines are for tests with a Windows machine, that is for a Windows
+migration. Every other project may use them on his word but is never offered them."""
+OFFER_LINE = ("This is a Windows migration: the owner's Windows lab machines are there for its tests (`awb winlab "
+              "list`, then run, put and get in a window he opens).")
+"""The line a Windows migration project gets in its CLAUDE.md (awb/projects.py, _claude)."""
+WINDOWS_RE = re.compile(r"\bwindows\b", re.IGNORECASE)
+MIGRATION_RE = re.compile(r"\b(migrat\w*|move|moves|moving|rehost\w*|p2v|v2v)\b", re.IGNORECASE)
+
+
+def windows_migration(tags, goal: str) -> bool:
+    """True when a project is about a Windows migration: Windows (the tag `windows` of rules/tags.txt or the word in
+    the goal) and a migration (the tag `migration` or a migration word in the goal)."""
+    tags = {str(t).strip().lower() for t in tags or ()}
+    goal = goal or ""
+    return (("windows" in tags or bool(WINDOWS_RE.search(goal)))
+            and ("migration" in tags or bool(MIGRATION_RE.search(goal))))
+
+
 class WinlabError(Exception):
     """A refusal; its text is one line."""
 

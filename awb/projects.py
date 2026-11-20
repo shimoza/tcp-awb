@@ -547,7 +547,12 @@ OPEN_COMMAND_RULE = "A command for him in OPEN.md stands in backticks after `run
 ends the start line; `awb projects sync` appends it there (rulesync.CLAUDE_APPEND)."""
 
 
-def _claude(code: str, kind: str, customer: str) -> str:
+def _claude(code: str, kind: str, customer: str, winlab_offer: bool = False) -> str:
+    """The project CLAUDE.md. With `winlab_offer` (a Windows migration, awb.winlab.windows_migration) the last line
+    tells the session about the owner's Windows lab machines; every other project gets no word of them here (the
+    work rules carry winlab.NOT_OFFERED)."""
+    from awb import winlab as _winlab
+
     who = "customer %s, project %s" % (customer, code) if customer != NO_CUSTOMER else "project %s" % code
     return (
         "# %s\n\n"
@@ -572,10 +577,11 @@ def _claude(code: str, kind: str, customer: str) -> str:
         "- Run `awb check FILE` on every deliverable and `awb gate` before every commit.\n"
         "- %s\n"
     ) % (code, kind, _rules_ref(), who, code, code, OWN_OUTPUT_RULE, LAB_LOGS,
-         PROJECT_LINE + " " + LAB_RUN_RULE
+         (PROJECT_LINE + " " + LAB_RUN_RULE
          if tenant_access(kind) else
          "This is a query: knowledge base, docs mirror, live prices and calculations, no test tenant. When an "
-         "answer needs a live test, say so; he switches it with `awb projects kind %s project`." % code) \
+         "answer needs a live test, say so; he switches it with `awb projects kind %s project`." % code)
+        + (" " + _winlab.OFFER_LINE if winlab_offer else "")) \
         + "\n" + FINAL_CHECK_SECTION
 
 
@@ -714,6 +720,12 @@ def known_tags() -> list[str]:
 _known_tags = known_tags         # kept for the web adapters still deployed outside the repository
 
 
+def _winlab_offer(tags, goal: str) -> bool:
+    from awb import winlab
+
+    return winlab.windows_migration(tags, goal)
+
+
 def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register_path: Path,
           tags: list[str] = (), from_outbox: bool = False, code: str | None = None,
           tenant: str | None = None, new_customer: bool = False, review_tier: int | None = None) -> Project:
@@ -791,7 +803,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
             "STATE.md": _state(code),
             "OPEN.md": _open(code),
             "RESOURCES.md": _resources(code),
-            "CLAUDE.md": _claude(code, kind, customer),
+            "CLAUDE.md": _claude(code, kind, customer, _winlab_offer(tags, goal)),
             SETTINGS_FILE: _settings(),
         }
         if files["CLAUDE.md"].count("\n") > MAX_CLAUDE_LINES:
