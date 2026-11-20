@@ -1,12 +1,13 @@
-"""Lab runs with the admin logins of our two lab tenants (task LR, his decision of 2026-10-28).
+"""Lab runs with the admin logins of our lab tenants (task LR, his decisions of 2026-10-28 and 2026-11-20).
 
-    keys.conf:  lab_admin = test-10491 test-10497          the owner's line; then `awb keys unlock`
-    pass:       awb/admin/<alias>/domain, user, password   the admin login of each, entered by him once
+    keys.conf:  lab_admin = test-10491 test-10497 test-10503  the owner's line; then `awb keys unlock`
+    pass:       awb/admin/<alias>/domain, user, password      the admin login of each, entered by him once
 
 At `awb keys unlock` the key service loads the admin login of every tenant the lab_admin line names, and only of
-test-10491 and test-10497: any other alias in the line refuses the unlock (test-10498, a customer tenant, a read-only
-tenant). A session (the work user) then reaches these two tenants with any method on any service, IAM, STS and OBS
-included, through the ops `lab_run` and `lab_call` of the call socket, and only inside an open run of its project:
+the closed list ALLOWED (test-10491, test-10497 and test-10503): any other alias in the line refuses the unlock
+(test-10498, a customer tenant, a read-only tenant). A session (the work user) then reaches these tenants with any
+method on any service, IAM, STS and OBS included, through the ops `lab_run` and `lab_call` of the call socket, and
+only inside an open run of its project:
 
     awb lab run start --tenant T [--note TEXT]     opens a run for the project (one open run per project and tenant)
     awb lab run end [--tenant T]                   deletes what the run made, newest first, and closes it
@@ -72,8 +73,9 @@ from awb import codes, labruns, labsecrets
 from awb.tcp import projecttags
 
 SETTING = "lab_admin"
-ALLOWED = ("test-10491", "test-10497")
-"""The two lab tenants of his decision of 2026-10-28. test-10498 and every other tenant stay out."""
+ALLOWED = ("test-10491", "test-10497", "test-10503")
+"""The lab tenants, a closed list: test-10491 and test-10497 by his decision of 2026-10-28, test-10503 by his
+decision of 2026-11-20 (used the same way as test-10491). test-10498 and every other tenant stay out."""
 ADMIN_PREFIX = "awb/admin"
 LOGIN_PARTS = ("domain", "user", "password")
 METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")

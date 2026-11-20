@@ -39,8 +39,8 @@ from pathlib import Path
 
 from awb import config, devnote
 from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS,
-                          LAB_RUN_RULE, LEVEL_2, LEVEL_2_RUN, OPEN_COMMAND_RULE, OWN_OUTPUT_RULE, PROJECT_LINE,
-                          PUT_KEY_RULE, REVIEW_L1, START_RULE)
+                          LAB_RUN_RULE, LAB_RUN_RULE_HEAD, LAB_RUN_RULE_OLD_HEAD, LEVEL_2, LEVEL_2_RUN,
+                          OPEN_COMMAND_RULE, OWN_OUTPUT_RULE, PROJECT_LINE, PUT_KEY_RULE, REVIEW_L1, START_RULE)
 
 CLAUDE_FIXES = (
     # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
@@ -103,9 +103,11 @@ CLAUDE_APPEND = (("- Files for him leave with `awb xchg put FILE`", "--kind WORD
 CLAUDE_CUT = (
     ("- Files for him leave with `awb xchg put FILE`", ", after the name check and, for a customer project, the review",
      ""),
+    # the owner's decision of 2026-11-20: test-10503 is a lab tenant too
+    ("- " + PROJECT_LINE + " " + LAB_RUN_RULE_OLD_HEAD, LAB_RUN_RULE_OLD_HEAD, LAB_RUN_RULE_HEAD),
 )
 """(line start, old part, new part): task GT takes the review out of the put line of an older project, whatever
-code its naming rule names."""
+code its naming rule names; the lab run rule of an older project gets test-10503 (2026-11-20)."""
 CLAUDE_DROP = (FX_AFTER_OLD,)
 """Lines task GT takes out: the last line of the FX section went into the run line of level 2."""
 STATE_FIXES = (

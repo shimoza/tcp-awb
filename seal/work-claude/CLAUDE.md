@@ -45,7 +45,7 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - `awb cloud call METHOD SERVICE PATH --tenant ALIAS [--role lab]` reaches the test tenants (`awb cloud tenants`); a password only as `{{secret:NAME}}`.
   A lab run (test-10491, test-10497) starts only on his word ('прогони', 'проверь на тенанте', 'run'): awb lab run start, scripts call through awb.labclient,
   awb lab run end, then report created, removed and kept (a change a held stand keeps: labclient.call(..., keep="why"); a listed delete: delete_listed=True).
-  Never ask him for logins. Logs keep ids, mask logins, cut tokens to 8. Every create carries the tag awb-project = the project code (key service, Terraform). winlab: only for a Windows migration test; do not offer it otherwise.
+  Never ask him for logins. test-10503 takes lab runs the same way. Logs keep ids, mask logins, cut tokens to 8. Every create carries the tag awb-project = the project code (key service, Terraform). winlab: only for a Windows migration test; do not offer it otherwise.
 - `awb kb find|add|scope`, `awb ledger add`, `awb report --by KEY`, `awb career add`. `awb check` and `awb write check` before a deliverable
   leaves the project; a review only on his word ("ревью" level 1, "глубокое ревью" level 2), a put never waits for it. The commit hook runs `awb gate`.
 ## Writing

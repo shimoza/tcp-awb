@@ -11,8 +11,8 @@ A lab call (awb/tcp/labadmin.py) carries at most MAX_BODY bytes of JSON or text 
 egress filter keeps the work user away from OBS; the temporary keys of an answer come shortened. So the op
 `lab_obs` of the call socket has the key service run the transfer as a background job of its own: the session never
 holds a key and gets no new egress. Its rules are those of a lab call: an open run of the calling project on
-test-10491 or test-10497 (never a read-only tenant), a bucket named after the project (<code>-...), never an exchange
-bucket, signed with the run's temporary credential of the admin token only, the way labadmin signs an OBS call. A
+a lab tenant (labadmin.ALLOWED, never a read-only tenant), a bucket named after the project (<code>-...), never an
+exchange bucket, signed with the run's temporary credential of the admin token only, the way labadmin signs an OBS call. A
 customer tenant in write mode (task TW) takes the same jobs for a project granted it, signed with its write key or a
 temporary credential of its write login; the owner's switch back to read-only aborts its open jobs at once
 (READONLY_LINE in the record).

@@ -40,7 +40,7 @@ Two sockets, one JSON object per line and one answer per connection:
     call   /run/awb-keys/cloud.sock, mode 660, group awb         ping, tenants, call, projects, doc_get,
                                                                 lab_run, lab_call, lab_obs
 
-`lab_run` and `lab_call` (task LR, awb/tcp/labadmin.py) reach the two lab tenants of the lab_admin line of keys.conf
+`lab_run` and `lab_call` (task LR, awb/tcp/labadmin.py) reach the lab tenants of the lab_admin line of keys.conf
 with their admin login (awb/admin/<alias>/domain, user, password in pass, loaded at `awb keys unlock`): any method on
 any service, IAM, STS and OBS included, only inside an open run of the calling project, every create recorded and
 deleted at the end of the run. The session never gets the password or a whole token. `lab_obs` (task LO,
@@ -1991,9 +1991,12 @@ def main(argv: list[str] | None = None) -> int:
                 print("lab_writes: %d triples" % len(xchg.lab_writes_parse(value) or []))
             else:
                 print("lab_writes: no line, the lab key signs no write (awb keys lab-writes --from-recipes)")
+            from awb.tcp import labadmin
+
             admins = sorted(a for a, t in summary.items() if t.get("admin"))
+            none = "no line, no lab run (lab_admin = %s)" % " ".join(labadmin.ALLOWED)
             print("lab_admin: %s" % ("admin logins of %s, lab runs on them (awb lab run)" % ", ".join(admins)
-                                     if admins else "no line, no lab run (lab_admin = test-10491 test-10497)"))
+                                     if admins else none))
             return 0
         if args.command == "lab-writes":
             # a child process and no import: lab.py and recheckwatch.py belong to no unit, so a change of them must

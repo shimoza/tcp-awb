@@ -220,10 +220,10 @@ in `RESOURCES.md` as live with the line to delete it.
 
 ### Lab runs of a project's own scripts (LR)
 
-A project session may test its own scripts on the two lab tenants test-10491 and test-10497 with their admin
-login, only on his word in the session. The owner sets it up once: the logins in pass as
-`awb/admin/<alias>/domain`, `user` and `password`, the line `lab_admin = test-10491 test-10497` in keys.conf, then
-`awb keys unlock`. Any other alias in the line refuses the unlock; test-10498, a customer tenant and a read-only
+A project session may test its own scripts on the lab tenants test-10491, test-10497 and test-10503 (since
+2026-11-20) with their admin login, only on his word in the session. The owner sets it up once: the logins in pass as
+`awb/admin/<alias>/domain`, `user` and `password`, the line `lab_admin = test-10491 test-10497 test-10503` in
+keys.conf, then `awb keys unlock`. Any other alias in the line refuses the unlock; test-10498, a customer tenant and a read-only
 tenant are refused there. A customer tenant you switched to write (`awb tenant mode`, below) takes lab runs too,
 for the projects granted it, with its write credential in place of an admin login. The session runs `awb lab run start --tenant test-10491 [--note TEXT]`, its scripts call
 through the key service with
@@ -268,7 +268,7 @@ background job:
     awb lab obs abort JOB                                  labclient.obs_abort(job)
 
 put and get answer a job id at once; status shows bytes done, total, rate and state. The rules are those of a lab
-call: the open run of the project on test-10491, test-10497 or a customer tenant in write mode (never a read-only
+call: the open run of the project on test-10491, test-10497, test-10503 or a customer tenant in write mode (never a read-only
 tenant), a bucket named after the
 project (`<code>-...`), never an exchange bucket, signed with the run's temporary credential. The session holds no
 key. The file reaches the service as an open descriptor over the socket, never as a path, so a file the session

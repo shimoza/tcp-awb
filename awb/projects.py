@@ -539,11 +539,15 @@ MAX_CLAUDE_LINES; `awb projects sync` gives an older start line the sentence (ru
 
 
 PROJECT_LINE = "This is a project: it reaches the test tenants through the key service (`awb cloud call`)."
-LAB_RUN_RULE = ("A lab run (test-10491, test-10497) starts only on his word in the session ('прогони', 'проверь на "
-                "тенанте', 'run'): awb lab run start, scripts call through awb.labclient, awb lab run end, then "
-                "report what was created and removed. Never ask him for logins.")
+LAB_RUN_RULE = ("A lab run (test-10491, test-10497, test-10503) starts only on his word in the session ('прогони', "
+                "'проверь на тенанте', 'run'): awb lab run start, scripts call through awb.labclient, awb lab run "
+                "end, then report what was created and removed. Never ask him for logins.")
 """Task LR (2026-10-28): his own lab tenants with their admin login, on his word only; on the line of the kind
-project, so the template keeps its 30 lines. `awb projects sync` adds it (rulesync.CLAUDE_FIXES)."""
+project, so the template keeps its 30 lines. `awb projects sync` adds it (rulesync.CLAUDE_FIXES). The tenants are
+those of labadmin.ALLOWED (test-10503 since 2026-11-20); an older line names two (LAB_RUN_RULE_OLD_HEAD,
+rulesync.CLAUDE_CUT)."""
+LAB_RUN_RULE_OLD_HEAD = "A lab run (test-10491, test-10497) starts only on his word"
+LAB_RUN_RULE_HEAD = "A lab run (test-10491, test-10497, test-10503) starts only on his word"
 
 
 OPEN_COMMAND_RULE = "A command for him in OPEN.md stands in backticks after `run:`."
