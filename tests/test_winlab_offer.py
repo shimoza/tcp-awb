@@ -18,7 +18,7 @@ CODE = "tcp-q7m4"
 @pytest.mark.parametrize("tags,goal", [
     ([], "Price two Linux web servers for a PoC"),
     (["migration"], "Move the file servers from the old data centre"),
-    (["windows"], "Price Windows licences for twelve servers"),
+    (["windows"], "price windows licences for twelve servers"),
     (["windows", "pricing"], "Check the BYOL rules"),
 ])
 def test_a_project_that_is_no_windows_migration_is_not_one(tags, goal):
@@ -27,7 +27,7 @@ def test_a_project_that_is_no_windows_migration_is_not_one(tags, goal):
 
 @pytest.mark.parametrize("tags,goal", [
     (["windows", "migration"], "Plan the move"),
-    ([], "Migrate Windows Server 2012 R2 machines to TCP"),
+    ([], "migrate windows server 2012 r2 machines to tcp"),
     (["windows"], "Move the domain controllers"),
     (["migration"], "Rehost the windows estate"),
 ])
@@ -46,7 +46,7 @@ def test_the_claude_md_of_a_project_that_is_no_windows_migration_names_no_winlab
 
 @pytest.mark.parametrize("kind", ["query", "project"])
 def test_the_claude_md_of_a_windows_migration_offers_the_lab_machines(kind):
-    offer = projects._winlab_offer(["windows", "migration"], "Migrate Windows Server machines to TCP")
+    offer = projects._winlab_offer(["windows", "migration"], "migrate windows server machines to tcp")
     text = projects._claude(CODE, kind, CUSTOMER_CODE, offer)
     plain = projects._claude(CODE, kind, CUSTOMER_CODE)
     assert offer is True
