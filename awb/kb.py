@@ -408,6 +408,12 @@ def _counts(pairs: Iterable[tuple[str, int]]) -> str:
 
 
 def _unavailable(err: Exception) -> str:
+    """The reason the name check could not run. The vault daemon's reasons (check.CheckUnavailable: locked, its rate
+    limit, a reload, a dropped connection) are fixed, value-free texts and pass as they are; a register read here
+    that is broken stays "the register cannot be read"."""
+    text = str(err)
+    if isinstance(err, check.CheckUnavailable) and text.startswith("name check unavailable: "):
+        return text
     return "name check unavailable: the register cannot be read"
 
 

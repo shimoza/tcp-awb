@@ -1643,7 +1643,8 @@ you enable it when you are ready (`sudo systemctl enable --now awb-buildd.servic
 
 ## Requests to development
 
-From a project session, run `awb dev ask "TEXT" [--blocks]`. It writes
+From a project session, run `awb dev ask "TEXT" [--blocks]`; in a side session (`awb side start`, the worktree
+`.side/NAME`) it writes the ask of the project the worktree belongs to. It writes
 `<shared>/notices/dev/<YYYY-MM-DD>-<code>-<n>.md` with the project code, UTC creation time,
 text, command and error. Supply failure details with `--command "COMMAND" --error "ERROR"`;
 without those options the fields say `not supplied`. The command is recorded without being run.

@@ -62,7 +62,13 @@ class VaultUnavailable(VaultError):
 
 
 class VaultRateLimited(VaultUnavailable):
-    """The daemon refused the request: too many requests of this user in the last minute."""
+    """The daemon refused the request: too many requests of this user in the last minute or every scan slot
+    stayed busy for its wait (the daemon answers both with "rate")."""
+
+
+class VaultDropped(VaultUnavailable):
+    """The daemon closed the connection before it answered: a reload that hands the daemon over or a connection
+    past the cap of this user. It passes within seconds (a transient failure, awb/check.py retries it)."""
 
 
 class VaultBusy(VaultError):
@@ -103,14 +109,14 @@ def _request(sock: Path, obj: dict, *, timeout: float | None = None, limit: int 
             while b"\n" not in buf:
                 chunk = s.recv(1 << 16)
                 if not chunk:
-                    raise VaultUnavailable("the vault daemon closed the connection")
+                    raise VaultDropped("the vault daemon closed the connection")
                 buf += chunk
                 if len(buf) > limit:
                     raise VaultUnavailable("the answer of the vault daemon is too large")
         except TimeoutError:
             raise VaultUnavailable("the vault daemon timed out") from None
         except OSError:
-            raise VaultUnavailable("the vault daemon closed the connection") from None
+            raise VaultDropped("the vault daemon closed the connection") from None
     finally:
         s.close()
     try:
@@ -181,7 +187,8 @@ def _safe_cut(text: str, lo: int, hi: int) -> int:
 
 def check_remote(text: str, sock: Path, timeout: float | None = None) -> list[dict]:
     """The name and structured data check of the vault daemon: [{start, length, cls}], positions in the
-    normalised text. Raises VaultLocked or VaultUnavailable (also for an answer that carries anything else).
+    normalised text. Raises VaultLocked, VaultBusy (a reload) or VaultUnavailable (also for an answer that carries
+    anything else).
 
     A text larger than one request goes in chunks that overlap by CHECK_OVERLAP characters, cut at line ends
     where normalising the parts apart gives the same text as normalising the whole. Positions are mapped back to
@@ -223,7 +230,7 @@ def _check_one(text: str, sock: Path, timeout: float | None = None) -> list[dict
     if not answer["ok"]:
         try:
             _raise_for(answer, details=False)
-        except (VaultLocked, VaultUnavailable):
+        except (VaultLocked, VaultUnavailable, VaultBusy):
             raise
         except VaultError as err:
             raise VaultUnavailable("the vault daemon cannot check (%s)" % err) from None

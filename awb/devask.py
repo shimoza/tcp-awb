@@ -176,11 +176,27 @@ def read(path: Path, *, text: str | None = None) -> dict:
     return data
 
 
+def _main_folder(root: Path) -> Path | None:
+    """The project folder an ask is written for: `root` itself or for a side session's worktree
+    (`<project>/.side/NAME`, awb/side.py) the main folder of its project only when the worktree's git link
+    leads into that project's own .git (receipt._side_git); None for a .side folder that is no such worktree."""
+    from awb import receipt, side
+
+    if root.parent.name != side.SIDE_DIR or not codes.is_project_code(root.parent.parent.name):
+        return root
+    git = root / ".git"
+    if git.is_symlink() or not git.is_file() or receipt._side_git(root, git) is None:
+        return None
+    return root.parent.parent
+
+
 def write(p: config.Paths, text: str, blocks: bool = False, command: str = "not supplied",
           error: str = "not supplied") -> Path:
     from awb import hooks, projects
 
     root = hooks.project_root(Path.cwd())
+    if root is not None:
+        root = _main_folder(root)
     if root is None or not codes.is_project_code(root.name):
         raise AskError("run awb dev ask in a registered project")
     pr = next((pr for pr in projects.load(p) if pr.code == root.name and

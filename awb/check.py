@@ -32,6 +32,10 @@ daemon over the check socket (`config.paths().check_socket`, `awb.vault_client.c
 `CheckUnavailable` is raised: the check fails closed and never calls a text clean that it could not check.
 The command line then exits 2 with "name check unavailable: vault locked" or "...: no vault daemon" and
 prints no hit list at all.
+
+A transient answer of the daemon (its rate limit, every scan slot busy, a reload that hands it over, a connection it
+closed before it answered) is tried again TRANSIENT_DELAYS seconds apart, a few seconds in all; when it still fails
+the message says which of them it was. A locked vault, a refused user and no daemon at all are not tried again.
 """
 from __future__ import annotations
 
@@ -92,6 +96,10 @@ REMOTE = "remote"
 
 RATE_WAIT = 90.0
 """Seconds a command line run waits and retries when the vault daemon answers with its rate limit."""
+TRANSIENT_DELAYS = (0.2, 0.5, 1.0, 2.0)
+"""Seconds between the tries of a check whose answer was transient (a rate or busy answer, a reload, a dropped
+connection): four more tries in under four seconds, so a short burst of other checks of the same user never fails a
+command and a real outage is still said at once."""
 
 
 def _exists(path: Path) -> bool | None:
@@ -164,13 +172,24 @@ class RemoteCheck:
         from awb import vault_client
 
         deadline = time.monotonic() + self.rate_wait
+        delays = list(TRANSIENT_DELAYS)
+        tries = 0
         while True:
+            tries += 1
             try:
                 return vault_client.check_remote(text, self.sock)
             except vault_client.VaultRateLimited as err:
+                if delays:
+                    time.sleep(delays.pop(0))
+                    continue
                 if time.monotonic() + 1.0 > deadline:
-                    raise CheckRateLimited(_reason(err)) from None
+                    raise CheckRateLimited(_reason(err, tries)) from None
                 time.sleep(1.0)
+            except (vault_client.VaultBusy, vault_client.VaultDropped) as err:
+                if delays:
+                    time.sleep(delays.pop(0))
+                    continue
+                raise CheckUnavailable(_reason(err, tries)) from None
             except vault_client.VaultError as err:
                 raise CheckUnavailable(_reason(err), since=getattr(err, "since", None)) from None
 
@@ -179,13 +198,20 @@ class RemoteCheck:
         return [Span(h["start"], h["start"] + h["length"], "name") for h in self.scan(text) if h["cls"] == "name"]
 
 
-def _reason(err: Exception) -> str:
+def _reason(err: Exception, tries: int = 1) -> str:
     from awb import vault_client
 
+    after = " (%d tries)" % tries if tries > 1 else ""
     if isinstance(err, vault_client.VaultLocked):
         return "name check unavailable: vault locked"
     if isinstance(err, vault_client.VaultRateLimited):
-        return "name check unavailable: rate limit of the vault daemon, try again in a minute"
+        return ("name check unavailable: rate limit of the vault daemon (too many checks of this user at once)%s, "
+                "try again in a minute" % after)
+    if isinstance(err, vault_client.VaultBusy):
+        return "name check unavailable: the vault daemon is reloading%s, try again in a minute" % after
+    if isinstance(err, vault_client.VaultDropped):
+        return ("name check unavailable: the vault daemon closed the connection before it answered (a reload or too "
+                "many open checks of this user)%s, try again in a minute" % after)
     return "name check unavailable: %s" % err
 
 
