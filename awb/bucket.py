@@ -19,8 +19,9 @@ goes through its admin socket (`awb keys unlock` loads it; F1 step 11). There is
 in the host file. A working session must never see an original before the intake: as the work user of a sealed host
 every command refuses, and inside an assistant session of the owner's own uid `pull` and `move` refuse and the
 client gives no file of `in/` (review R6: the key service cannot tell the peer's session, so the check stays on the
-client as it does for `awb import`, `awb fetch` and `awb vault show`). `pull` and `put --reveal` read the vault, so
-he runs them in his own shell.
+client as it does for `awb fetch` and `awb vault show`). `pull` and `put --reveal` read the vault, so he runs them in
+his own shell. The one way in from such a session is `awb import CODE` of the bucket folder (UX10, his yes
+2026-11-12): it fetches in/ under `import_door()` straight into the vault inbox and the intake, and prints counts.
 
 The key service takes list, get and put, inside the folders of the layout (awb/bucket_layout.py), and one delete:
 `drop_in`, a file of in/ of an active project after `awb import --auto` took it into the vault, and one move:
@@ -34,6 +35,7 @@ and never the name of a folder that matches no project.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import fcntl
 import functools
 import hashlib
@@ -166,13 +168,28 @@ def settings() -> dict[str, str | None]:
     return {"bucket": OWNER_BUCKET, "region": REGION}
 
 
+_IMPORT_DOOR = contextvars.ContextVar("awb_bucket_import_door", default=False)
+
+
+@contextlib.contextmanager
+def import_door():
+    """The fetch of in/ by `awb import CODE` (awb/importcmd.py `_from_bucket`): inside an assistant session of the
+    owner user the originals go straight into the vault inbox and the intake, as UX10 allows. `awb bucket pull`,
+    `move` and every other get of in/ stay refused there."""
+    token = _IMPORT_DOOR.set(True)
+    try:
+        yield
+    finally:
+        _IMPORT_DOOR.reset(token)
+
+
 def owner_terminal(what: str) -> None:
     """`pull` and `move` and a get of a file of in/ reach the originals: refused inside an assistant session, as
     `awb import` and `awb fetch` are (review R6). The uid alone is not enough: the steering session runs as the
     owner."""
     from awb import vault
 
-    if vault.in_assistant_session():
+    if vault.in_assistant_session() and not _IMPORT_DOOR.get():
         raise BucketError("%s never runs inside an assistant session; run it in your own terminal" % what)
 
 

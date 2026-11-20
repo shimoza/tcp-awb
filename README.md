@@ -885,7 +885,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | task | command | what you get |
 |---|---|---|
 | start work | `awb spawn query --goal "..."` or `awb spawn project --goal "..."` | a folder with its scope, rules, hooks and git. A query works with the knowledge base, the docs and live prices; a project also reaches the test tenants. `--customer new` on either issues `CUST-XXXX` with the four characters of the project code (`tcp-xxxx`); an existing customer is refused, every project gets its own code |
-| start work in one owner command | `awb start project --goal "..." --customer new` (or no customer; `query` the same) | in your own terminal: the customer code is issued with the project code from the same four characters and its written forms are asked at the prompt as `awb import` asks (never an argument, so never in the shell history), `awb spawn` runs as the work user through `sudo -n`, your grant (`awb projects kind`, with the customer code it registered) is written, what lies in the project's `in/` folder is imported; it ends with `open: awb projects open tcp-xxxx`. With `--from DIR` (and `--trusted` for an export that carries no name) the import takes every regular file of DIR and its subfolders instead of `in/` (a link or a special file is skipped and counted) and the last line is `app: SSH host awb-10491, folder WORKHOME/tcp-xxxx` (the folder from the register) |
+| start work in one owner command | `awb start project --goal "..." --customer new` (or no customer; `query` the same) | in your own terminal: the customer code is issued with the project code from the same four characters and its written forms are asked at the prompt as `awb import` asks (never an argument, so never in the shell history), `awb spawn` runs as the work user through `sudo -n`, your grant (`awb projects kind`, with the customer code it registered) is written, what lies in the project's `in/` folder is imported; it ends with `open: awb projects open tcp-xxxx`. With `--from DIR` (and `--trusted` for an export that carries no name) the import takes every regular file of DIR and its subfolders instead of `in/` (a link or a special file is skipped and counted) and the last line is `app: SSH host awb-10491, folder WORKHOME/tcp-xxxx` (the folder from the register). Your own assistant session (desk or development) may run it too, without `--customer` and `--review-tier` and with `--from` only beside `--trusted` (UX10) |
 | switch | `awb projects kind tcp-xxxx project` (a customer project: `--customer CUST-XXXX`, the code you type from `awb register`) | a query that needs a live test becomes a project (or back). The grant records the customer and is written only when you confirm it with `--customer`; without it the command prints `grant not written`, shows the row as information and asks you to type the code yourself (no ready command), another code is refused |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | park a project | `awb projects park tcp-xxxx --reason "waits on the customer"`, later `awb projects unpark tcp-xxxx` | the board counts it apart and leaves its open items out; nothing else changes, material still comes in |
@@ -1186,8 +1186,9 @@ tomorrow when that time has passed), never earlier than the end it had; `--publi
 never taken away. The window of another project is still refused until you close it. An hour before the end the
 project session is told once at its next prompt, with the open command to ask you for, and `awb owner status`
 shows the window as "ends in N min" with `awb winlab open NAME --minutes 60 --project CODE`. The registry is `winlab.json`
-beside keys.conf, mode 600. add, open, close and remove are refused for the work user and in an assistant session;
-list is for anyone. The later parts ask `winlab.allowed(NAME, CODE)`, which returns the machine or refuses with one
+beside keys.conf, mode 600. add, open, close and remove are refused for the work user; add, remove and
+`open --public-image` are refused in an assistant session too, while open and close run there (UX10); list is for
+anyone. The later parts ask `winlab.allowed(NAME, CODE)`, which returns the machine or refuses with one
 line: an unregistered machine, no window, an expired window or another project. `awb owner status` lists every open
 window with its project, its end and `awb winlab close NAME`, and every registered machine that is online (its
 tunnel answers on its loopback port). `--account NAME` on add names the laptop's account when bootstrap made another
@@ -1485,6 +1486,10 @@ customer data out of the model as far as it can:
   and the limits are written down. It is tested with 1,188 invented cases of structured data and written forms and
   405 cases of unregistered names in mails, transcripts, decks, code, tables, German and Russian text
   (`calibration/redteam/`).
+- Inside your own assistant session (desk or development, UX10) two forms run: `awb import CODE --trusted DIR|FILE...`
+  (a folder gives every regular file of it and its subfolders) and `awb import CODE` of the bucket folder `in/`, never
+  the vault inbox. `--customer`, `--review`, `--redo`, `--paste`, a FILE without `--trusted` and a customer whose
+  forms are still to be typed stay in your own terminal; the work user is refused every import.
 - `awb import CODE --paste [--kind mail|transcript|table]` is the same door for text you copy from a mail client, a meeting tool
   or a spreadsheet (work profile: a pasted mail with a signature, a pasted transcript or an Excel extract was the usual
   slip). The text comes on standard input (`pbpaste | awb import tcp-xxxx --paste`) and is never printed. A secret refuses the

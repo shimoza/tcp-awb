@@ -230,22 +230,41 @@ def test_wl_owner_commands_are_refused_for_the_work_user_and_in_a_session(regist
         monkeypatch.setenv("CLAUDECODE", "1")
     else:
         monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    # UX10 (owner decision 2026-11-20): in a session of the owner user open and close run, add and remove stay
+    # refused; the work user is refused all four
+    session = who != "work user"
     for argv in (["add", OTHER_MACHINE, "--port", "2202", "--fingerprint", OTHER_FINGERPRINT, "--no-customer-data"],
                  ["open", MACHINE, "--minutes", "30", "--project", OTHER], ["close", MACHINE],
                  ["remove", MACHINE]):
+        if session and argv[0] in ("open", "close"):
+            continue
         assert cli.main(["winlab"] + argv) == 1, argv
         assert winlab.OWNER_LINE in capsys.readouterr().err
     calls = (lambda: winlab.add(OTHER_MACHINE, 2202, OTHER_FINGERPRINT, True),
              lambda: winlab.open_(MACHINE, 30, OTHER, now=minutes(1)), lambda: winlab.close(MACHINE, now=minutes(1)),
              lambda: winlab.remove(MACHINE, now=minutes(1)))
-    for call in calls:
+    for call in (calls[0], calls[3]) if session else calls:
         with pytest.raises(winlab.WinlabError) as err:
             call()
         assert str(err.value) == winlab.OWNER_LINE
+    if session:
+        # open of another project is refused by the open window, not by the side, and --public-image stays his
+        with pytest.raises(winlab.WinlabError) as err:
+            winlab.open_(MACHINE, 30, OTHER, now=minutes(1))
+        assert "has an open window for %s" % PROJECT in str(err.value)
+        with pytest.raises(winlab.WinlabError) as err:
+            winlab.open_(MACHINE, 30, PROJECT, now=minutes(1), public_image=True)
+        assert str(err.value) == winlab.PUBLIC_IMAGE_LINE
+        assert registered.read_text(encoding="utf-8") == before
     assert registered.read_text(encoding="utf-8") == before
     assert cli.main(["winlab", "list"]) == 0                      # list is for anyone
     assert MACHINE in capsys.readouterr().out
     assert winlab.allowed(MACHINE, PROJECT, now=minutes(1))["name"] == MACHINE
+    if session:
+        # the allowed forms run in a session: close ends the window, open gives one to the other project
+        assert winlab.close(MACHINE, now=minutes(2)) == "lab machine %s: window of %s closed" % (MACHINE, PROJECT)
+        assert "window open for %s" % OTHER in winlab.open_(MACHINE, 30, OTHER, now=minutes(3))
+        assert winlab.allowed(MACHINE, OTHER, now=minutes(4))["name"] == MACHINE
 
 
 # --------------------------------------------------------------------------- awb owner status

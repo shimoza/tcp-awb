@@ -20,7 +20,9 @@ With `--from DIR` (and `--trusted` for an export that carries no name) the impor
 of DIR and its subfolders (a link or a special file is skipped and counted) instead of the bucket folder, and the run
 ends with the one line `app: SSH host awb-10491, folder WORKHOME/tcp-xxxx`, WORKHOME being the work user's home of the register folder.
 
-Then: `open: awb projects open CODE`. Owner side only: refused for the work user and inside an assistant session.
+Then: `open: awb projects open CODE`. Owner side only: refused for the work user. Inside an assistant session of the
+owner user (UX10, his yes 2026-11-12) `awb start query|project --goal ... [--tag TAG] [--from DIR --trusted]` runs;
+--customer, --review-tier and --from without --trusted stay his own terminal's.
 A step that fails stops the run with its own message; the steps before it stay done and the line says which.
 """
 from __future__ import annotations
@@ -114,7 +116,7 @@ def import_step(p: config.Paths, code: str, *, read=None, tty=None) -> int:
     if not files:
         _say("%s: nothing in the bucket folder in/ yet; awb import %s takes what you drop there" % (code, code))
         return EXIT_OK
-    return importcmd.run(p, code, files, read=read, tty=tty)
+    return importcmd.run(p, code, files, read=read, tty=tty, pulled=True)
 
 
 def walk_from(folder: str) -> tuple[list[Path], int]:
@@ -154,8 +156,12 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
           trusted: bool = False) -> int:
     from awb import cli, vault
 
-    if config.is_work_user() or vault.in_assistant_session():
+    if config.is_work_user():
         raise StartError("awb start runs on the owner side, in your own terminal")
+    if vault.in_assistant_session() and (customer is not None or review_tier is not None
+                                         or (from_dir and not trusted)):
+        raise StartError("awb start runs on the owner side, in your own terminal: inside an assistant session only "
+                         "without --customer and --review-tier, and --from only with --trusted")
     if kind not in projects.PROJECT_KINDS:
         raise StartError("a piece of work is a query or a project")
     if trusted and not from_dir:

@@ -28692,8 +28692,113 @@
    "name": "Q-0014 events: a deploy writes its start and end only on a host with a shared side",
    "run": ".venv/bin/pytest tests/test_events.py::test_a_deploy_writes_its_start_and_end_only_on_a_host_with_a_shared_side",
    "status": "passing"
+  },
+  {
+   "id": "UX10-001",
+   "phase": "T",
+   "name": "ux10 assistant session: start without a customer runs in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_start_without_a_customer_runs_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-002",
+   "phase": "T",
+   "name": "ux10 assistant session: start from a folder with trusted runs in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_start_from_a_folder_with_trusted_runs_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-003",
+   "phase": "T",
+   "name": "ux10 assistant session: start of the bucket folder in a session imports it",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_start_of_the_bucket_folder_in_a_session_imports_it",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-004",
+   "phase": "T",
+   "name": "ux10 assistant session: start with a customer a tier or an untrusted folder is refused in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_start_with_a_customer_a_tier_or_an_untrusted_folder_is_refused_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-005",
+   "phase": "T",
+   "name": "ux10 assistant session: start stays refused for the work user",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_start_stays_refused_for_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-006",
+   "phase": "T",
+   "name": "ux10 assistant session: import of trusted files and a trusted folder runs in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_import_of_trusted_files_and_a_trusted_folder_runs_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-007",
+   "phase": "T",
+   "name": "ux10 assistant session: import of the bucket folder runs in a session and never takes the vault inbox",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_import_of_the_bucket_folder_runs_in_a_session_and_never_takes_the_vault_inbox",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-008",
+   "phase": "T",
+   "name": "ux10 assistant session: import without its two forms is refused in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_import_without_its_two_forms_is_refused_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-009",
+   "phase": "T",
+   "name": "ux10 assistant session: the paste the timer job and the forms prompt stay refused in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_the_paste_the_timer_job_and_the_forms_prompt_stay_refused_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-010",
+   "phase": "T",
+   "name": "ux10 assistant session: import stays refused for the work user",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_import_stays_refused_for_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-011",
+   "phase": "T",
+   "name": "ux10 assistant session: winlab open and close run in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_winlab_open_and_close_run_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-012",
+   "phase": "T",
+   "name": "ux10 assistant session: winlab add remove and public image stay refused in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_winlab_add_remove_and_public_image_stay_refused_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-013",
+   "phase": "T",
+   "name": "ux10 assistant session: winlab open and close stay refused for the work user",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_winlab_open_and_close_stay_refused_for_the_work_user",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-014",
+   "phase": "T",
+   "name": "ux10 assistant session: tenant mode and bucket pull stay refused in a session",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_tenant_mode_and_bucket_pull_stay_refused_in_a_session",
+   "status": "passing"
+  },
+  {
+   "id": "UX10-015",
+   "phase": "T",
+   "name": "ux10 assistant session: register add is refused in a session and writes nothing",
+   "run": ".venv/bin/pytest tests/test_ux10_assistant.py::test_ux10_register_add_is_refused_in_a_session_and_writes_nothing",
+   "status": "passing"
   }
  ],
- "total_tests": 4099,
+ "total_tests": 4114,
  "checked": "2026-11-20"
 }

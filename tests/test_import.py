@@ -252,15 +252,19 @@ def test_review_stops_once_registers_the_marks_and_wipes_what_is_left_for_later(
 # --------------------------------------------------------------------------- who may run it
 
 
-def test_refused_in_a_session_with_the_one_line_of_the_work_rules(home, project, monkeypatch, capsys):
+def test_refused_in_a_session_with_the_one_line_of_the_work_rules(home, project, monkeypatch, capsys, tmp_path):
     """Replaces test_refused_for_the_work_user_and_inside_an_assistant_session (2026-10-09): the refusal is the one
     line of the work rules and nothing else, never a question."""
     from awb import cli
 
     line = "held: run awb import %s as the owner in your own terminal" % project.code
     monkeypatch.setenv("CLAUDECODE", "1")
-    assert cli.main(["import", project.code]) == 2
+    # UX10 (owner decision 2026-11-20): plain `awb import CODE` runs in a session; with --review it stays refused
+    assert cli.main(["import", project.code, "--review"]) == 2
     assert _lines(capsys).strip() == line
+    (f,) = _files(tmp_path, 1)
+    assert cli.main(["import", project.code, "--trusted", str(f)]) == 0      # the allowed form runs
+    _no_name(_lines(capsys))
     monkeypatch.delenv("CLAUDECODE")
     monkeypatch.setattr(config, "is_work_user", lambda: True)
     assert cli.main(["import", project.code]) == 2

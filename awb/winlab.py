@@ -37,7 +37,9 @@ command that extends it (`ending`).
 
 The registry is winlab.json beside keys.conf, the file of the read-only tenant settings (`AWB_KEYS_CONF`, default
 ~/.config/awb/keys.conf), mode 600, written to a fresh name and renamed. add, open, close and remove are the owner's:
-refused for the work user and in an assistant session, as `awb tenant mode` is. No network here: nothing is reached,
+refused for the work user. add and remove are refused in an assistant session too, as `awb tenant mode` is; open and
+close run in an assistant session of the owner user (UX10, his yes 2026-11-12), but --public-image stays his own
+statement in his own terminal. No network here: nothing is reached,
 nothing is run on a machine. Standard library only; core code, so the owner status needs no module of the platform
 package.
 
@@ -85,7 +87,10 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 FINGERPRINT_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
-OWNER_LINE = "the lab machines are the owner's: he runs awb winlab add, open, close and remove in his own terminal"
+OWNER_LINE = ("the lab machines are the owner's: he runs awb winlab add and remove in his own terminal, open and "
+              "close as the owner user (his terminal or his own assistant session)")
+PUBLIC_IMAGE_LINE = ("--public-image is the owner's own statement: he gives it in his own terminal, never inside an "
+                     "assistant session")
 SCRIPTS = Path(__file__).resolve().parent / "winlab"     # setup.ps1 and remove.ps1, data of the package
 PLACEHOLDER_RE = re.compile(r"@@[A-Z_]+@@")
 ACCOUNT = "awblab"
@@ -139,6 +144,13 @@ def _owner_only() -> None:
     from awb import vault
 
     if config.is_work_user() or vault.in_assistant_session():
+        raise WinlabError(OWNER_LINE)
+
+
+def _owner_user() -> None:
+    """open and close: the owner user, in his terminal or inside an assistant session (UX10, his yes 2026-11-12);
+    never the work user."""
+    if config.is_work_user():
         raise WinlabError(OWNER_LINE)
 
 
@@ -242,7 +254,7 @@ def _lock(folder: int, wait: float | None = None) -> None:
 def _transaction(fn):
     @functools.wraps(fn)
     def locked(*args, **kwargs):
-        _owner_only()
+        _owner_user()           # each command checks its own side again: add and remove are the owner's terminal
         path = kwargs.get("path") or registry_path()
         with _parent(path, create=True) as folder:
             _lock(folder)
@@ -383,8 +395,15 @@ def open_(name: str, minutes: int | None, project: str, *, path: Path | None = N
 
     `until` (HH:MM, local host time) is the end instead of `minutes`; the window still lasts 1 to MINUTES_MAX
     minutes from now. With `extend` (what `awb winlab open` passes) an open window of the same project gets the new
-    end, never an earlier one than it had; without it, as for another project, an open window is refused."""
-    _owner_only()
+    end, never an earlier one than it had; without it, as for another project, an open window is refused.
+
+    An assistant session of the owner user may open a window (UX10); `public_image` stays his own statement in his
+    own terminal."""
+    from awb import vault
+
+    _owner_user()
+    if public_image is True and vault.in_assistant_session():
+        raise WinlabError(PUBLIC_IMAGE_LINE)
     if not CODE_RE.fullmatch(project or ""):
         raise WinlabError("a project code reads like tcp-q7m4")
     if until is not None:
@@ -435,7 +454,7 @@ def open_(name: str, minutes: int | None, project: str, *, path: Path | None = N
 
 @_transaction
 def close(name: str, *, path: Path | None = None, now: datetime.datetime | None = None) -> str:
-    _owner_only()
+    _owner_user()
     now = now or _now()
     machines = load(path)
     m = _get(machines, name)

@@ -25,8 +25,12 @@ rules/report-workbook.txt) is held: nothing of it is imported, it stays where it
 inbox or the path given), the run says `file N of M held: the report workbook never leaves the laptop` and he gets
 one mail per file to remove it from in/ (`awb import --auto` the same, through its timer).
 
-Refused for the work user and inside an assistant session with the one line of the work rules (`hold_line`): the
-forms prompt and the review carry names. Nothing here prints a name, a form or a file name.
+Refused for the work user with the one line of the work rules (`hold_line`): the forms prompt and the review carry
+names. Inside an assistant session of the owner user (UX10, his yes 2026-11-12) two forms run: `awb import CODE
+--trusted DIR|FILE...` and `awb import CODE` of the bucket folder in/ (never the vault inbox there); everything else
+(--customer, --review, --redo, FILE without --trusted, --trusted without FILE, a customer whose forms are to be typed)
+is refused with the same line. A DIR argument takes every regular file of the folder and its subfolders (links and
+special files skipped). Nothing here prints a name, a form or a file name.
 
     awb import --auto
 
@@ -107,7 +111,9 @@ def ask_forms(p: config.Paths, customer: str, read=None, tty=None, allow_none: b
     """The written forms of a customer the register does not know yet, typed on the terminal, one per line, an empty
     line ends. Registered one by one; returns how many. Refused without a terminal. With `allow_none` (a project
     without a customer) an empty first line issues the code without a form: its outbox folder counts it as issued."""
-    if not (tty if tty is not None else (sys.stdin.isatty() and sys.stdout.isatty())):
+    from awb import vault
+
+    if vault.in_assistant_session() or not (tty if tty is not None else (sys.stdin.isatty() and sys.stdout.isatty())):
         raise ImportRefused("%s has no form in the register: run awb import in your own terminal, it asks for the "
                            "written forms" % customer)
     read = read or (lambda: sys.stdin.readline())
@@ -139,7 +145,8 @@ def _from_bucket(p: config.Paths, code: str) -> list[Path] | None:
 
     try:
         c = bucket.client()
-        return bucket.fetch(p, c, code)["files"]
+        with bucket.import_door():
+            return bucket.fetch(p, c, code)["files"]
     except (bucket.BucketError, obs.OBSError, OSError):
         return None
 
@@ -187,12 +194,26 @@ def _copy_out(p: config.Paths, original: Path, folder: Path) -> Path:
     return dst
 
 
+def session_may(files: list[Path], *, customer: str | None, review: bool, redo: bool, trusted: bool,
+                pulled: bool = False, auto: bool = False) -> bool:
+    """What an assistant session of the owner user may import (UX10, his yes 2026-11-12): files it vouches for with
+    --trusted, or the bucket folder in/ of the project. Never a customer, the review, a redo or the timer's job."""
+    if customer or review or redo or auto:
+        return False
+    if files:
+        return trusted or pulled
+    return not trusted
+
+
 def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None = None, review: bool = False,
         redo: bool = False, read=None, tty=None, edit=None, confirm=None, trusted: bool = False,
-        auto: bool = False) -> int:
+        auto: bool = False, pulled: bool = False) -> int:
+    """`pulled`: the files came from the bucket folder in/ (awb start), not from the command line."""
     from awb import projects, vault
 
-    if config.is_work_user() or vault.in_assistant_session():
+    session = vault.in_assistant_session()
+    if config.is_work_user() or (session and not session_may(files, customer=customer, review=review, redo=redo,
+                                                             trusted=trusted, pulled=pulled, auto=auto)):
         raise ImportRefused(hold_line(code))
     if not codes.is_project_code(code or ""):
         raise ImportRefused("a project code reads tcp-xxxx")
@@ -243,7 +264,7 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
           trusted: bool, auto: bool = False) -> int:
     """The files of the import (the arguments, the bucket, the vault inbox or the last import) through the intake,
     under the import lock of the project."""
-    from awb import rulesync
+    from awb import rulesync, vault
 
     tmp: Path | None = None
     mapping = None
@@ -267,6 +288,12 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
             pulled = _from_bucket(p, code)
             if pulled:
                 files, where = pulled, "the bucket folder in/ of %s" % code
+            elif vault.in_assistant_session():
+                # the vault inbox may hold files of another customer: a session takes the bucket folder alone
+                if pulled is None:
+                    raise ImportRefused("%s: the bucket folder in/ cannot be read here" % code)
+                _say("%s: no new file in the bucket folder in/" % code)
+                return EXIT_OK
             else:
                 files, where = intake.inbox_files(p), "the vault inbox"
         if not files:
@@ -306,6 +333,27 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
 
 
 HELD_MARK = "report-workbook.mailed"
+
+
+def _expand(args: list[str]) -> list[Path]:
+    """The FILE arguments, a folder (not a link to one) as every regular file of it and its subfolders, as awb start
+    --from takes it; the count of the links and special files skipped goes to standard error."""
+    from awb import start
+
+    out: list[Path] = []
+    for arg in args:
+        path = Path(arg)
+        if path.is_dir() and not path.is_symlink():
+            try:
+                found, skipped = start.walk_from(arg)
+            except start.StartError as err:
+                raise ImportRefused(str(err).replace("--from", "a folder")) from None
+            if skipped:
+                _progress("a folder: %d link(s) or special file(s) skipped" % skipped)
+            out += found
+        else:
+            out.append(path)
+    return out
 
 
 def _send_mail(subject: str, message: str) -> bool:
@@ -431,8 +479,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = SafeParser(prog="awb import", description="Customer material into a project in one command (owner side).")
     ap.add_argument("code", metavar="CODE", nargs="?", default=None, help="the project code, tcp-xxxx (none with --auto)")
-    ap.add_argument("files", nargs="*", metavar="FILE", help="files to take in (default: the bucket folder in/, then "
-                                                               "the vault inbox)")
+    ap.add_argument("files", nargs="*", metavar="FILE",
+                    help="files or folders to take in (default: the bucket folder in/, then the vault inbox)")
     ap.add_argument("--customer", default=None, metavar="CUST-XXXX|new",
                     help="only when a project without a customer gets one: new issues CUST- and the project's four "
                          "characters; without it such a project runs with no customer code")
@@ -479,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.paste:
             return run_paste(config.paths(), args.code, args.kind)
-        return run(config.paths(), args.code, [Path(f) for f in args.files], customer=args.customer,
+        return run(config.paths(), args.code, _expand(args.files), customer=args.customer,
                    review=args.review, redo=args.redo, trusted=args.trusted)
     except (ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError, vault.VaultError) as err:
         text = str(err)

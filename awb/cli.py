@@ -129,6 +129,12 @@ FIND_REFUSED = ("awb register: find prints to the owner's own terminal only, nev
 
 
 def _cmd_register_add(args, p: config.Paths) -> int:
+    from awb import vault
+
+    if vault.in_assistant_session():
+        # UX10: a written form is a name; it is typed in the owner's own terminal, never in a session
+        print("awb register add: never inside an assistant session; run it in your own terminal", file=sys.stderr)
+        return EXIT_ERROR
     forms = args.forms
     if forms == ["-"]:
         forms = [line.rstrip("\r\n") for line in sys.stdin.readlines()]
@@ -728,7 +734,8 @@ def _build() -> argparse.ArgumentParser:
 
     reg = sub.add_parser("register", help="the register of written forms (vault side)")
     rsub = reg.add_subparsers(dest="register_command", parser_class=_Parser)
-    s = rsub.add_parser("add", help="add one or more written forms to a code")
+    s = rsub.add_parser("add", help="add one or more written forms to a code (owner's terminal: refused inside an "
+                                    "assistant session)")
     s.add_argument("code")
     s.add_argument("kind")
     s.add_argument("forms", nargs="+", metavar="FORM",

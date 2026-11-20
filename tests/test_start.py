@@ -133,6 +133,9 @@ def test_start_is_refused_inside_an_assistant_session_and_for_a_bad_customer(hom
     assert cli.main(["start", "project", "--goal", GOAL, "--customer", "Q7M4"]) == 2
     assert "a customer code reads CUST-XXXX or new" in _lines(capsys)
     monkeypatch.setenv("CLAUDECODE", "1")
-    assert cli.main(["start", "project", "--goal", GOAL]) == 2
+    # UX10 (owner decision 2026-11-20): without --customer it runs in a session; with --customer it stays refused
+    assert cli.main(["start", "project", "--goal", GOAL, "--customer", "new"]) == 2
     assert "owner side" in _lines(capsys) and not projects.load(home)
+    assert cli.main(["start", "project", "--goal", GOAL]) == 0
+    assert len(projects.load(home)) == 1
 

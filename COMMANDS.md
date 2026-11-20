@@ -892,7 +892,7 @@ take customer material in: sanitised copies to the outbox
 
 ### `awb register add CODE KIND FORM...`
 
-add one or more written forms to a code
+add one or more written forms to a code (owner's terminal: refused inside an assistant session)
 - `CODE`
 - `KIND`
 - `FORM...`: the written forms, or - alone to read them from standard input, one per line
@@ -1501,7 +1501,7 @@ clean project material on the laptop, offline: docs or logs; register, init, she
 
 customer material into a project in one command: the bucket, the vault inbox, files or pasted text (--paste)
 - `[CODE]`: the project code, tcp-xxxx (none with --auto)
-- `[FILE...]`: files to take in (default: the bucket folder in/, then the vault inbox)
+- `[FILE...]`: files or folders to take in (default: the bucket folder in/, then the vault inbox)
 - `--customer CUST-XXXX|new`: only when a project without a customer gets one: new issues CUST- and the project's four characters; without it such a project runs with no customer code
 - `--review`: stop once on the candidates and review them in an editor
 - `--trusted`: the owner vouches that the files hold no name: no name is guessed; the registered forms, the secret check, mail addresses and phones still apply
