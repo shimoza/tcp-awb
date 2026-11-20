@@ -399,7 +399,9 @@ def log_path(root: Path, machine: str) -> Path:
 
 
 def _append(path: Path, lines: list[str]) -> None:
-    """A log over lablog.LIMIT moves to full/ beside it (git-ignored) and git keeps its summary (Q-0021)."""
+    """A log over lablog.LIMIT moves to full/ beside it (git-ignored) and git keeps its summary (Q-0021). The home
+    folder part of a path (Windows console output, C:\\Users\\<user>\\...) is written as ~ (lablog.mask_home,
+    Q-0010), in a project log and in one outside a project alike."""
     from awb import lablog
 
     root = _project_of(path)
@@ -407,7 +409,7 @@ def _append(path: Path, lines: list[str]) -> None:
         with winlab._parent(path, create=True) as folder:
             fd = winlab._regular(folder, path.name, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
             with os.fdopen(fd, "a", encoding="utf-8") as fh:
-                fh.write("\n".join(lines).rstrip("\n") + "\n\n")
+                fh.write(lablog.mask_home("\n".join(lines).rstrip("\n") + "\n\n"))
         return
     try:
         lablog.append(root, path, "\n".join(lines).rstrip("\n") + "\n\n")

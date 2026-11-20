@@ -28104,8 +28104,85 @@
    "name": "Q-0025 owner page: its rules kept, a note where the close and archive buttons go",
    "run": ".venv/bin/pytest tests/test_console_now_health.py::test_the_owner_page_keeps_its_rules_and_marks_where_the_buttons_go",
    "status": "passing"
+  },
+  {
+   "id": "Q10-1",
+   "phase": "T",
+   "name": "Q-0010 mask home writes the home part as a tilde",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_mask_home_writes_the_home_part_as_a_tilde",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-2",
+   "phase": "T",
+   "name": "Q-0010 a small lab run log carries no home path and passes the gate",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_a_small_lab_run_log_carries_no_home_path_and_passes_the_gate",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-3",
+   "phase": "T",
+   "name": "Q-0010 a large log its full text and its summary carry no home path",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_a_large_log_its_full_text_and_its_summary_carry_no_home_path",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-4",
+   "phase": "T",
+   "name": "Q-0010 the lab client writes its run log without a home path",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_the_lab_client_writes_its_run_log_without_a_home_path",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-5",
+   "phase": "T",
+   "name": "Q-0010 a windows lab log carries no home path in and outside a project",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_a_windows_lab_log_carries_no_home_path_in_and_outside_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-6",
+   "phase": "T",
+   "name": "Q-0010 the own id pattern is spelled in codes",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_the_own_id_pattern_is_spelled_in_codes",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-7",
+   "phase": "T",
+   "name": "Q-0010 a registered acronym inside an own id is no name in a file",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_a_registered_acronym_inside_an_own_id_is_no_name_in_a_file",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-8",
+   "phase": "T",
+   "name": "Q-0010 own ids in a commit message are neither names nor candidates",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_own_ids_in_a_commit_message_are_neither_names_nor_candidates",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-9",
+   "phase": "T",
+   "name": "Q-0010 strip attribution takes out the lines and keeps the rest",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_strip_attribution_takes_out_the_lines_and_keeps_the_rest",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-10",
+   "phase": "T",
+   "name": "Q-0010 the gate strips only with the flag",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_the_gate_strips_only_with_the_flag",
+   "status": "passing"
+  },
+  {
+   "id": "Q10-11",
+   "phase": "T",
+   "name": "Q-0010 an installed project hook strips the lines and the commit passes",
+   "run": ".venv/bin/pytest tests/test_lab_logs_pass_gate.py -k test_q10_an_installed_project_hook_strips_the_lines_and_the_commit_passes",
+   "status": "passing"
   }
  ],
- "total_tests": 4015,
+ "total_tests": 4026,
  "checked": "2026-11-20"
 }

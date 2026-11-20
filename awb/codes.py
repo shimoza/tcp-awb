@@ -41,6 +41,12 @@ KB = r"KB-[A-Z2-7]{4}"
 CALC = r"K-[1-9][0-9]{0,4}"
 """a calculation id: K-1 to K-99999"""
 
+FILE_ID = r"F-[A-Z2-7]{4}(?:\.[0-9]+)*"
+"""a file id of an imported copy: F-Q7M4, a member or attachment of it F-Q7M4.1"""
+OWN_ID_RE = re.compile(r"(?<![\w-])(?:%s|%s)(?![\w-])" % (KB, FILE_ID))
+"""an id the Workbench gives itself and that is never a name: a fact id (KB-Q7M4) or a file id (F-Q7M4.1); the
+commit gate and the short text rules do not read one as a name (Q-0010)"""
+
 PROJECT_RE = re.compile(r"\b%s\b" % PROJECT)
 CUST_RE = re.compile(r"\b%s\b" % CUST)
 KB_RE = re.compile(r"\b%s\b" % KB)

@@ -107,6 +107,16 @@ def _exists(parent: int, name: str) -> bool:
         return False
 
 
+def mask_home(text: str) -> str:
+    """`text` with the home folder part of every path written as ~ (/home/<user>/x as ~/x, C:\\Users\\<user>\\x as
+    ~\\x): what Windows console output and a lab call echo would otherwise carry into git, where the commit gate
+    refuses it (Q-0010, finding 11 of the UX review of 2026-11-18). The gate's own pattern decides what a home path
+    is (gate.mask_homepaths); the gate is imported here only when a log is written."""
+    from awb import gate
+
+    return gate.mask_homepaths(text)
+
+
 def summary_name(name: str) -> str:
     return (name[:-4] if name.endswith(".log") else name) + SUMMARY_SUFFIX
 
@@ -178,11 +188,15 @@ def ignore(root: Path, folder: str) -> None:
 
 def append(root: Path, path: Path, text: str) -> Path:
     """Append `text` to the lab log `path` (inside the project folder `root`) and return where it went: the log
-    itself or its full log once it moved there. Raises OSError (LabLogError for a link or a special file)."""
+    itself or its full log once it moved there. Raises OSError (LabLogError for a link or a special file).
+
+    The home folder part of every path in `text` is written as ~ (mask_home, Q-0010), so neither the committed log
+    nor its summary carries one."""
     root = Path(os.path.abspath(root))
     path = Path(os.path.abspath(path))
     folder = path.parent.relative_to(root).as_posix()
     name = path.name
+    text = mask_home(text)
     data = text.encode("utf-8")
     with _directory(path.parent, create=True) as parent:
         for _ in range(3):

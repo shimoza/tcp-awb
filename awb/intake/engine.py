@@ -80,11 +80,12 @@ def _allowed_candidate(value: str) -> bool:
 
 def short_text_candidates(text: str) -> list[tuple[str, int]]:
     """(class, line) of each name-shaped candidate of a short text by SHORT_TEXT_RULES, the class person, company
-    or unknown, the line counted from 1; a candidate of the allowed terms is none. The caller runs the register
-    check first. Never a value."""
+    or unknown, the line counted from 1; a candidate of the allowed terms is none. A fact id or a file id of the
+    Workbench (codes.OWN_ID_RE: KB-Q7M4, F-Q7M4.1) is read as the word "code", never as a name (Q-0010). The caller
+    runs the register check first. Never a value."""
     out: list[tuple[str, int]] = []
     for n, line in enumerate(text.splitlines(), start=1):
-        norm = normalize.normalize(line).text
+        norm = codes.OWN_ID_RE.sub("code", normalize.normalize(line).text)
         for rule in SHORT_TEXT_RULES:
             if any(not _allowed_candidate(v) for v in wipe.unknown_candidates(norm, [], (rule,))):
                 found = (_RULE_CLASS.get(rule, "person"), n)

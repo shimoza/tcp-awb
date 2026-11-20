@@ -1512,7 +1512,13 @@ customer data out of the model as far as it can:
   When the base cannot be read it adds nothing. `awb review claims` marks each claim in kb.tsv as known before the
   work or not; the final check carries the same yes/no column, so you see what was known and what is new.
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A text file over 8 MiB is
-  refused at once as `too-large`, unscanned; a large lab log keeps its full text out of git (see lab runs). Customer material is
+  refused at once as `too-large`, unscanned; a large lab log keeps its full text out of git (see lab runs). The lab
+  log writers write the home folder part of a path as `~` (`/home/<user>/x` as `~/x`, `C:\Users\<user>\x` as `~\x`),
+  so a lab log and its summary pass on the first try. A fact id (`KB-Q7M4`) or a file id (`F-Q7M4.1`) of the
+  Workbench is never read as a name, also when its four letters spell a registered acronym. The commit-msg hook of
+  a project takes a `Co-Authored-By:` line naming Claude and a "Generated with Claude Code" line out of the message
+  and says so in one line, instead of refusing the commit; every other finding of the message still refuses it. The
+  Workbench's own `hooks/commit-msg` and the build hooks still refuse such a line. Customer material is
   checked once, at the entry; a put after it never refuses a file and replaces only its secrets with [secret]
   (task GT). `awb close` still writes the fingerprint of a closed project (sha256 and salted word hashes, no
   text) and pins its hash in the vault.

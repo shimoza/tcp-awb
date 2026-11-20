@@ -86,7 +86,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Iterator
 
-from awb import check, normalize, register
+from awb import check, codes, normalize, register
 from awb.extract import text as extract_text
 from awb.matcher import Matcher, Span
 
@@ -711,6 +711,26 @@ def _detect_blocklist(text: str) -> list[int]:
     return [] if rx is None else [m.start() for m in rx.finditer(text) if m.end() > m.start()]
 
 
+HOME_TOKEN = "~"
+"""What a lab log writer puts in place of the home folder part of a path (Q-0010): /home/<user>/x becomes ~/x and
+C:\\Users\\<user>\\x becomes ~\\x."""
+
+
+def mask_homepaths(text: str) -> str:
+    """`text` with the home folder part of every path the homepath class finds (the Linux, macOS and Windows
+    spellings, /root, ~user, the -home-user folder names) replaced by HOME_TOKEN, so that a lab log carries none
+    when it is written (awb/lablog.py). The generic user names the class lets pass stay. A text without one comes
+    back as it is."""
+    for _ in range(4):
+        spans = [m.span() for m in _HOMEPATH_RE.finditer(text)
+                 if next((g for g in m.groups() if g), "").lower() not in _GENERIC_USERS]
+        if not spans:
+            break
+        for start, end in reversed(spans):
+            text = text[:start] + HOME_TOKEN + text[end:]
+    return text
+
+
 PATH_TOKEN = "[path]"
 WITHHELD_TOKEN = "[withheld]"
 
@@ -812,9 +832,15 @@ def _name_spans(text: str, n: normalize.Normalized, matcher) -> list[Span]:
 
 
 def _detect_names(text: str, matcher) -> list[int]:
-    """Offsets in `text` of every registered form, found in the normalised text and mapped back."""
+    """Offsets in `text` of every registered form, found in the normalised text and mapped back. A form that lies
+    wholly inside a fact id or a file id of the Workbench (codes.OWN_ID_RE: KB-Q7M4, F-Q7M4.1) is no name: four
+    random characters of an id spelled a registered acronym (Q-0010). A form that reaches out of the id still is."""
     n = _normalized(text)
-    return [normalize.original_span(n, s.start, s.end)[0] for s in _name_spans(text, n, matcher)]
+    found = [normalize.original_span(n, s.start, s.end) for s in _name_spans(text, n, matcher)]
+    if found and ("KB-" in text or "F-" in text):
+        own = [m.span() for m in codes.OWN_ID_RE.finditer(text)]
+        found = [f for f in found if not any(a <= f[0] and f[1] <= b for a, b in own)]
+    return [start for start, _ in found]
 
 
 _LOOKALIKES = dict(zip(
@@ -1215,6 +1241,44 @@ def _attribution(label: str, text: str) -> list[Finding]:
     starts = _line_starts(text)
     return sorted({Finding(label, bisect.bisect_right(starts, m.start()), "attribution")
                    for m in _ATTRIBUTION_RE.finditer(text)}, key=_order)
+
+
+_STRIP_LINE_RE = re.compile(r"(?i)^[ \t]*co-authored-by:[^\n]*(?:claude|anthropic)|generated with \[?claude code")
+"""A line the commit-msg hook of a project takes out of the message instead of refusing it (Q-0010): a co-author
+trailer that names Claude or a "Generated with Claude Code" line. Any other attribution finding still refuses."""
+STRIPPED_LINE = ("awb gate: removed %d line(s) naming an assistant as co-author or generator from the commit "
+                 "message; the owner alone is the author")
+
+
+def strip_attribution(path: Path) -> int:
+    """Take every co-author or generator line naming Claude (_STRIP_LINE_RE) out of the commit message file `path`
+    and the blank lines this leaves at its end; return how many lines went. Comment lines and everything from the
+    scissors line on stay as they are. A file that is no UTF-8 or cannot be read or written is left alone (0): the
+    scan that follows still refuses what it carries."""
+    path = Path(path)
+    try:
+        raw = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 0
+    lines = raw.split("\n")
+    cut = next((i for i, x in enumerate(lines) if x.startswith("#") and _SCISSORS in x), len(lines))
+    message, scissors = lines[:cut], lines[cut:]
+    keep = [x for x in message if x.startswith("#") or not _STRIP_LINE_RE.search(x)]
+    removed = len(message) - len(keep)
+    if not removed:
+        return 0
+    # the blank lines the trailers leave at the end of the message; the comment lines after it stay
+    last = max((i for i, x in enumerate(keep) if x.strip() and not x.startswith("#")), default=-1)
+    after = [x for x in keep[last + 1:] if x.strip()]
+    out = keep[:last + 1] + ([""] + after if after else []) + scissors
+    text = "\n".join(out)
+    if not scissors:
+        text += "\n"
+    try:
+        path.write_bytes(text.encode("utf-8"))
+    except OSError:
+        return 0
+    return removed
 
 
 def scan_message(path: Path, matcher: Matcher | None) -> list[Finding]:
@@ -1768,10 +1832,12 @@ def hook_script(fallback: str | None = None, *, kb: bool = False, installed: Pat
 
 def message_hook_script(fallback: str | None = None, *, installed: Path = INSTALLED_AWB) -> str:
     """The text of a commit-msg hook: the self-test of the gate first, then the gate over the commit message
-    (git gives its file as the first argument). Any failure refuses the commit."""
+    (git gives its file as the first argument). A co-author or generator line naming Claude is taken out of the
+    message with one line on stderr (--strip-attribution, Q-0010); any other finding refuses the commit."""
     base = _hook_lines(fallback, installed, "the commit message (its file is $1)", "commit")
     lines = base[:2] + ['msg="$1"'] + base[2:]
-    lines.append('"$@" gate --message "$msg" || refuse "the commit message carries a finding, see above"')
+    lines.append('"$@" gate --message "$msg" --strip-attribution || refuse "the commit message carries a finding, '
+                 'see above"')
     lines.append("exit 0")
     return "\n".join(lines) + "\n"
 
@@ -1897,6 +1963,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="with --pushed: the remote the push goes to (a new branch is new against it only)")
     ap.add_argument("--message", type=Path, default=None,
                     help="scan a commit message file (the commit-msg hook gives it)")
+    ap.add_argument("--strip-attribution", action="store_true",
+                    help="with --message: take a co-author or generator line naming Claude out of the message "
+                         "file first (the commit-msg hook of a project) instead of refusing it")
     ap.add_argument("--selftest", action="store_true", help="prove that every class can be found")
     ap.add_argument("--register", type=Path, default=None, help="register file (default: the vault register)")
     ap.add_argument("--no-register", action="store_true",
@@ -1959,6 +2028,10 @@ def main(argv: list[str] | None = None) -> int:
             findings.extend(_scan_pushed(args.repo if args.repo is not None else Path.cwd(), updates, matcher,
                                          args.remote or None))
         if args.message:
+            if args.strip_attribution:
+                stripped = strip_attribution(args.message)
+                if stripped:
+                    print(STRIPPED_LINE % stripped, file=sys.stderr)
             findings.extend(scan_message(args.message, matcher))
         if args.paths:
             findings.extend(_scan_paths(_expand(args.paths), matcher))
