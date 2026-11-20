@@ -352,17 +352,14 @@ def log(root: Path, run: str, lines: list[str]) -> None:
 
 
 def _log_place(logs: int, run: str) -> int:
-    """A descriptor that appends to the run log where it is now: its full log once it left git (Q-0021)."""
+    """A descriptor that appends to the run log where it is now: its full log once it left git (Q-0021,
+    lablog.open_live)."""
     from awb import lablog
 
-    full = lablog._subdir(logs)
-    if full is not None:
-        try:
-            if lablog._exists(full, run + ".log"):
-                return _file(full, run + ".log", os.O_WRONLY | os.O_APPEND)
-        finally:
-            os.close(full)
-    return _file(logs, run + ".log", os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+    try:
+        return lablog.open_live(logs, run + ".log")
+    except lablog.LabLogError:
+        raise LabClientError("refused: expected a regular file with one link") from None
 
 
 BOOT_SCRIPT_KEYS = frozenset({"userdata", "alphaccepreinstall", "alphaccepostinstall", "preinstall", "postinstall",

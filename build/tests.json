@@ -29329,8 +29329,50 @@
    "name": "Q-0006 pinned block: the client settings run compact at precompact and never the owner handover",
    "run": ".venv/bin/pytest tests/test_precompact_pinned.py::test_the_client_settings_run_compact_at_precompact_and_never_the_owner_handover",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-LP-001",
+   "phase": "T",
+   "name": "run log place: lab obs put and get work after the run log moved to full/ and write their lines there",
+   "run": ".venv/bin/pytest tests/test_bytg_run_log_place.py::test_bytg_obs_put_and_get_work_after_the_run_log_moved",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LP-002",
+   "phase": "T",
+   "name": "run log place: a late file at the old place is merged into the full log before an obs put",
+   "run": ".venv/bin/pytest tests/test_bytg_run_log_place.py::test_bytg_obs_put_merges_a_late_file_at_the_old_place",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LP-003",
+   "phase": "T",
+   "name": "run log place: the key service takes the run log or its full log and no other file",
+   "run": ".venv/bin/pytest tests/test_bytg_run_log_place.py::test_bytg_the_key_service_takes_the_log_or_its_full_log_and_no_other_file",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LP-004",
+   "phase": "T",
+   "name": "run log place: appends after a move go to the full log",
+   "run": ".venv/bin/pytest tests/test_bytg_run_log_place.py::test_bytg_appends_after_a_move_go_to_the_full_log",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LP-005",
+   "phase": "T",
+   "name": "run log place: a second move of the same log loses no line",
+   "run": ".venv/bin/pytest tests/test_bytg_run_log_place.py::test_bytg_a_second_move_of_the_same_log_loses_no_line",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-LP-006",
+   "phase": "T",
+   "name": "run log place: a move onto an existing full log appends to it",
+   "run": ".venv/bin/pytest tests/test_bytg_run_log_place.py::test_bytg_the_move_onto_an_existing_full_log_appends_to_it",
+   "status": "passing"
   }
  ],
- "total_tests": 4190,
+ "total_tests": 4196,
  "checked": "2026-11-20"
 }

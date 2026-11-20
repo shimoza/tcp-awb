@@ -443,15 +443,20 @@ def _file_fd(fds: list[int], action: str, uid: int, p, project: str) -> tuple[in
 
 
 def _log_fd(fds: list[int], p, project: str, run: str) -> int:
-    """The descriptor of the run log notes/lab-runs/<run>.log of the project, open for append."""
+    """The descriptor of the run log notes/lab-runs/<run>.log of the project, open for append: at that place or at
+    its full log notes/lab-runs/full/<run>.log once it left git (Q-0021, lablog.places)."""
+    from awb import lablog
+
     if len(fds) < 2:
         raise _refused("refused: a lab obs transfer passes the run log notes/lab-runs/%s.log too" % run)
     fd = fds[1]
     flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-    want = os.path.join(_project_folder(p, project), "notes", "lab-runs", "%s.log" % run)
+    folder = _project_folder(p, project)
+    want = {str(x) for x in lablog.places(os.path.join(folder, "notes", "lab-runs", "%s.log" % run))} if folder \
+        else set()
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or not flags & os.O_APPEND or \
-            flags & os.O_ACCMODE == os.O_RDONLY or _fd_path(fd) != want:
+            flags & os.O_ACCMODE == os.O_RDONLY or _fd_path(fd) not in want:
         raise _refused("refused: the second descriptor is not the run log notes/lab-runs/%s.log of %s, open for "
                        "append" % (run, project))
     return fd

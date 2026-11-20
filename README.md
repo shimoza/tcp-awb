@@ -242,7 +242,8 @@ id or name, a PUT or PATCH of a path a read before did not find). The call log i
 length, and the commit gate checks the log for secrets only. A log that grows over 2 MiB (a run log or a Windows
 lab log under `notes/winlab/`) moves to `full/` beside it (the writer adds it to the project's `.gitignore`) and
 git keeps `<run>.summary.md`: start, end, calls, errors, created resources, the path of the full log and its
-SHA-256 (`awb/lablog.py`, written again at the end of the run). The commit gate refuses any text file over 8 MiB at
+SHA-256 (`awb/lablog.py`, written again at the end of the run). After the move the full log is the run log: every
+append and `awb lab obs put` or `get` writes there. The commit gate refuses any text file over 8 MiB at
 once as `too-large` and names this rule. A run open for more than two hours or ended with failed deletes shows in
 `awb owner status` and the 08:00 mail. The module docs are in `awb/tcp/labadmin.py` and `awb/labclient.py`.
 

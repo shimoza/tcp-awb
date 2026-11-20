@@ -107,6 +107,43 @@ def _exists(parent: int, name: str) -> bool:
         return False
 
 
+def full_path(path: Path) -> Path:
+    """Where the log `path` lives once it left git: `<folder>/full/<name>`."""
+    path = Path(path)
+    return path.parent / FULL / path.name
+
+
+def places(path: Path) -> tuple[Path, Path]:
+    """Both places a lab log can live: the log itself and its full log. Every reader and writer of a log takes one of
+    these two and no other (the key service checks a run log descriptor against them, awb/tcp/labobs.py)."""
+    path = Path(os.path.abspath(path))
+    return path, full_path(path)
+
+
+def live_path(path: Path) -> Path:
+    """The place of the log `path` now: its full log once it moved there, else `path` itself. A file at the old
+    place beside a full log is a late write that the next append merges into the full log; the pair is one log."""
+    path = Path(os.path.abspath(path))
+    full = full_path(path)
+    return full if os.path.lexists(full) else path
+
+
+def open_live(parent: int, name: str) -> int:
+    """A descriptor open for append on the log `name` of the pinned folder `parent` where it lives now: its full log
+    once it moved (merging a late file at the old place into it first), else the log itself, made when missing.
+    Raises OSError (LabLogError for a link or a special file)."""
+    full = _subdir(parent)
+    if full is not None:
+        try:
+            if _exists(full, name):
+                if _exists(parent, name):
+                    _merge(parent, full, name)
+                return _open(full, name, os.O_WRONLY | os.O_APPEND)
+        finally:
+            os.close(full)
+    return _open(parent, name, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+
+
 def mask_home(text: str) -> str:
     """`text` with the home folder part of every path written as ~ (/home/<user>/x as ~/x, C:\\Users\\<user>\\x as
     ~\\x): what Windows console output and a lab call echo would otherwise carry into git, where the commit gate
@@ -204,9 +241,7 @@ def append(root: Path, path: Path, text: str) -> Path:
             if full is not None:
                 try:
                     if _exists(full, name):
-                        if _exists(parent, name):
-                            _merge(parent, full, name)
-                        fd = _open(full, name, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+                        fd = open_live(parent, name)
                         try:
                             _write_locked(fd, data)
                         finally:
