@@ -12,7 +12,7 @@ awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, 
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
 awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue, awb open, awb side, awb dev,
-awb handover, awb cost, awb solutions, awb ux.
+awb desk, awb version, awb handover, awb cost, awb solutions, awb ux.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -642,6 +642,14 @@ def _cmd_projects_note(args, p: config.Paths) -> int:
     except (OSError, UnicodeDecodeError) as err:
         print("awb projects note: cannot read the note (%s)" % type(err).__name__, file=sys.stderr)
         return EXIT_ERROR
+    if args.owner_word is not None:
+        from awb import ownerword
+
+        try:
+            text = ownerword.screened(p, text, args.owner_word)
+        except (ownerword.WordError, devask.AskError) as err:
+            print("awb projects note: %s" % err, file=sys.stderr)
+            return EXIT_ERROR
     try:
         if args.answers and args.after is not None:
             raise projects.ProjectError("--answers and --after do not go together")
@@ -847,6 +855,8 @@ def _build() -> argparse.ArgumentParser:
     s.add_argument("--title", help="one line; required without --after, otherwise defaults to development note")
     s.add_argument("--after", metavar="COMMIT", help="hold until a successful live release contains this full commit id")
     s.add_argument("--answers", metavar="FILE", help="close this project's development ask after delivering the note")
+    s.add_argument("--owner-word", metavar="TEXT", help="his words: the note ends with the line owner's word: "
+                                                        "\"TEXT\", TIME, which the project takes as his decision")
     s.set_defaults(func=_cmd_projects_note)
     return ap
 
@@ -855,6 +865,8 @@ def _build() -> argparse.ArgumentParser:
 # with cli.SafeParser. The module name is the first value, the help line the second.
 DELEGATED = {
     "dev": ("devask", "requests from a project to development: ask TEXT [--blocks] [--command TEXT] [--error TEXT], close --release COMMIT HANDLE..."),
+    "desk": ("deskask", "requests from a project to the desk: ask TEXT [--blocks], list, close HANDLE --note TEXT [--owner-word TEXT]"),
+    "version": ("version", "the live release from the deploy journal: live [COMMIT], with COMMIT whether that commit is live"),
     "open": ("opensweep", "owner decisions in this project: sweep, close with defaults"),
     "exit": ("exitpack", "local recovery packs of client memory, transcripts and excluded files (owner side)"),
     "check": ("check", "check files for names and structured data"),

@@ -28839,8 +28839,120 @@
    "name": "winlab offer: the awb help names winlab for Windows migration tests only",
    "run": ".venv/bin/pytest tests/test_winlab_offer.py::test_the_awb_help_names_winlab_for_windows_migration_tests_only",
    "status": "passing"
+  },
+  {
+   "id": "UXR9-1",
+   "phase": "T",
+   "name": "UXR9 desk ask: desk ask writes a checked file beside the dev asks",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_desk_ask_writes_a_checked_file_beside_the_dev_asks",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-2",
+   "phase": "T",
+   "name": "UXR9 desk ask: desk ask refuses a name or a secret and outside a project",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_desk_ask_refuses_a_name_or_a_secret_and_outside_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-3",
+   "phase": "T",
+   "name": "UXR9 desk ask: desk session sees a new ask once and project or checkout sessions do not",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_desk_session_sees_a_new_ask_once_and_project_or_checkout_sessions_do_not",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-4",
+   "phase": "T",
+   "name": "UXR9 desk ask: desk list and close deliver the note and close only that ask",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_desk_list_and_close_deliver_the_note_and_close_only_that_ask",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-5",
+   "phase": "T",
+   "name": "UXR9 desk ask: desk close with owner word stamps the note",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_desk_close_with_owner_word_stamps_the_note",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-6",
+   "phase": "T",
+   "name": "UXR9 desk ask: desk close refuses a name in his words and keeps the ask open",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_desk_close_refuses_a_name_in_his_words_and_keeps_the_ask_open",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-7",
+   "phase": "T",
+   "name": "UXR9 desk ask: projects note with owner word ends with the stamp",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_projects_note_with_owner_word_ends_with_the_stamp",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-8",
+   "phase": "T",
+   "name": "UXR9 desk ask: dev answer with owner word closes the dev ask with the stamp",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_dev_answer_with_owner_word_closes_the_dev_ask_with_the_stamp",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-9",
+   "phase": "T",
+   "name": "UXR9 desk ask: stamp shape",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_stamp_shape",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-10",
+   "phase": "T",
+   "name": "UXR9 desk ask: rules carry desk ask owner word and version",
+   "run": ".venv/bin/pytest tests/test_desk_ask.py::test_rules_carry_desk_ask_owner_word_and_version",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-11",
+   "phase": "T",
+   "name": "UXR9 version: live release from the journal",
+   "run": ".venv/bin/pytest tests/test_version.py::test_live_release_from_the_journal",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-12",
+   "phase": "T",
+   "name": "UXR9 version: commit live or not yet",
+   "run": ".venv/bin/pytest tests/test_version.py::test_commit_live_or_not_yet",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-13",
+   "phase": "T",
+   "name": "UXR9 version: running deploy names the previous release and trusts no commit",
+   "run": ".venv/bin/pytest tests/test_version.py::test_running_deploy_names_the_previous_release_and_trusts_no_commit",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-14",
+   "phase": "T",
+   "name": "UXR9 version: without journal the source link and without both unknown",
+   "run": ".venv/bin/pytest tests/test_version.py::test_without_journal_the_source_link_and_without_both_unknown",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-15",
+   "phase": "T",
+   "name": "UXR9 version: source link that differs from the journal is named",
+   "run": ".venv/bin/pytest tests/test_version.py::test_source_link_that_differs_from_the_journal_is_named",
+   "status": "passing"
+  },
+  {
+   "id": "UXR9-16",
+   "phase": "T",
+   "name": "UXR9 version: version without a subcommand is a usage error",
+   "run": ".venv/bin/pytest tests/test_version.py::test_version_without_a_subcommand_is_a_usage_error",
+   "status": "passing"
   }
  ],
- "total_tests": 4120,
+ "total_tests": 4136,
  "checked": "2026-11-20"
 }

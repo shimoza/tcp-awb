@@ -1005,7 +1005,7 @@ find tcp- folders that no project registered
 bring the template lines of CLAUDE.md and STATE.md of every active project up to the current rules, every other line kept
 - `[CODE...]`
 
-### `awb projects note CODE FILE|- [--title TITLE] [--after COMMIT] [--answers FILE]`
+### `awb projects note CODE FILE|- [--title TITLE] [--after COMMIT] [--answers FILE] [--owner-word TEXT]`
 
 a note from development into a project: notes/from-dev/<date>-<n>.md, shown once at the next prompt of its sessions (run it as the work user)
 - `CODE`
@@ -1013,6 +1013,7 @@ a note from development into a project: notes/from-dev/<date>-<n>.md, shown once
 - `--title TITLE`: one line; required without --after, otherwise defaults to development note
 - `--after COMMIT`: hold until a successful live release contains this full commit id
 - `--answers FILE`: close this project's development ask after delivering the note
+- `--owner-word TEXT`: his words: the note ends with the line owner's word: "TEXT", TIME, which the project takes as his decision
 
 ### `awb dev ask TEXT [--blocks] [--command COMMAND] [--error ERROR]`
 
@@ -1027,6 +1028,28 @@ write a checked request from the current project
 close the open asks a released commit names (the deploy runs it as the work user)
 - `HANDLE...`: an ask file name without .md
 - `--release COMMIT`: the full commit id of the live release
+
+### `awb desk ask TEXT [--blocks]`
+
+write a checked request for desk work from the current project
+- `TEXT`
+- `--blocks`: mark the request as blocking the project task
+
+### `awb desk list`
+
+the open desk asks: handle, project, blocks, title
+
+### `awb desk close HANDLE --note TEXT [--owner-word TEXT]`
+
+answer a desk ask with a note into its project and close it (run it as the work user)
+- `HANDLE`: the ask file name without .md
+- `--note TEXT`: the answer, - for standard input
+- `--owner-word TEXT`: his words: the note carries the owner's word stamp
+
+### `awb version live [COMMIT]`
+
+the live release; with COMMIT whether that commit is part of it
+- `[COMMIT]`: a commit id, 7 to 40 lowercase hex characters
 
 ### `awb open sweep`
 

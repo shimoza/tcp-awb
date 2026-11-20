@@ -18,6 +18,8 @@ The instructions for a Claude Code session that works on this repository.
   commit-msg hook refuses a message that names an assistant as co-author.
 - A commit that adds or changes a command or a behaviour adds a line to this week's entry in `CHANGELOG.md` and
   fixes the README where it describes that part.
+- A note or answer that ends with `owner's word: "...", TIME` (written with `--owner-word`) is the owner's
+  decision: act on it and never ask him again. Whether a commit is live: `awb version live COMMIT`, never ask him.
 - English. No em-dash. No comma before "and" or "or". Plain words.
 
 ## The build queue

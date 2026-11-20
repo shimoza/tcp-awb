@@ -98,10 +98,11 @@ def _child_directory(parent: int, name: str, *, create: bool = False, private: b
 
 
 @contextmanager
-def _notices_directory(p: config.Paths, *, create: bool = False):
+def _notices_directory(p: config.Paths, *, create: bool = False, sub: str = "dev"):
+    """`sub` is the folder of the asks under <shared>/notices: dev here, desk for awb.deskask (UXR9)."""
     with _directory(p.shared) as shared:
         with _child_directory(shared, "notices", create=create) as notices_fd:
-            with _child_directory(notices_fd, "dev", create=create) as fd:
+            with _child_directory(notices_fd, sub, create=create) as fd:
                 yield fd
 
 
@@ -249,13 +250,14 @@ def answer(p: config.Paths, code: str, file: str, title: str, text: str) -> Path
 
 
 def _close(p: config.Paths, path: Path, title, text, *, code: str | None = None,
-           extra: dict | None = None) -> tuple[Path, dict]:
+           extra: dict | None = None, sub: str = "dev") -> tuple[Path, dict]:
     """Write the note into the asking project, then mark the ask closed with the note (and `extra`). `title` and
-    `text` may be functions of the ask's header. Returns the note and the header."""
+    `text` may be functions of the ask's header. Returns the note and the header. `sub` dev or desk (UXR9): only a
+    dev ask has a line in the events file."""
     from awb import devnote
 
     try:
-        with _notices_directory(p) as directory:
+        with _notices_directory(p, sub=sub) as directory:
             # Lock the directory, not the request inode which closing replaces.
             fcntl.flock(directory, fcntl.LOCK_EX)
             content = _bytes(Path(path.name), dir_fd=directory)
@@ -274,7 +276,8 @@ def _close(p: config.Paths, path: Path, title, text, *, code: str | None = None,
                 os.replace(temp, path.name, src_dir_fd=directory, dst_dir_fd=directory)
     except (OSError, UnicodeError, ValueError):
         raise AskError("the development answer cannot be stored") from None
-    events.end("ask", path.name[:-3], "ok", project=data["project"], board=p.shared / "build")
+    if sub == "dev":
+        events.end("ask", path.name[:-3], "ok", project=data["project"], board=p.shared / "build")
     return note, data
 
 

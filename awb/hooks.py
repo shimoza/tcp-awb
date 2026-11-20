@@ -619,7 +619,7 @@ def _rules_notice(data: dict, extra: str | None = None) -> None:
             _emit(EVENTS["prompt"], extra)
         return
     said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data), _dev_requests(data),
-                               _handover_notice(data)) if t)
+                               _desk_requests(data), _handover_notice(data)) if t)
     if said:
         _emit(EVENTS["prompt"], said)
 
@@ -629,6 +629,15 @@ def _dev_requests(data: dict) -> str:
 
     try:
         return "\n".join(devask.notices(config.paths(), _session_folder(data), data.get("session_id")))
+    except (OSError, ValueError, devask.AskError):
+        return ""
+
+
+def _desk_requests(data: dict) -> str:
+    from awb import deskask, devask
+
+    try:
+        return "\n".join(deskask.notices(config.paths(), _session_folder(data), data.get("session_id")))
     except (OSError, ValueError, devask.AskError):
         return ""
 
@@ -2061,7 +2070,8 @@ def _owner_hook(name: str) -> int:
             raw = sys.stdin.read() if sys.stdin is not None else ""
             data = json.loads(raw) if raw.strip() else {}
             _ux_event("prompt", data)
-            said = "\n".join(t for t in (_dev_requests(data), _handover_notice(data)) if t) \
+            said = "\n".join(t for t in (_dev_requests(data), _desk_requests(data), _handover_notice(data))
+                                if t) \
                 if isinstance(data, dict) else ""
             if said:
                 _emit(EVENTS["prompt"], said)

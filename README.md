@@ -1673,6 +1673,34 @@ A deploy that ends well runs `awb dev close --release COMMIT HANDLE...` as the w
 the note "live in release X" and the ask gets `"state": "closed"` with the `release`. An ask that is closed already
 is passed over. A failed close is one line of the deploy's output and never fails the deploy.
 
+### The owner's word and the live release
+
+A note written on his word carries his words: `awb projects note ... --owner-word "TEXT"` (and the same option of
+`awb desk close`) ends the note with the line `owner's word: "TEXT", 2026-11-20T09:30Z` (UTC, to the minute). His
+words pass the name and secret checks first. The project rules and the development rules take a note with this line
+as his decision: the session acts on it and does not ask him again.
+
+`awb version live` prints the live release from the deploy journal `/opt/tcp-awb/DEPLOYED` (or, without a journal,
+from the installed source link `/opt/tcp-awb/src`). `awb version live COMMIT` says whether that commit (7 to 40 hex
+characters) is part of it: exit 0 live, 1 not live yet or unknown. A deploy that is running or left a unit pending
+counts nothing as live. A session checks this itself instead of asking him whether a fix is out.
+
+## Requests to the desk
+
+From a project session, run `awb desk ask "TEXT" [--blocks]` for desk work: DNS records, Cloudflare, EIPs between
+projects, tenant steps. It writes `<shared>/notices/desk/<YYYY-MM-DD>-<code>-<n>.md` with the header of a dev ask,
+after the same name and secret checks. A desk session (an owner session outside a project and outside a checkout of
+this repository) sees `desk request from tcp-xxxx: TITLE (notices/desk/FILE, awb desk close HANDLE --note TEXT)`
+once per ask per session at its next prompt, while the ask is new. `awb desk list` lists the open asks with their
+handles. The desk answers as the work user on a sealed host:
+
+```sh
+awb desk close HANDLE --note "both records are in" [--owner-word "TEXT"]
+```
+
+The note goes into the asking project (`notes/from-dev/`, title `desk answer: TITLE`; `--note -` reads standard
+input) and its next session prompt shows it; only then the ask is marked closed.
+
 ## Counted frictions
 
 The hooks count frictions into `<shared>/ux/events.tsv` (see "Customer data"); `awb ux` adds and reads them, for
