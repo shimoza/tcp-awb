@@ -1223,6 +1223,8 @@ awb winlab log JOB                                # the new part of its log
 awb winlab stop JOB
 awb winlab put winlab-out/setup-lab.ps1 C:\lab\setup-lab.ps1
 awb winlab get C:\lab\export.csv results/export.csv
+awb winlab get C:\lab\disk.vhdx results/disk.vhdx           # own lab output: no name check
+awb winlab get C:\lab\disk.vhdx results/disk.vhdx --check   # the name check too, over its unique text
 awb winlab get C:\lab\disk.vhdx results/disk.vhdx --recheck   # the checks again over a kept part, no transfer
 ```
 
@@ -1247,8 +1249,16 @@ belongs in a folder git ignores.
 A received file is checked in place: a name or a secret deletes it. When the name check cannot run (the vault is
 locked, the rate limit wait ran out) the get keeps the file unpublished as `FILE.awb-part` with its SHA-256 and how
 far the checks got; the same get with `--recheck` checks it again from there, without a transfer and without an open
-window, and a part changed since the get is deleted. A disk image over 2 GB is too large for the whole name check,
-which reads the file into memory: it gets the name check per piece of its bytes, which resumes the same way.
+window, and a part changed since the get is deleted.
+A disk image that get brings from a lab machine is our own lab output and gets no name check: after the transfer and
+the SHA-256 compare it gets the secret check (none in a public image window) and is published, and the run log and
+the project ledger get one line with the file, size, SHA-256 and "own lab output, no name check". The rule is to check
+once at entry: a customer image enters only through `awb intake`. Every other file from a lab machine (logs, text,
+archives) keeps its checks. `--check` runs the name check on a disk image too, and `--recheck` on a kept image runs
+it. An image over 2 GB is too large for the whole name check, which reads the file into memory: it gets the name
+check over the unique text runs of its bytes (ASCII and UTF-8, UTF-16 in both byte orders; zero blocks and repeats
+dropped) in requests of 400,000 characters paced under the byte budget of the vault daemon, with a progress line
+every minute and a resume mark at least every 512 MB.
 
 Part 4 is the lab broker (`awb winlab serve`, `awb/tcp/winbroker.py`), the same pattern as the key service: a
 project session never holds a key. Root runs it under its unit (the seal part of the steering session: the system

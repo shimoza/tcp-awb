@@ -92,6 +92,28 @@ CHECK_READ_MAX = 2 * 1024 ** 3
 (2026-11-19) ended in Unavailable. A larger image gets the name check per piece of its bytes, which resumes."""
 PIECE = 4 * 1024 * 1024
 OVERLAP = 512
+RUNS_MIN = 256 * 1024 ** 2
+"""A disk image over this size that the whole check does not read gets the name check over the unique text runs of
+its bytes (_TextRuns) instead of over every piece: a piece cost the byte budget of the vault daemon (16 MB a minute
+per uid), and 444 MB of a 21.9 GB image of tcp-bytg took 70 minutes (2026-11-20)."""
+RUN_MIN = 3
+"""Characters a text run needs besides its spaces to be checked: a registered form has three or more."""
+RUN_OVERLAP = 4096
+"""Bytes of the piece before that are read again with the next one, so a run across the cut is seen whole."""
+RUN_BATCH = 400_000
+"""Characters of unique runs per name check call: one request of the check socket (under vault_client.CHECK_CHUNK
+with room for the decoded views of base64 blocks, under MAX_REQUEST with every character escaped)."""
+RUN_MARK = 512 * 1024 ** 2
+"""Bytes of the image between two resume marks at most: the runs read so far are checked and `checked` is written."""
+RUN_SEEN_MAX = 4_000_000
+"""Distinct runs kept to drop repeats; the set starts again when it is full (a run is then checked once more)."""
+RUN_SEEN_CHARS = 256 * 1024 ** 2
+RUN_PACE_BYTES = 14 * 1024 ** 2
+RUN_PACE_WINDOW = 60.0
+"""Request bytes the run check sends per window: under the daemon's RATE_BYTES (16 MB a minute per uid), so the hooks
+of the same user keep 2 MB a minute and no request comes back as "rate"."""
+PROGRESS_EVERY = 60.0
+"""Seconds between two progress lines of the run check on stderr."""
 DISK_IMAGES = {".vhdx": "vhdx", ".vhd": "vhd", ".vmdk": "vmdk", ".qcow2": "qcow2", ".iso": "iso", ".img": "img"}
 """The suffix of a disk image and its kind."""
 SECTOR = 512
@@ -1090,12 +1112,12 @@ def _piece_text(data: bytes) -> str:
     return re.sub(r"[\x00-\x08\x0b-\x1f\x7f\ufffd]+", "\n", text)
 
 
-def disk_image(path: Path, size: int) -> str | None:
+def disk_image(path: Path, size: int, suffix: str | None = None) -> str | None:
     """The kind of disk image the file at `path` is (None for any other file). Its name ends in the suffix of the
     kind (any case) and its first bytes carry the format's own signature: vhdx "vhdxfile", vhd "conectix" at offset 0
     or in the footer of the last 512 bytes, vmdk "KDMV" or the text descriptor, qcow2 "QFI\\xfb", iso "CD001" at
     offset 0x8001. A raw .img has no signature: it is one by its name when its size is a whole number of sectors."""
-    kind = DISK_IMAGES.get(path.suffix.lower())
+    kind = DISK_IMAGES.get((path.suffix if suffix is None else suffix).lower())
     if kind is None:
         return None
     if kind == "img":
@@ -1481,9 +1503,10 @@ def target(root: Path, file: str) -> Path:
 
 
 @_serial
-def get(winpath: str, file: str, machine: str | None = None, root: Path | None = None) -> dict:
+def get(winpath: str, file: str, machine: str | None = None, root: Path | None = None, check: bool = False) -> dict:
     """`winpath` of the machine of the project's window into the project as `file`. Returns {"machine", "size",
-    "sha256", "resumed", "file", "log"}. Raises WinlabError, Offline (broken: run it again)."""
+    "sha256", "resumed", "file", "log"}. Raises WinlabError, Offline (broken: run it again). A disk image is our own
+    lab output and gets no name check after the SHA-256 compare (OWN_IMAGE); `check` runs it."""
     root = root or _root()
     try:
         machine = _pick(root, machine)
@@ -1494,19 +1517,19 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
         _refused(root, machine or NO_WINDOW, "get from %s" % (machine or "a lab machine"), err)
         raise
     try:
-        return _get(root, found["name"], found, winpath, dst)
+        return _get(root, found["name"], found, winpath, dst, check)
     except WinlabError as err:
         log(root, machine, "get from %s" % machine, ["from %s" % winpath, "failed: %s" % err])
         raise
 
 
-def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path) -> dict:
+def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path, check: bool = False) -> dict:
     # Keep the destination directory pinned through transfer, checks and publication.
     with winlab._parent(dst, create=True) as folder:
-        return _get_at(root, name, machine, winpath, dst, folder)
+        return _get_at(root, name, machine, winpath, dst, folder, check)
 
 
-def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folder: int) -> dict:
+def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folder: int, check: bool = False) -> dict:
     from awb import hooks
 
     rel = dst.relative_to(os.path.realpath(root)).as_posix()
@@ -1544,14 +1567,41 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
     expected = str(final.get("sha256", "")).lower() if final and final.get("size") == size else None
     public_window = machine.get("public_image") is True or (machine.get("window") or {}).get("public_image") is True
     rec = dict(record if same else {}, winpath=winpath, file=rel, size=size, mtime=st.get("mtime"), machine=name)
-    sha, public = _check_and_publish(rpath, rec, folder, part, dst, size, expected, public_window,
-                                      "the SHA-256 of the copy does not match %s on %s" % (winpath, name))
+    mismatch = "the SHA-256 of the copy does not match %s on %s" % (winpath, name)
+    own = not check and _own_image(folder, part, dst, size)
+    sha, public = _check_and_publish(rpath, rec, folder, part, dst, size, expected, public_window, mismatch,
+                                      names=not own)
     _unlink(rpath)
     path = log(root, name, title, ["from %s" % winpath, "%s, sha256 %s, %s" % (
         _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")]
-               + (["secret check skipped: a public image window of the owner"] if public else []))
+               + (["secret check skipped: a public image window of the owner"] if public else [])
+               + ([OWN_IMAGE] if own else []))
+    if own:
+        _ledger_own(root, rel, size, sha)
     return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "file": rel,
             "log": path.relative_to(root)}
+
+
+OWN_IMAGE = "disk image from the lab machine: own lab output, no name check (owner decision 2026-11-20)"
+"""The log and ledger line of a disk image a get published without the name check (the secret check stays unless
+the window is a public image window). The rule is to check once at entry: customer images enter through awb intake,
+and an image the lab built is our own output. `awb winlab get --check` runs the name check too."""
+
+
+def _own_image(folder: int, part: str, dst: Path, size: int) -> bool:
+    """True when the received part is a disk image (disk_image: the suffix of `dst` and the signature of its
+    format)."""
+    return disk_image(Path("/proc/self/fd/%d" % folder) / part, size, dst.suffix) is not None
+
+
+def _ledger_own(root: Path, rel: str, size: int, sha: str) -> None:
+    """One ledger line of the project; a ledger that cannot be written leaves the get as it is (the log has it)."""
+    try:
+        from awb import ledger
+
+        ledger.add("other", "%s, %s, sha256 %s: %s" % (rel, _size(size), sha, OWN_IMAGE), project=_code(root))
+    except Exception as exc:
+        print("awb winlab: the ledger line was not written (%s)" % type(exc).__name__, file=sys.stderr)
 
 
 def _piece_names(text: str) -> int:
@@ -1561,8 +1611,124 @@ def _piece_names(text: str) -> int:
     return len([h for h in hooks.name_hits(text) if h.get("cls") in NAME_CLASSES])
 
 
+# The name check of a large disk image. A name in an image is text: UTF-8 (ASCII included) or UTF-16 (Windows keeps
+# its strings in UTF-16LE). _text_runs cuts every run of text characters out of the bytes, in C speed, with tab, line
+# end and space inside a run so a name over two words or two lines stays whole. Zero blocks and binary noise give no
+# run of RUN_MIN; the same string in thousands of system files is checked once (_TextRuns keeps a set), and the
+# unique runs go to the name check in calls of RUN_BATCH characters, paced under the daemon's byte budget.
+_RUN_UTF8 = bytes(b if b in (9, 10, 13) or 32 <= b != 127 else 0 for b in range(256))
+"""Every control byte but tab and line end becomes NUL; bytes of 0x80 and up stay for the UTF-8 decode."""
+_RUN_HI0 = bytes(255 if b == 0 else 0 for b in range(256))
+_RUN_HI1 = bytes(255 if b == 1 else 0 for b in range(256))
+_RUN_LO = bytes(255 if b in (9, 10, 13) or 32 <= b < 127 or b >= 0xA0 else 0 for b in range(256))
+"""A UTF-16 character of text: U+0009, U+000A, U+000D, U+0020 to U+007E, U+00A0 to U+00FF and U+0100 to U+01FF."""
+
+
+def _mask(op, a: bytes, b: bytes) -> bytes:
+    n = len(a)
+    return op(int.from_bytes(a, "little"), int.from_bytes(b, "little")).to_bytes(n, "little")
+
+
+def _collapse(text, nul):
+    for k in (256, 16, 4, 2, 2, 2):
+        text = text.replace(nul * k, nul)
+    return text
+
+
+def _text_runs(data: bytes) -> list[str]:
+    """Every run of text in `data`: UTF-8 (every valid sequence, an invalid byte cuts) and UTF-16 little and big
+    endian at both alignments. A run may be empty or short; the caller drops those."""
+    text = _collapse(data.translate(_RUN_UTF8), b"\0").decode("utf-8", "replace")
+    out = text.replace("�", "\0").split("\0")
+    for a in (0, 1):
+        x, y = data[a::2], data[a + 1::2]
+        x = x[:len(y)]
+        for lo, hi in ((x, y), (y, x)):
+            keep = _mask(int.__or__, _mask(int.__and__, hi.translate(_RUN_HI0), lo.translate(_RUN_LO)),
+                         hi.translate(_RUN_HI1))
+            if b"\xff\xff\xff" not in keep:
+                continue
+            buf = bytearray(2 * len(keep))
+            buf[0::2] = _mask(int.__and__, lo, keep)
+            buf[1::2] = _mask(int.__and__, hi, keep)
+            out.extend(_collapse(buf.decode("utf-16-le"), "\0").split("\0"))
+    return out
+
+
+class _TextRuns:
+    """The unique text runs of a disk image and their name check. `feed` takes the bytes of a piece (with the last
+    RUN_OVERLAP bytes of the one before), `flush` sends what waits in calls of RUN_BATCH characters, `progress` is
+    the line for stderr. Raises WinlabError on a registered name, hooks.Unavailable when the check cannot run."""
+
+    def __init__(self, size: int):
+        self.size = size
+        self.seen: set[str] = set()
+        self.seen_chars = 0
+        self.waiting: list[str] = []
+        self.chars = 0
+        self.requests = 0
+        self.sent = 0
+        self.unique = 0
+        self.window: list[tuple[float, int]] = []
+
+    def feed(self, data: bytes) -> None:
+        if not data or data.count(0) == len(data):
+            return
+        new = set(_text_runs(data))
+        new.difference_update(self.seen)
+        if len(self.seen) + len(new) > RUN_SEEN_MAX or self.seen_chars > RUN_SEEN_CHARS:
+            self.seen.clear()
+            self.seen_chars = 0
+        self.seen.update(new)
+        for run in new:
+            self.seen_chars += len(run)
+            if len(run.strip()) >= RUN_MIN:
+                self.waiting.append(run)
+                self.chars += len(run) + 1
+                self.unique += len(run) + 1
+
+    def full(self) -> bool:
+        return self.chars >= RUN_BATCH
+
+    def flush(self) -> None:
+        batch, size = [], 0
+        for run in self.waiting:
+            if batch and size + len(run) + 1 > RUN_BATCH:
+                self._send(batch)
+                batch, size = [], 0
+            batch.append(run)
+            size += len(run) + 1
+        if batch:
+            self._send(batch)
+        self.waiting, self.chars = [], 0
+
+    def _send(self, batch: list[str]) -> None:
+        text = "\n".join(batch)
+        cost = len(json.dumps(text)) + 32
+        self._pace(cost)
+        self.requests += 1
+        self.sent += cost
+        if _piece_names(text):
+            raise WinlabError("the file carries registered name(s): the copy was deleted")
+
+    def _pace(self, cost: int) -> None:
+        """Wait until `cost` more request bytes fit into RUN_PACE_BYTES of the last RUN_PACE_WINDOW seconds."""
+        now = time.monotonic()
+        self.window = [(t, n) for t, n in self.window if t > now - RUN_PACE_WINDOW]
+        while self.window and sum(n for _, n in self.window) + cost > RUN_PACE_BYTES:
+            t, _ = self.window.pop(0)
+            wait = t + RUN_PACE_WINDOW - time.monotonic()
+            if wait > 0:
+                _pause(wait)
+        self.window.append((time.monotonic(), cost))
+
+    def progress(self, at: int) -> str:
+        return ("name check of the disk image: read %s of %s, %d check request(s), %s of unique text, no name so far"
+                % (_size(at), _size(self.size), self.requests, _size(self.unique)))
+
+
 def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path, size: int, expected: str | None,
-                       public_window: bool, mismatch: str) -> tuple[str, bool]:
+                       public_window: bool, mismatch: str, names: bool = True) -> tuple[str, bool]:
     """Check the received part in place and publish it as `dst`. Returns (sha256, whether the secret check was
     skipped for a public image). A name or a secret hit and a SHA-256 other than `expected` delete the part and the
     record `rpath`. When the name check cannot run (hooks.Unavailable) the part stays under its private part name
@@ -1600,6 +1766,16 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
             public = packed and public_window
             whole = size <= CHECK_WHOLE_MAX or compressed or (image and size <= CHECK_READ_MAX)
             piece_names = not packed or not whole
+            # a disk image of the lab is own output (OWN_IMAGE): without `names` it gets the secret check alone
+            own = image and not names
+            if own:
+                piece_names, whole = False, False
+            # A large disk image gets the name check over the unique text runs of its bytes: a few thousand calls
+            # for 22 GB instead of some hundred per piece. `checked` then moves only when every run read before it
+            # was checked (a mark at least every RUN_MARK bytes), RUN_OVERLAP before the end of what was read.
+            runs = _TextRuns(size) if image and not own and not whole and size > RUNS_MIN else None
+            if runs is not None:
+                piece_names = False
             if whole and not start:
                 names = [h for h in hooks.file_hits(snapshot) if h.get("cls") in NAME_CLASSES]
                 if names:
@@ -1607,18 +1783,37 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
             with open(snapshot, "rb") as fh:
                 at = max(0, start - OVERLAP)
                 fh.seek(at)
-                tail = ""
+                tail, before, marked, shown = "", b"", at, time.monotonic()
+                if runs is not None and start:
+                    print("name check of the disk image: resumed at %s of %s" % (_size(start), _size(size)),
+                          file=sys.stderr, flush=True)
                 while data := fh.read(PIECE):
                     text = tail + _piece_text(data)
                     if piece_names and _piece_names(text):
                         raise WinlabError("the file carries registered name(s): the copy was deleted")
+                    if runs is not None:
+                        runs.feed(before + data)
+                        before = data[-RUN_OVERLAP:]
                     if not public and (_image_secret_count(text) if packed else _secret_count(text)):
                         raise WinlabError("the file carries secret(s): the copy was deleted")
                     tail = text[-OVERLAP:]
                     at += len(data)
-                    if size > CHECK_WHOLE_MAX:
-                        rec["checked"] = at
+                    if runs is None:
+                        if size > CHECK_WHOLE_MAX:
+                            rec["checked"] = at
+                            _write_json(rpath, rec)
+                        continue
+                    if runs.full() or at - marked >= RUN_MARK:
+                        runs.flush()
+                        marked = at
+                        rec["checked"] = max(start, at - RUN_OVERLAP) if at < size else size
                         _write_json(rpath, rec)
+                    if time.monotonic() - shown >= PROGRESS_EVERY:
+                        print(runs.progress(at), file=sys.stderr, flush=True)
+                        shown = time.monotonic()
+                if runs is not None:
+                    runs.flush()
+                    print(runs.progress(at), file=sys.stderr, flush=True)
         except hooks.Unavailable as exc:
             # back stays True: the part keeps its private name, the record its SHA-256 and the progress
             raise WinlabError("the name check did not run (%s): the received file is kept unpublished as %s "
@@ -1780,7 +1975,7 @@ def main(args: argparse.Namespace, tail: list[str] | None) -> int:
                 _size(result["size"]), args.winpath, result["machine"], result["sha256"][:12], result["file"]))
             return EXIT_OK
         if command == "get":
-            result = get(args.winpath, args.file, machine=args.machine)
+            result = get(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
             print("awb winlab: got %s into %s from %s, sha256 matches%s" % (
                 _size(result["size"]), result["file"], result["machine"],
                 ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))

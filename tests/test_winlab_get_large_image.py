@@ -53,7 +53,7 @@ def test_lg_a_disk_image_over_the_read_limit_skips_the_whole_check_and_is_publis
 
     monkeypatch.setattr(hooks, "file_hits", whole)
     calls = _pieces_fail_after(monkeypatch, 10 ** 6)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx"]) == 0, capsys.readouterr().err
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx", "--check"]) == 0, capsys.readouterr().err
     assert (lab.root / "results" / "disk.vhdx").read_bytes() == IMAGE
     assert len(calls) == -(-len(IMAGE) // 512)
     assert not (lab.root / "results" / "disk.vhdx.awb-part").exists() and _records(lab.root) == []
@@ -63,7 +63,7 @@ def test_lg_an_unavailable_name_check_keeps_the_part_and_recheck_resumes_without
                                                                                             capsys):
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(IMAGE)
     _pieces_fail_after(monkeypatch, 3)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "results/disk.vhdx", "--check"]) == 1
     err = capsys.readouterr().err
     assert "kept unpublished as results/disk.vhdx.awb-part" in err and "--recheck" in err
     part = lab.root / "results" / "disk.vhdx.awb-part"
@@ -99,7 +99,7 @@ def test_lg_a_small_image_whose_whole_check_cannot_run_is_kept_not_deleted(lab, 
         raise hooks.Unavailable("vault locked")
 
     monkeypatch.setattr(hooks, "file_hits", whole)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--check"]) == 1
     assert "kept unpublished as disk.vhdx.awb-part" in capsys.readouterr().err
     assert (lab.root / "disk.vhdx.awb-part").read_bytes() == IMAGE
     monkeypatch.setattr(hooks, "file_hits", _real_file_hits)
@@ -113,11 +113,11 @@ _real_file_hits = hooks.file_hits
 def test_lg_the_same_get_again_resumes_the_checks_without_a_transfer(lab, small, monkeypatch, capsys):
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(IMAGE)
     _pieces_fail_after(monkeypatch, 2)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--check"]) == 1
     capsys.readouterr()
     gets = [c for c in lab.chunks if c[0] == "get"]
     monkeypatch.setattr(hooks, "name_hits", _real_name_hits)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx"]) == 0, capsys.readouterr().err
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--check"]) == 0, capsys.readouterr().err
     assert [c for c in lab.chunks if c[0] == "get"] == gets
     assert (lab.root / "disk.vhdx").read_bytes() == IMAGE
 
@@ -126,7 +126,7 @@ def test_lg_a_registered_name_in_a_kept_part_still_deletes_it_on_recheck(lab, sm
     data = IMAGE + ("owner %s\n" % fixtures.CUSTOMER_FORMS[0]).encode() + IMAGE[8:]
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
     _pieces_fail_after(monkeypatch, 1)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--check"]) == 1
     capsys.readouterr()
     assert (lab.root / "disk.vhdx.awb-part").exists()
     monkeypatch.setattr(hooks, "name_hits", _real_name_hits)
@@ -141,7 +141,7 @@ def test_lg_a_registered_name_in_a_kept_part_still_deletes_it_on_recheck(lab, sm
 def test_lg_a_kept_part_changed_since_the_get_is_deleted_on_recheck(lab, small, monkeypatch, capsys):
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(IMAGE)
     _pieces_fail_after(monkeypatch, 1)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--check"]) == 1
     capsys.readouterr()
     part = lab.root / "disk.vhdx.awb-part"
     part.write_bytes(b"x" + IMAGE[1:])
@@ -160,7 +160,7 @@ def test_lg_recheck_without_a_kept_part_is_refused(lab, capsys):
 def test_lg_recheck_needs_no_open_window(lab, small, monkeypatch, capsys):
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(IMAGE)
     _pieces_fail_after(monkeypatch, 1)
-    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx"]) == 1
+    assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", "--check"]) == 1
     capsys.readouterr()
     winlab.close(MACHINE)
     monkeypatch.setattr(hooks, "name_hits", _real_name_hits)

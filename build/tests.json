@@ -28510,8 +28510,71 @@
    "name": "Q-0007 close the loops: the close step runs as the work user only after a deploy that ended well",
    "run": ".venv/bin/pytest tests/test_close_the_loops.py::test_close_asks_runs_as_the_work_user_only_after_a_deploy_that_ended_well",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-001",
+   "phase": "T",
+   "name": "bytg winlab image check: text runs find ascii utf8 and utf16 at both alignments",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_text_runs_find_ascii_utf8_and_utf16_at_both_alignments",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-002",
+   "phase": "T",
+   "name": "bytg winlab image check: a clean image is published with few requests and each repeat checked once",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_clean_image_is_published_with_few_requests_and_each_repeat_checked_once",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-003",
+   "phase": "T",
+   "name": "bytg winlab image check: a registered name in any encoding still deletes the image",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_registered_name_in_any_encoding_still_deletes_the_image",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-004",
+   "phase": "T",
+   "name": "bytg winlab image check: a name across two pieces is found",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_name_across_two_pieces_is_found",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-005",
+   "phase": "T",
+   "name": "bytg winlab image check: an interrupted check resumes at its mark and does not redo finished parts",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_an_interrupted_check_resumes_at_its_mark_and_does_not_redo_finished_parts",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-006",
+   "phase": "T",
+   "name": "bytg winlab image check: requests are paced under the byte budget",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_requests_are_paced_under_the_byte_budget",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-007",
+   "phase": "T",
+   "name": "bytg winlab image check: a small image keeps the check per piece",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_small_image_keeps_the_check_per_piece",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-008",
+   "phase": "T",
+   "name": "bytg winlab image check: a disk image without check is published after the sha256 as own lab output",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_disk_image_without_check_is_published_after_the_sha256_as_own_lab_output",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-RF-009",
+   "phase": "T",
+   "name": "bytg winlab image check: a plain file from the lab keeps its name check",
+   "run": ".venv/bin/pytest tests/test_winlab_recheck_fast.py::test_fast_a_plain_file_from_the_lab_keeps_its_name_check",
+   "status": "passing"
   }
  ],
- "total_tests": 4073,
+ "total_tests": 4082,
  "checked": "2026-11-20"
 }

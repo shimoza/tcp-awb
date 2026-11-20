@@ -830,6 +830,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--machine", help="the machine, when the project holds windows on two")
     s.add_argument("--recheck", action="store_true",
                    help="check the part a get kept when the name check could not run again, without a transfer")
+    s.add_argument("--check", action="store_true",
+                   help="also run the name check on a disk image (own lab output gets the secret check only by default)")
     s = sub.add_parser("serve", help="run the lab broker, the one way to the lab machines (root, under its unit)")
     s.add_argument("--socket", help="its Unix socket (default /run/awb-winlab/broker.sock)")
     s.add_argument("--key", help="the host's private key for the lab machines (default /etc/awb/winlab/id_ed25519)")
