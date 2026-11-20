@@ -27,7 +27,9 @@ and a password or a login never comes. A shortened token of an earlier answer of
 `X-Auth-Token` (and a shortened temporary access key as `credential=`): the service puts the whole value in.
 `{project_id}` and `{domain_id}` in a path are filled in by the service. Every call is appended to
 notes/lab-runs/<run>.log of the project, request and answer, shortened the same way (awb/labsecrets.py); a boot
-script (user_data) is written there only as a placeholder with its length (BOOT_SCRIPT_KEYS).
+script (user_data) is written there only as a placeholder with its length (BOOT_SCRIPT_KEYS). A log over 2 MiB
+moves to notes/lab-runs/full/ (the project's .gitignore keeps it out of git) and git keeps
+notes/lab-runs/<run>.summary.md with its counts and its SHA-256 (awb/lablog.py, Q-0021).
 
 A large file goes to or from OBS as a job of the key service (task LO, awb/tcp/labobs.py), not through `call`:
 
@@ -333,15 +335,28 @@ def _stamp() -> str:
 
 @_boundary
 def log(root: Path, run: str, lines: list[str]) -> None:
-    """Append one screened block through a pinned directory and a checked descriptor."""
+    """Append one screened block through a pinned directory and a checked descriptor. A log over lablog.LIMIT
+    moves to notes/lab-runs/full/ (git-ignored) and git keeps notes/lab-runs/<run>.summary.md (Q-0021)."""
+    from awb import lablog
+
     _identifier(run, "run")
     text = _safe_text("\n".join(lines) + "\n")
     text = (text if text.endswith("\n") else text + "\n") + "\n"
-    with _directory(root / LOG_FOLDER, create=True) as parent:
-        fd = _file(parent, run + ".log", os.O_WRONLY | os.O_APPEND | os.O_CREAT)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-            fh.write(text)
+    lablog.append(root, root / LOG_FOLDER / (run + ".log"), text)
+
+
+def _log_place(logs: int, run: str) -> int:
+    """A descriptor that appends to the run log where it is now: its full log once it left git (Q-0021)."""
+    from awb import lablog
+
+    full = lablog._subdir(logs)
+    if full is not None:
+        try:
+            if lablog._exists(full, run + ".log"):
+                return _file(full, run + ".log", os.O_WRONLY | os.O_APPEND)
+        finally:
+            os.close(full)
+    return _file(logs, run + ".log", os.O_WRONLY | os.O_APPEND | os.O_CREAT)
 
 
 BOOT_SCRIPT_KEYS = frozenset({"userdata", "alphaccepreinstall", "alphaccepostinstall", "preinstall", "postinstall",
@@ -628,7 +643,7 @@ def _transfer(action: str, path: str, url: str, tenant: str | None, run: str | N
             try:
                 original = os.fstat(fd)
                 with _directory(root / LOG_FOLDER, create=True) as logs:
-                    log_fd = _file(logs, run + ".log", os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+                    log_fd = _log_place(logs, run)
                     try:
                         req = {"op": "lab_obs", "action": action, "tenant": tenant, "run": run,
                                "project": _code(root), "bucket": bucket, "key": key, "region": region}
@@ -955,6 +970,9 @@ def _end(root: Path | None, project: str, tenant: str | None) -> int:
                                                                    len(answer.get("removed") or []), len(failed),
                                                                    len(answer.get("kept") or []))]
         log(root, run, lines)
+        from awb import lablog
+
+        lablog.refresh(root, root / LOG_FOLDER / (run + ".log"))
         with _directory(root / LOG_FOLDER) as fd:
             try:
                 if _read(fd, _marker(root, tenant).name, 128).removesuffix("\n") == run:

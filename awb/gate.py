@@ -90,7 +90,8 @@ from awb import check, normalize, register
 from awb.extract import text as extract_text
 from awb.matcher import Matcher, Span
 
-CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist", "identifier", "opaque", "attribution", "owner-date")
+CLASSES = ("name", "secret", "private-key", "token", "homepath", "blocklist", "identifier", "opaque", "attribution", "owner-date",
+           "too-large")
 BINARY_PROBE = 8192
 """A NUL byte in this many first bytes makes a file opaque."""
 _OPAQUE_MAGICS = (b"%PDF-", b"PK\x03\x04", b"\x1f\x8b")
@@ -1075,10 +1076,10 @@ def _pdf_outside_streams(data: bytes) -> bytes:
 
 
 OWN_OUTPUT = re.compile(r"(?:^|/)notes/lab-runs/[^/]+\.log$")
-"""The log of a lab run that awb/labclient.py writes into a project: our own output, not customer material. It
-gets the secret check only, no name or structured check (his rule of 2026-10-27, "we check once at entry"). The
-name check of the vault daemon took about 17 s per MB on one thread, so a 105 MB log of tcp-bytg did not pass in
-20 minutes even with four workers (2026-11-19)."""
+"""The log of a lab run that awb/labclient.py writes into a project, under TEXT_LIMIT: our own output, not customer
+material. It gets the secret check only, no name or structured check (his rule of 2026-10-27, "we check once at
+entry"). The name check of the vault daemon took about 17 s per MB on one thread, so a 105 MB log of tcp-bytg did
+not pass in 20 minutes even with four workers (2026-11-19)."""
 
 OWN_OUTPUT_CLASSES = frozenset({"secret", "private-key", "token"})
 """The classes the gate keeps on own output: awb/hooks.py SECRET_CLASSES, the screen of `awb paste --own`. A home
@@ -1086,7 +1087,17 @@ path is no secret, so a lab log that carries one (the user_data of a server, a p
 "checked once at entry"; tcp-s5i3 and tcp-bytg, 2026-11-19)."""
 
 
+TEXT_LIMIT = 8 * 1024 * 1024
+"""A text file over this many bytes is refused at once as too-large, never scanned: the gate needs about 8 s per
+MB and a 105 MB lab log held a commit for 8 to 25 minutes (tcp-bytg, Q-0021). A lab log leaves git long before
+(awb/lablog.py LIMIT). A document, an archive or an image (opaque) keeps its own rules."""
+TOO_LARGE_HINT = ("a text file over %d MiB is not scanned and not committed: keep it out of git (a lab log over %d MiB "
+                  "moves to the git-ignored full/ beside it and git keeps its summary: awb/lablog.py)")
+
+
 def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
+    if len(data) > TEXT_LIMIT and not _is_opaque(label, data):
+        return [Finding(label, 0, "too-large")]
     if OWN_OUTPUT.search(label.replace("\\", "/")) and not _is_opaque(label, data):
         return _scan_decoded(label, data, None, path, classes=OWN_OUTPUT_CLASSES)
     if data.startswith(b"%PDF-") and Path(label).suffix.lower() in (".pdf", ""):
@@ -1964,6 +1975,10 @@ def main(argv: list[str] | None = None) -> int:
         from awb import fplearn
 
         fplearn.record("gate", extra=dict(Counter(f.cls for f in findings)))
+    if any(f.cls == "too-large" for f in findings):
+        from awb import lablog
+
+        print("awb gate: " + TOO_LARGE_HINT % (TEXT_LIMIT >> 20, lablog.LIMIT >> 20), file=sys.stderr)
     if any(f.cls.startswith("candidate-") for f in findings):
         from awb import intake
 

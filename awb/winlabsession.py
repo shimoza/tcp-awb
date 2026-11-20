@@ -399,10 +399,29 @@ def log_path(root: Path, machine: str) -> Path:
 
 
 def _append(path: Path, lines: list[str]) -> None:
-    with winlab._parent(path, create=True) as folder:
-        fd = winlab._regular(folder, path.name, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        with os.fdopen(fd, "a", encoding="utf-8") as fh:
-            fh.write("\n".join(lines).rstrip("\n") + "\n\n")
+    """A log over lablog.LIMIT moves to full/ beside it (git-ignored) and git keeps its summary (Q-0021)."""
+    from awb import lablog
+
+    root = _project_of(path)
+    if root is None:
+        with winlab._parent(path, create=True) as folder:
+            fd = winlab._regular(folder, path.name, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+            with os.fdopen(fd, "a", encoding="utf-8") as fh:
+                fh.write("\n".join(lines).rstrip("\n") + "\n\n")
+        return
+    try:
+        lablog.append(root, path, "\n".join(lines).rstrip("\n") + "\n\n")
+    except lablog.LabLogError:
+        raise WinlabError("lab storage requires a regular file with no links") from None
+
+
+def _project_of(path: Path) -> Path | None:
+    """The project folder above a log under notes/winlab/ (None for a log elsewhere)."""
+    path = Path(os.path.abspath(path))
+    for up in path.parents:
+        if up.name == "notes" and path.is_relative_to(up / LOG_FOLDER.name):
+            return up.parent
+    return None
 
 
 def _serial(fn):

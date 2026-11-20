@@ -27887,8 +27887,99 @@
    "name": "Q-0009 winlab: owner status lists a window that ends within the hour with the open command",
    "run": ".venv/bin/pytest tests/test_winlab_extend.py::test_winlab_extend_owner_status_lists_a_window_that_ends_within_the_hour",
    "status": "passing"
+  },
+  {
+   "id": "Q21-1",
+   "phase": "T",
+   "name": "Q-0021 a small log stays in place with no summary and no ignore line",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_small_log_stays_in_place_with_no_summary_and_no_ignore_line",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-2",
+   "phase": "T",
+   "name": "Q-0021 a log over the limit moves to full and git keeps a summary with its hash",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_log_over_the_limit_moves_to_full_and_git_keeps_a_summary_with_its_hash",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-3",
+   "phase": "T",
+   "name": "Q-0021 the ignore line joins an existing gitignore once",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_the_ignore_line_joins_an_existing_gitignore_once",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-4",
+   "phase": "T",
+   "name": "Q-0021 a descriptor open before the move writes on into the full log",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_descriptor_open_before_the_move_writes_on_into_the_full_log",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-5",
+   "phase": "T",
+   "name": "Q-0021 a log written beside its full log is merged into it",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_log_written_beside_its_full_log_is_merged_into_it",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-6",
+   "phase": "T",
+   "name": "Q-0021 a linked full folder or full log is refused",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_linked_full_folder_or_full_log_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-7",
+   "phase": "T",
+   "name": "Q-0021 the summary lists at most max listed creates and counts all",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_the_summary_lists_at_most_max_listed_creates_and_counts_all",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-8",
+   "phase": "T",
+   "name": "Q-0021 a lab run through the key service commits only the summary",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_lab_run_through_the_key_service_commits_only_the_summary",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-9",
+   "phase": "T",
+   "name": "Q-0021 a windows lab log over the limit moves too",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_windows_lab_log_over_the_limit_moves_too",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-10",
+   "phase": "T",
+   "name": "Q-0021 the gate refuses a text file over the limit at once with the hint",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_the_gate_refuses_a_text_file_over_the_limit_at_once_with_the_hint",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-11",
+   "phase": "T",
+   "name": "Q-0021 a lab log under the limit keeps the secret only rule",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_a_lab_log_under_the_limit_keeps_the_secret_only_rule",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-12",
+   "phase": "T",
+   "name": "Q-0021 an opaque file over the limit stays opaque and a smaller text is scanned",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_an_opaque_file_over_the_limit_stays_opaque_and_a_smaller_text_is_scanned",
+   "status": "passing"
+  },
+  {
+   "id": "Q21-13",
+   "phase": "T",
+   "name": "Q-0021 too large is a gate class the board and the dataset know",
+   "run": ".venv/bin/pytest tests/test_lab_log_summary.py::test_q21_too_large_is_a_gate_class_the_board_and_the_dataset_know",
+   "status": "passing"
   }
  ],
- "total_tests": 3984,
+ "total_tests": 3997,
  "checked": "2026-11-19"
 }

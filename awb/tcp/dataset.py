@@ -1299,7 +1299,7 @@ def scan_people(files: list[Path], values: list[str], register_path: Path | None
     except (register.RegisterError, kb.KBError) as err:   # check.CheckUnavailable included
         raise DatasetError("the name check cannot run (%s); nothing was published" % type(err).__name__) from None
     problems += sorted({"%s: %s" % (_public_label(Path(f.file)), f.cls) for f in findings if f.cls in
-                        ("name", "blocklist", "homepath", "secret", "private-key", "token", "opaque")})
+                        ("name", "blocklist", "homepath", "secret", "private-key", "token", "opaque", "too-large")})
     return problems
 
 

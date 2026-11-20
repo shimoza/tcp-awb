@@ -239,7 +239,11 @@ security tokens come shortened to 8 characters, "..." and the length, and such a
 again as `X-Auth-Token` or `credential=`. Every create is recorded with its delete (a POST whose answer names a new
 id or name, a PUT or PATCH of a path a read before did not find). The call log is
 `notes/lab-runs/<run>.log` of the project; a boot script (user_data) is written there only as a placeholder with its
-length, and the commit gate checks the log for secrets only. A run open for more than two hours or ended with failed deletes shows in
+length, and the commit gate checks the log for secrets only. A log that grows over 2 MiB (a run log or a Windows
+lab log under `notes/winlab/`) moves to `full/` beside it (the writer adds it to the project's `.gitignore`) and
+git keeps `<run>.summary.md`: start, end, calls, errors, created resources, the path of the full log and its
+SHA-256 (`awb/lablog.py`, written again at the end of the run). The commit gate refuses any text file over 8 MiB at
+once as `too-large` and names this rule. A run open for more than two hours or ended with failed deletes shows in
 `awb owner status` and the 08:00 mail. The module docs are in `awb/tcp/labadmin.py` and `awb/labclient.py`.
 
 A project that holds a stand (a taken-over or long-lived one, listed live in its RESOURCES.md) changes it in a run
@@ -1497,7 +1501,8 @@ customer data out of the model as far as it can:
   closest facts of `awb kb find` to the prompt and to SCOPE.md, at most ten and about 1500 characters, once per task.
   When the base cannot be read it adds nothing. `awb review claims` marks each claim in kb.tsv as known before the
   work or not; the final check carries the same yes/no column, so you see what was known and what is new.
-- A gate checks every commit for names, secrets, home paths and the owner's blocklist. Customer material is
+- A gate checks every commit for names, secrets, home paths and the owner's blocklist. A text file over 8 MiB is
+  refused at once as `too-large`, unscanned; a large lab log keeps its full text out of git (see lab runs). Customer material is
   checked once, at the entry; a put after it never refuses a file and replaces only its secrets with [secret]
   (task GT). `awb close` still writes the fingerprint of a closed project (sha256 and salted word hashes, no
   text) and pins its hash in the vault.
