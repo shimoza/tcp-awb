@@ -285,6 +285,25 @@ def sync(p: config.Paths, codes: list[str] | None = None) -> list[tuple[str, lis
     return out
 
 
+def sync_ignores(p: config.Paths, codes: list[str] | None = None) -> list[tuple[str, str]]:
+    """The disk image lines (projects.ignore_disk_images) in every active project, or in the ones named (`awb
+    projects sync`): (code, "added" | "current" | "cannot be written")."""
+    from awb import projects
+
+    out = []
+    for r in projects.load(p):
+        if r.state not in projects.LIVE_STATES or (codes and r.code not in codes):
+            continue
+        folder = Path(r.path)
+        if folder.parent != p.projects_root or folder.name != r.code:
+            continue
+        try:
+            out.append((r.code, "added" if projects.ignore_disk_images(folder) else "current"))
+        except (OSError, UnicodeError):
+            out.append((r.code, "cannot be written"))
+    return out
+
+
 # --------------------------------------------------------------------------- what a running session loaded
 
 

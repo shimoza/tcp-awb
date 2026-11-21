@@ -617,6 +617,10 @@ def _cmd_projects_sync(args, p: config.Paths) -> int:
         return EXIT_FINDINGS if args.codes else EXIT_OK
     for code, files in done:
         print("%s: %s" % (code, ("brought up to date: " + ", ".join(files)) if files else "already current"))
+    for code, state in rulesync.sync_ignores(p, args.codes or None):
+        if state != "current":
+            print("%s: .git/info/exclude %s" % (code, "keeps disk images out of git now" if state == "added"
+                                                else "cannot be written: the disk image lines are missing"))
     paths = {r.code: r.path for r in projects.load(p)}
     for code, _files in done:
         try:
@@ -845,7 +849,8 @@ def _build() -> argparse.ArgumentParser:
     s = psub.add_parser("check", help="find tcp- folders that no project registered")
     s.set_defaults(func=_cmd_projects_check)
     s = psub.add_parser("sync", help="bring the template lines of CLAUDE.md and STATE.md of every active project "
-                                     "up to the current rules, every other line kept")
+                                     "up to the current rules, every other line kept; the disk image lines go into "
+                                     ".git/info/exclude where they are missing")
     s.add_argument("codes", nargs="*", metavar="CODE")
     s.set_defaults(func=_cmd_projects_sync)
     s = psub.add_parser("note", help="a note from development into a project: notes/from-dev/<date>-<n>.md, shown "

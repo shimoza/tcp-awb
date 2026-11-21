@@ -29679,8 +29679,29 @@
    "name": "pdf contents: the layout takes the page map of its last pass",
    "run": ".venv/bin/pytest tests/test_pdf_contents.py::test_the_layout_takes_the_page_map_of_its_last_pass",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-IG-001",
+   "phase": "T",
+   "name": "image ignore: a new project excludes disk images in any case and git add leaves them",
+   "run": ".venv/bin/pytest tests/test_bytg_image_ignore.py::test_bytg_a_new_project_ignores_disk_images_in_any_case_and_git_add_leaves_them",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-IG-002",
+   "phase": "T",
+   "name": "image ignore: projects sync adds the lines to an older project and keeps its own",
+   "run": ".venv/bin/pytest tests/test_bytg_image_ignore.py::test_bytg_the_sync_adds_the_lines_to_an_older_project_and_keeps_its_own",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-IG-003",
+   "phase": "T",
+   "name": "image ignore: a linked exclude file is left alone",
+   "run": ".venv/bin/pytest tests/test_bytg_image_ignore.py::test_bytg_a_linked_exclude_file_is_left_alone",
+   "status": "passing"
   }
  ],
- "total_tests": 4240,
+ "total_tests": 4243,
  "checked": "2026-11-21"
 }

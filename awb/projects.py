@@ -698,6 +698,70 @@ def _settings() -> str:
 
 OPAQUE_DIR = "input/opaque"
 GITIGNORE = "# written by awb inbox take: files the commit gate cannot read stay out of git\n%s/\n" % OPAQUE_DIR
+DISK_IMAGE_SUFFIXES = ("vhdx", "vhd", "qcow2", "vmdk", "img", "iso", "raw", "ova")
+"""Disk images stay out of git in every project (tcp-bytg 2026-11-21: git add began hashing a 9.6 GB VHDX under
+evidence/ and had to be stopped and its index lock removed). The lines go into the project's own exclude file
+.git/info/exclude, which git reads like a .gitignore but never tracks: the spawn writes them and `awb projects sync`
+adds what an older project lacks (ignore_disk_images), and no commit of the project changes."""
+IMAGE_IGNORE_NOTE = "# disk images and winlab transfer parts stay out of git (awb, tcp-bytg 2026-11-21)"
+IMAGE_EXCLUDE = Path(".git") / "info" / "exclude"
+
+
+def _any_case(suffix: str) -> str:
+    """A glob of `*.suffix` in any case (git matches case-sensitively): vhdx -> *.[vV][hH][dD][xX]."""
+    return "*." + "".join("[%s%s]" % (c.lower(), c.upper()) if c.isalpha() else c for c in suffix)
+
+
+IMAGE_IGNORE_LINES = tuple(_any_case(s) for s in DISK_IMAGE_SUFFIXES) + ("*.awb-part",)
+"""The exclude lines of the disk images in any case and of a part of a winlab transfer (FILE.awb-part)."""
+
+
+def ignore_disk_images(folder: Path) -> bool:
+    """IMAGE_IGNORE_LINES in .git/info/exclude of the project `folder` (the file and info/ created when missing);
+    True when it changed. Every line there stays. Raises OSError for a .git that is no folder, a link anywhere on
+    the way or a file with a second name."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    top = os.open(os.path.abspath(folder), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        git = os.open(".git", flags, dir_fd=top)
+    finally:
+        os.close(top)
+    try:
+        try:
+            os.mkdir("info", 0o750, dir_fd=git)
+        except FileExistsError:
+            pass
+        info = os.open("info", flags, dir_fd=git)
+    finally:
+        os.close(git)
+    try:
+        fd = os.open("exclude", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o640, dir_fd=info)
+    finally:
+        os.close(info)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise OSError("the exclude file is no single regular file")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        raw = b""
+        while piece := os.read(fd, 65536):
+            raw += piece
+            if len(raw) > 1024 * 1024:
+                raise OSError("the exclude file is too large")
+        text = raw.decode("utf-8")
+        have = {line.strip() for line in text.splitlines()}
+        missing = [line for line in IMAGE_IGNORE_LINES if line not in have]
+        if not missing:
+            return False
+        add = "" if not text or text.endswith("\n") else "\n"
+        add += "\n".join(([IMAGE_IGNORE_NOTE] if IMAGE_IGNORE_NOTE not in have else []) + missing) + "\n"
+        os.lseek(fd, 0, os.SEEK_END)
+        data = add.encode("utf-8")
+        while data:
+            data = data[os.write(fd, data):]
+        return True
+    finally:
+        os.close(fd)
 
 
 def _git(folder: Path, *args: str) -> None:
@@ -835,6 +899,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
                     raise ProjectError("two outbox files would land under one name in input/")
                 shutil.copy2(f, folder / "input" / f.name)
             _git(folder, "init", "-q")
+            ignore_disk_images(folder)
             _git(folder, "config", "user.name", _GIT_NAME)
             _git(folder, "config", "user.email", _GIT_EMAIL)
             # every commit of the project goes through the gate, its self-test first; the hook is there before the

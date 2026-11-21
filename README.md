@@ -1300,7 +1300,8 @@ whole sectors of 512 bytes. A file with such a name and no signature gets both c
 at its entry with `awb intake`. The log line of each put names the check that ran ("secret check only, disk image
 vhdx" or "name and secret check"). Both go in chunks, resume when you run the same command again after a break,
 compare the SHA-256 of both sides at the end and never overwrite a file. They are built for 12 GB; a large file
-belongs in a folder git ignores.
+belongs in a folder git ignores. Disk images (.vhdx, .vhd, .qcow2, .vmdk, .img, .iso, .raw, .ova in any case) and
+the `.awb-part` of a transfer are ignored in every project by its `.git/info/exclude` (spawn and `awb projects sync`).
 A received file is checked in place: a name or a secret deletes it. When the name check cannot run (the vault is
 locked, the rate limit wait ran out) the get keeps the file unpublished as `FILE.awb-part` with its SHA-256 and how
 far the checks got; the same get with `--recheck` checks it again from there, without a transfer and without an open
