@@ -1007,7 +1007,7 @@ copies the newest pass to `/srv/tcp-mirrors/console/<date>/` (folders 0750, file
 
 ## A PDF of a deliverable
 
-The host has no office suite, so `awb pdf FILE [--out PDF] [--title T] [--replace]` is the one route from a Markdown or HTML
+The host has no office suite, so `awb pdf FILE [--out PDF] [--title T] [--replace] [--h1-page]` is the one route from a Markdown or HTML
 deliverable to a PDF, for every project and for you; no project writes its own. It writes next to FILE unless
 `--out` names another file (inside the project folder or the session scratch folder only) and runs as the work
 user in a project session. The PDF is A4 with the standard fonts, so the text stays selectable: headings,
@@ -1016,7 +1016,10 @@ than the page gets a smaller font, down to 6 pt, until that line fits, so a comm
 line; only a line too long even at 6 pt goes on below with a drawn arrow, never cut), Markdown pipe tables as a ruled grid (a bold header
 row repeated on every page, column widths fitted to the page, text wrapped inside its cell, the alignment of the
 separator row), HTML tables as aligned text, links with their URL, page
-numbers and the title (the first heading unless `--title`) in the document info. Text outside the standard fonts
+numbers and the title (the first heading unless `--title`) in the document info. A line `<!-- toc -->` in the
+Markdown (a comment, so other readers show nothing; the same comment in HTML) puts a contents table there: each h1
+and h2 after it with a dot leader and the page it starts on, found in two passes. `--h1-page` starts a new page
+before each level-1 heading, except one at the top of a page; without it the headings run on as before. Text outside the standard fonts
 (Cyrillic for example) embeds a TrueType font of the host by default (Liberation Sans and Mono, the metrics of the
 standard fonts, else DejaVu; `awb/pdffont.py`), only the glyphs the document uses and with a ToUnicode map, so
 Russian, German umlauts and Latin share one document and pdftotext gives the text back as it was written.

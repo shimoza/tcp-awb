@@ -29637,8 +29637,50 @@
    "name": "pdf code lines: a long code line with cyrillic stays one line in the embedded font",
    "run": ".venv/bin/pytest tests/test_pdf_code_lines.py::test_a_long_code_line_with_cyrillic_stays_one_line_in_the_embedded_font",
    "status": "passing"
+  },
+  {
+   "id": "BYTG15-1",
+   "phase": "T",
+   "name": "pdf contents: the contents numbers are the pages of the headings and each part starts a page",
+   "run": ".venv/bin/pytest tests/test_pdf_contents.py::test_the_contents_numbers_are_the_pages_of_the_headings_and_each_part_starts_a_page",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG15-2",
+   "phase": "T",
+   "name": "pdf contents: without the option the parts run on",
+   "run": ".venv/bin/pytest tests/test_pdf_contents.py::test_without_the_option_the_parts_run_on",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG15-3",
+   "phase": "T",
+   "name": "pdf contents: a contents table longer than a page still carries the right numbers",
+   "run": ".venv/bin/pytest tests/test_pdf_contents.py::test_a_contents_table_longer_than_a_page_still_carries_the_right_numbers",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG15-4",
+   "phase": "T",
+   "name": "pdf contents: an h1 at the top of a page gets no empty page before it",
+   "run": ".venv/bin/pytest tests/test_pdf_contents.py::test_an_h1_at_the_top_of_a_page_gets_no_empty_page_before_it",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG15-5",
+   "phase": "T",
+   "name": "pdf contents: the marker in html and in a code fence",
+   "run": ".venv/bin/pytest tests/test_pdf_contents.py::test_the_marker_in_html_and_in_a_code_fence",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG15-6",
+   "phase": "T",
+   "name": "pdf contents: the layout takes the page map of its last pass",
+   "run": ".venv/bin/pytest tests/test_pdf_contents.py::test_the_layout_takes_the_page_map_of_its_last_pass",
+   "status": "passing"
   }
  ],
- "total_tests": 4234,
+ "total_tests": 4240,
  "checked": "2026-11-21"
 }

@@ -1,6 +1,6 @@
 """One PDF writer for every project, standard library only: a Markdown or HTML deliverable as an A4 PDF.
 
-    awb pdf FILE [--out PDF] [--title T] [--unicode] [--replace]
+    awb pdf FILE [--out PDF] [--title T] [--unicode] [--replace] [--h1-page]
 
 The host has no office suite, so this is the one route from a text deliverable to a PDF; no project writes its own.
 The writer uses the four standard fonts every reader carries (Helvetica, Helvetica-Bold, Helvetica-Oblique, Courier)
@@ -13,7 +13,11 @@ written), Markdown pipe tables as a
 ruled grid (a bold header row repeated on every page the table runs onto, column widths fitted to the page from the
 content, text wrapped inside its cell, left, centre or right as the separator row says), HTML tables as aligned
 Courier text, links as their text with the URL after it and a link annotation, a page number on every page and the title and
-author in the document info.
+author in the document info. A line `<!-- toc -->` (a comment, so other readers of the Markdown show nothing; the
+same comment in HTML) puts a contents table there: each h1 and h2 after it with a dot leader and its page number,
+found in two passes (the pages are laid out again with the page map of the first pass until the numbers settle).
+--h1-page starts a new page before each level-1 heading, except one at the top of a page; without it the headings
+run on as before.
 
 Input: the Markdown the Workbench writes (headings, paragraphs, lists, fenced code, pipe tables, `code`, **bold**,
 *italic*, [text](url)) or HTML such as `awb howto render` writes (h1 to h6, p, ul, ol, li, pre, code, a, table,
@@ -63,7 +67,7 @@ FONTS = {"r": ("F1", "Helvetica"), "b": ("F2", "Helvetica-Bold"), "i": ("F3", "H
          "c": ("F4", "Courier")}
 # kind: (size, leading, space before in leadings)
 STYLES = {"h1": (17, 24, 0.5), "h2": (12, 17, 1.0), "h3": (11, 15, 0.6), "p": (10, 14, 0.0), "li": (10, 14, 0.0),
-          "code": (9, 12, 0.2), "table": (9, 12, 0.2), "grid": (9, 11, 0.4)}
+          "code": (9, 12, 0.2), "table": (9, 12, 0.2), "grid": (9, 11, 0.4), "toc": (10, 15, 0.3)}
 GRID_PAD_X, GRID_PAD_Y, GRID_RULE, GRID_SHADE = 4, 3, 0.5, 0.9
 LIST_INDENT = 16
 CODE_FLOOR = 6.0                                # the smallest code font before a code line wraps
@@ -203,6 +207,7 @@ class _Pages:
         self.ops: list[list[bytes]] = [[]]
         self.annots: list[list[bytes]] = [[]]
         self.y = PAGE_H - MARGIN
+        self.heads: dict[int, int] = {}      # block index of each h1 and h2: the page it starts on
 
     def new_page(self) -> None:
         if len(self.ops) >= 1000:
@@ -323,7 +328,8 @@ def _merge(pieces: list, size: float) -> list[list]:
     return merged
 
 
-def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> None:
+def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> int:
+    """Draw the block; the number of the page its first line is on."""
     size, lead, before = STYLES[block.kind]
     heading = block.kind in ("h1", "h2", "h3")
     lines = _lines(block.runs, width, size, heading)
@@ -331,8 +337,10 @@ def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> None:
         pages.need(lead * (1 + before) + 3 * STYLES["p"][1])      # a heading stays with what follows it
     if before and pages.ops[-1]:
         pages.y -= lead * before
+    first = 0
     for i, pieces in enumerate(lines):
         y = pages.line(lead)
+        first = first or len(pages.ops)
         if i == 0 and block.marker:
             mw = _width(block.marker, "r", size)
             pages.text(x0 - mw - 4, y, "r", size, block.marker)
@@ -341,6 +349,36 @@ def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> None:
             if url and url.startswith(_LINK_SCHEMES):
                 pages.link(x0 + x, y - 2, x0 + x + _width(text, font, size), y + size, url)
     pages.y -= lead * (0.5 if block.kind in ("p", "h1", "h2", "h3") else 0.15)
+    return first or len(pages.ops)
+
+
+def _draw_contents(pages: _Pages, entries: list[tuple[str, str, int | None]]) -> None:
+    """The contents table: one entry per heading (h1 bold, h2 indented), a dot leader and the page number at the
+    right margin; a long title wraps and its number stands on its last line."""
+    size, lead, before = STYLES["toc"]
+    if pages.ops[-1]:
+        pages.y -= lead * before
+    dot = _width(".", "r", size)
+    for kind, text, page in entries:
+        indent, font = (0, "b") if kind == "h1" else (LIST_INDENT, "r")
+        num = str(page) if page else ""
+        numw = _width(num, "r", size)
+        lines = _lines([(text, font, None)], TEXT_W - indent - numw - 3 * dot - 8, size, False)
+        if pages.y - lead * len(lines) < MARGIN:
+            pages.new_page()
+        for i, pieces in enumerate(lines):
+            y = pages.line(lead)
+            end = 0.0
+            for x, piece, f, _ in _merge(pieces, size):
+                pages.text(MARGIN + indent + x, y, f, size, piece)
+                end = x + _width(piece, f, size)
+            if i == len(lines) - 1 and num:
+                start = MARGIN + indent + end + 4
+                count = int((MARGIN + TEXT_W - numw - 4 - start) / dot)
+                if count > 0:
+                    pages.text(start, y, "r", size, "." * count)
+                pages.text(MARGIN + TEXT_W - numw, y, "r", size, num)
+    pages.y -= lead * 0.5
 
 
 def _chunks(line: str, cols: int) -> list[str]:
@@ -510,15 +548,43 @@ def _draw_grid(pages: _Pages, block: Block) -> None:
     pages.y -= lead * 0.8
 
 
-def layout(blocks: list[Block]) -> _Pages:
+def layout(blocks: list[Block], h1_page: bool = False) -> _Pages:
+    """The pages of the blocks; with `h1_page` each level-1 heading starts a new page (not one at the top of a page
+    already). A contents block (kind toc) takes the page of each heading after it: the blocks are laid out again
+    with the page map of the last pass until it settles, two passes as a rule."""
+    if not any(b.kind == "toc" for b in blocks):
+        return _layout(blocks, h1_page, None)
+    found = None
+    for _ in range(4):
+        pages = _layout(blocks, h1_page, found)
+        if pages.heads == found:
+            return pages
+        found = pages.heads
+    raise PdfError("the page numbers of the contents table do not settle")
+
+
+def _contents(blocks: list[Block], at: int, heads: dict | None) -> list[tuple[str, str, int | None]]:
+    """The entries of the contents block at `at`: each h1 and h2 after it with its page (None before a pass)."""
+    out = []
+    for j in range(at + 1, len(blocks)):
+        b = blocks[j]
+        text = " ".join(_plain_text(b.runs).split())
+        if b.kind in ("h1", "h2") and text:
+            out.append((b.kind, text, (heads or {}).get(j)))
+    return out
+
+
+def _layout(blocks: list[Block], h1_page: bool, heads: dict | None) -> _Pages:
     pages = _Pages()
-    for b in blocks:
+    for i, b in enumerate(blocks):
         if b.kind == "code":
             _draw_fixed(pages, b.lines, "code")
         elif b.kind == "table":
             _draw_fixed(pages, _table_lines(b.lines), "table")
         elif b.kind == "grid":
             _draw_grid(pages, b)
+        elif b.kind == "toc":
+            _draw_contents(pages, _contents(blocks, i, heads))
         elif b.kind == "li":
             if not 0 <= b.level <= 20:
                 raise PdfError("list nesting is too deep")
@@ -526,23 +592,29 @@ def layout(blocks: list[Block]) -> _Pages:
             _draw_runs(pages, b, MARGIN + indent, TEXT_W - indent)
         elif b.kind in STYLES:
             if any(t.strip() for t, _, _ in b.runs):
-                _draw_runs(pages, b, MARGIN, TEXT_W)
+                if b.kind == "h1" and h1_page and pages.ops[-1]:
+                    pages.new_page()
+                page = _draw_runs(pages, b, MARGIN, TEXT_W)
+                if b.kind in ("h1", "h2"):
+                    pages.heads[i] = page
         else:
             raise PdfError("unknown block kind")
     return pages
 
 
-def render(blocks: list[Block], title: str, author: str = AUTHOR, unicode: bool = False, fonts=None) -> bytes:
+def render(blocks: list[Block], title: str, author: str = AUTHOR, unicode: bool = False, fonts=None,
+           h1_page: bool = False) -> bytes:
     """The PDF of the blocks: A4, the standard fonts (or with `unicode` or a given font set `fonts` the embedded
-    fonts of the host), a page number on every page, title and author in the info."""
+    fonts of the host), a page number on every page, title and author in the info; with `h1_page` a new page before
+    each level-1 heading."""
     token = _EMBEDDED.set(fonts if fonts is not None else unicode_fonts() if unicode else None)
     try:
-        return _render(blocks, title, author)
+        return _render(blocks, title, author, h1_page)
     finally:
         _EMBEDDED.reset(token)
 
 
-def _render(blocks: list[Block], title: str, author: str) -> bytes:
+def _render(blocks: list[Block], title: str, author: str, h1_page: bool = False) -> bytes:
     # Check the text after parsing too: formatting and entities can join a private value.
     values = [title, author]
     for block in blocks:
@@ -550,7 +622,7 @@ def _render(blocks: list[Block], title: str, author: str) -> bytes:
         values.extend(url for _, _, url in block.runs if url)
         values.extend(" ".join(row) if isinstance(row, list) else row for row in block.lines)
     _screen("\n".join(values))
-    pages = layout(blocks)
+    pages = layout(blocks, h1_page)
     total = len(pages.ops)
     for n, ops in enumerate(pages.ops, start=1):
         label = "%d / %d" % (n, total)
@@ -648,6 +720,7 @@ def _plain_text(runs: list) -> str:
     return "".join(t for t, _, _ in runs).strip()
 
 
+_TOC_RE = re.compile(r"^\s{0,3}<!--\s*toc\s*-->\s*$", re.I)      # the contents table goes here
 _FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 _HEAD_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$")
 _ITEM_RE = re.compile(r"^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$")
@@ -702,6 +775,12 @@ def from_markdown(text: str) -> tuple[list[Block], str]:
                 body.append(raw[min(cut, strip):])
                 i += 1
             blocks.append(Block("code", lines=body))
+            i += 1
+            continue
+        if _TOC_RE.match(line):
+            flush()
+            in_list = False
+            blocks.append(Block("toc"))
             i += 1
             continue
         if line.lstrip().startswith("<!--"):
@@ -891,6 +970,11 @@ class _Html(HTMLParser):
             self.blocks.append(Block("table", lines=[r for r in self.rows if r]))
             self.rows = None
 
+    def handle_comment(self, data: str) -> None:
+        if data.strip().lower() == "toc" and not self.skip and self.pre is None and self.rows is None:
+            self.end_block()
+            self.blocks.append(Block("toc"))
+
     def handle_data(self, data: str) -> None:
         if self.skip and not (self.skip == ["head"] and self.in_title):
             return
@@ -1073,7 +1157,8 @@ def _publish(target: Path, data: bytes) -> None:
 
 
 def convert(path: Path, out: Path | None = None, title: str | None = None, replace: bool = False,
-            start: Path | None = None, author: str = AUTHOR, unicode: bool = False) -> tuple[Path, int, int]:
+            start: Path | None = None, author: str = AUTHOR, unicode: bool = False,
+            h1_page: bool = False) -> tuple[Path, int, int]:
     """Write a checked, private PDF atomically; (PDF, pages, replaced character count). Text outside WinAnsi
     embeds the fonts of the host, unless `replace` alone asks for the standard fonts with ? (`unicode` and
     `replace` together embed and replace only what the embedded fonts lack)."""
@@ -1107,7 +1192,7 @@ def convert(path: Path, out: Path | None = None, title: str | None = None, repla
                              "nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
                                                                                      count, len(bad)))
         blocks, found = from_html(text) if kind == "html" else from_markdown(text)
-        data = render(blocks, title or found or path.stem, author, fonts=fonts)
+        data = render(blocks, title or found or path.stem, author, fonts=fonts, h1_page=h1_page)
         _publish(target, data)
         return target, len(re.findall(rb"(?m)^<< /Type /Page /Parent \d+ 0 R /MediaBox", data)), count
     except (OSError, ValueError, RecursionError):
@@ -1131,13 +1216,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--replace", action="store_true",
                     help="write ? for a character the fonts cannot show (default: refuse); alone it keeps the "
                          "standard fonts, so every character outside WinAnsi becomes ?")
+    ap.add_argument("--h1-page", action="store_true",
+                    help="start a new page before each level-1 heading (# in Markdown, h1 in HTML), not before one "
+                         "at the top of a page")
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return 0 if exc.code == 0 else 2
     try:
         out, pages, replaced = convert(Path(args.file), Path(args.out) if args.out else None, args.title,
-                                       args.replace, unicode=args.unicode)
+                                       args.replace, unicode=args.unicode, h1_page=args.h1_page)
     except PdfRefused as err:
         print("awb pdf: %s" % err, file=sys.stderr)
         return 1
