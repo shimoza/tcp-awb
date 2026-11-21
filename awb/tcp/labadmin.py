@@ -377,7 +377,7 @@ def creates(method: str, service: str, path: str, query: dict, status: int, data
         return []
     segs = [s for s in path.strip("/").split("/") if s]
     if method in ("PUT", "PATCH"):
-        if not absent or not segs or (customer and service != "obs"):
+        if not absent or not segs or (customer and service != "obs") or (service, segs[-1].lower()) in UPLOADS:
             return []
         return [{"label": _label(service, segs, True), "name": segs[-1][:128],
                  "delete": {"method": "DELETE", "service": service, "path": path, "query": dict(query or {}),
@@ -424,10 +424,44 @@ def creates(method: str, service: str, path: str, query: dict, status: int, data
     return []
 
 
+_RID_RE = re.compile(r"^(?:[0-9a-fA-F]{32}|[0-9a-fA-F-]{36})$")
+"""A platform id in a path (a UUID or 32 hex digits): the same id under the same kind is the same resource."""
+UPLOADS = {("ims", "file"), ("ims", "upload")}
+"""(service, last segment) of a PUT that fills a resource that is already there and makes none: the data of an image
+(PUT /v2/images/{id}/file, PUT /v1/cloudimages/{id}/upload; tcp-bytg ask 5)."""
+
+
+def _segs(path) -> list[str]:
+    return [s for s in str(path or "").strip("/").split("/") if s]
+
+
+def same_resource(a: str, b: str) -> bool:
+    """True when two paths end in the same kind and id: /v2/images/ID and /v1.1/images/ID (tcp-bytg ask 5: an image
+    deleted with 204 by another API version stayed live in the run)."""
+    x, y = _segs(a), _segs(b)
+    return len(x) >= 2 and len(y) >= 2 and x[-2:] == y[-2:] and bool(_RID_RE.match(x[-1]))
+
+
+def under(child: str, parent: str) -> bool:
+    """True when `child` is a path below the resource `parent` names, also by another API version of it."""
+    c, p = _segs(child), _segs(parent)
+    if len(c) > len(p) and c[:len(p)] == p and p:
+        return True
+    if len(p) < 2 or not _RID_RE.match(p[-1]):
+        return False
+    return any(c[i:i + 2] == p[-2:] for i in range(len(c) - 2))
+
+
 def matches_delete(entry: dict, method: str, service: str, path: str, query: dict, body) -> bool:
-    """True when a call of the session is the recorded delete of `entry` (it removed the resource itself)."""
+    """True when a call of the session is the recorded delete of `entry` (it removed the resource itself), the
+    delete of the same resource by another API version, or the delete of the resource `entry` lives in (the data of
+    an image goes with the image)."""
     d = entry.get("delete") or {}
-    if d.get("method") != method or d.get("service") != service:
+    if d.get("service") != service:
+        return False
+    if method == "DELETE" and service != "obs" and (same_resource(d.get("path"), path) or under(d.get("path"), path)):
+        return True
+    if d.get("method") != method:
         return False
     if d.get("path") == path and (d.get("query") or {}) == (query or {}):
         return True
@@ -870,6 +904,23 @@ def mark_listed_removed(p, run: dict, gone: list[dict]) -> None:
             save(p, other)
 
 
+def _removed_elsewhere(p, run: dict, method: str, service: str, path: str, query: dict, body) -> None:
+    """A delete of this run that answered 2xx or 404 also ends a leftover of an earlier run of the project on the
+    tenant (tcp-bytg ask 5): it is set to removed with the run that removed it, so `awb lab run status` stops listing
+    it as live."""
+    for other in load_runs(p):
+        if other.get("id") == run.get("id") or other.get("project") != run.get("project") or \
+                other.get("tenant") != run.get("tenant"):
+            continue
+        hit = False
+        for c in other.get("created", []):
+            if c.get("state") in ("live", "failed") and matches_delete(c, method, service, path, query, body):
+                c.update(state="removed", removed_in=run.get("id"))
+                hit = True
+        if hit:
+            save(p, other)
+
+
 def keep_reason(value) -> str:
     if not isinstance(value, str):
         raise _refused(KEEP_REASON_LINE % REASON_MAX)
@@ -1004,6 +1055,12 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
             svc.lab.hold(run["id"], "cred", c, labsecrets.short(c[0]))
         run = open_run(p, project, alias) or run
         made = creates(method, service, expanded, query, status, data, region, absent, customer)
+        if method in ("PUT", "PATCH") and service != "obs":
+            # a PUT below a resource the run made fills it and makes nothing of its own (tcp-bytg ask 5); an object
+            # of a bucket stays a create of its own, the end deletes it before the bucket
+            made = [m for m in made if not any(
+                c.get("state") in ("live", "failed", "kept") and (c.get("delete") or {}).get("service") == service
+                and under(m["delete"]["path"], (c.get("delete") or {}).get("path")) for c in run.get("created", []))]
         n = len(run.get("created", []))
         kept = []
         for i, m in enumerate(made, start=1):
@@ -1017,6 +1074,7 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
             for c in run.get("created", []):
                 if c.get("state") in ("live", "failed") and matches_delete(c, method, service, expanded, query, body):
                     c["state"] = "removed"
+            _removed_elsewhere(p, run, method, service, expanded, query, body)
         removed_listed = listed if listed and (200 <= status < 300 or status == 404) else []
         if removed_listed:
             mark_listed_removed(p, run, removed_listed)

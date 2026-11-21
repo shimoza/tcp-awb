@@ -29728,8 +29728,36 @@
    "name": "lab ecs tag: an ECS create that cannot carry the tag is refused before it is sent",
    "run": ".venv/bin/pytest tests/test_bytg_lab_ecs_tag.py::test_bytg_an_ecs_create_that_cannot_carry_the_tag_is_refused_before_it_is_sent",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-ID-001",
+   "phase": "T",
+   "name": "lab image delete: the upload of an image is no second create",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_image_delete.py::test_bytg_the_upload_of_an_image_is_no_second_create",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-ID-002",
+   "phase": "T",
+   "name": "lab image delete: an image deleted by another API version is removed with what lives in it",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_image_delete.py::test_bytg_an_image_deleted_by_another_api_version_is_removed_with_what_lives_in_it",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-ID-003",
+   "phase": "T",
+   "name": "lab image delete: a delete in a later run ends the leftover of an earlier one",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_image_delete.py::test_bytg_a_delete_in_a_later_run_ends_the_leftover_of_an_earlier_one",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-ID-004",
+   "phase": "T",
+   "name": "lab image delete: the same id under another kind or an object of a bucket is not matched",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_image_delete.py::test_bytg_the_same_id_under_another_kind_or_an_object_of_a_bucket_is_not_matched",
+   "status": "passing"
   }
  ],
- "total_tests": 4247,
+ "total_tests": 4251,
  "checked": "2026-11-21"
 }
