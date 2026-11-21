@@ -8,13 +8,16 @@ gets the tag `awb-project` with the project code:
   `awb-project` the body already carries is set to the project of the call, so no project can tag for another one;
   every other tag of the body stays (the recipes add `awb-expiry`).
 - `after`: a service whose create body takes no tags gets one tag call right after a create that answered 2xx, with
-  the id of the new resource (AFTER).
+  the id of the new resource (AFTER). An ECS of the native API (/v2.1/{project_id}/servers) is one of them.
 - `untagged`: any other create that made a resource. The call passes and one line goes to
   `<shared>/tenants/untagged-YYYY-MM.tsv` (time, tenant, project, service, path, result), so the report names it.
 
 Each field, form and tag call comes from the API reference of the docs mirror (`/srv/tcp-mirrors/docs`), read on
 2026-11-09; ECS server_tags (kv) is the form the recipes and the reaper use live, the docs name it without its form.
-An RDS create takes no tags in its body (the docs), so it gets the tag call. A security group of VPC v1, an SNAT rule
+An RDS create takes no tags in its body (the docs), so it gets the tag call.
+
+A lab run is stricter (tcp-bytg ask 4, awb/tcp/labadmin.py): a create whose body carries `awb-project` of another
+project (`carried`) is refused, and an ECS create that cannot carry the tag is refused before it is sent. A security group of VPC v1, an SNAT rule
 and an OBS bucket have no tag call a create can follow and stay untagged.
 """
 from __future__ import annotations
@@ -53,6 +56,10 @@ INLINE: list[tuple[str, re.Pattern, str, str]] = [
 # (service, path pattern (group 1 is the project id when the path has one), where the id is in the answer, the tag
 # call path with {project} and {id}, the body: "action" = {"action": "create", "tags": [kv]}, "plain" = {"tags": [kv]})
 AFTER: list[tuple[str, re.Pattern, str, str, str]] = [
+    # tcp-bytg ask 4 (2026-11-21): an ECS of the native API (POST /v2.1/{project_id}/servers) went through without
+    # the tag; its body takes metadata only (the docs), so it gets the ECS tag call of the docs
+    ("ecs", re.compile(r"^/v2(?:\.1)?/(%s)/servers$" % _SEG), "server.id",
+     "/v1/{project}/cloudservers/{id}/tags/action", "action"),
     ("vpc", re.compile(r"^/v1/(%s)/vpcs$" % _SEG), "vpc.id", "/v2.0/{project}/vpcs/{id}/tags/action", "action"),
     ("vpc", re.compile(r"^/v1/(%s)/subnets$" % _SEG), "subnet.id", "/v2.0/{project}/subnets/{id}/tags/action",
      "action"),
@@ -140,6 +147,42 @@ def inject(method: str, service: str, path: str, body, project: str) -> tuple[ob
         if svc == service and pattern.match(path):
             return body, "after"
     return body, "untagged"
+
+
+def server_create(method: str, service: str, path: str) -> bool:
+    """True for the POST that makes an ECS (/v1 and /v1.1 cloudservers, /v2 and /v2.1 servers), not an action on one."""
+    return method.upper() == "POST" and service == "ecs" and any(
+        svc == "ecs" and pattern.match(path) for svc, pattern, *_rest in INLINE + AFTER)
+
+
+def carried(method: str, service: str, path: str, body) -> list[str]:
+    """The values of `awb-project` a create body already carries in the tag field of its service (INLINE), and for
+    an ECS in its older field server.tags ("key.value" or "key=value"). [] for a call that creates nothing."""
+    if not is_create(method, service, path) or not isinstance(body, dict):
+        return []
+    out: list[str] = []
+    for svc, pattern, dotted, form in INLINE:
+        if svc != service or not pattern.match(path):
+            continue
+        fields = [_dig(body, dotted)]
+        if service == "ecs":
+            fields.append(_dig(body, "server.tags"))
+        for value in fields:
+            if isinstance(value, dict):
+                if KEY in value:
+                    out.append(str(value[KEY]))
+            elif isinstance(value, list):
+                for x in value:
+                    if isinstance(x, dict) and x.get("key") == KEY:
+                        out.append(str(x.get("value")))
+                    elif isinstance(x, str):
+                        for sep in ("=", "."):
+                            k, found, v = x.partition(sep)
+                            if found and k == KEY:
+                                out.append(v)
+                                break
+        break
+    return out
 
 
 def _dig(data, dotted: str):

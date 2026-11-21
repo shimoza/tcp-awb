@@ -105,6 +105,11 @@ NOT_CREATE = frozenset({"tokens", "securitytokens", "action", "actions", "delete
                         "detail", "batch", "count", "validate", "check", "logout"})
 """Last path segments of a POST that never makes a resource of its own."""
 
+FOREIGN_TAG_LINE = ("refused: the create carries the tag awb-project of another project: a create of %s carries "
+                    "awb-project=%s, leave the tag out and the key service sets it")
+ECS_UNTAGGED_LINE = ("refused: this ECS create cannot carry the tag %s=%s: send the server in the body as "
+                     "{\"server\": {...}} (POST /v1/{project_id}/cloudservers or /v2.1/{project_id}/servers); "
+                     "nothing was sent")
 NO_RUN_LINE = ("refused: no open lab run of %s on %s: start one with `awb lab run start --tenant %s` (only on his "
                "word)")
 TENANT_LINE = "refused: %s is no lab tenant: lab runs reach %s only"
@@ -971,7 +976,12 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     tagged = None
     if method in ("POST", "PUT", "PATCH"):
         # PT: every create of the run carries the awb-project tag of its project (awb/tcp/projecttags.py)
+        other = [v for v in projecttags.carried(method, service, path, body) if v != project]
+        if other:
+            raise _refused(FOREIGN_TAG_LINE % (project, project))
         body, tagged = projecttags.inject(method, service, path, body, project)
+        if tagged == "untagged" and projecttags.server_create(method, service, path):
+            raise _refused(ECS_UNTAGGED_LINE % (projecttags.KEY, project))
     absent = False
     try:
         if method in ("PUT", "PATCH") and not held_token and not held_cred:

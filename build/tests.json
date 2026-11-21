@@ -29700,8 +29700,36 @@
    "name": "image ignore: a linked exclude file is left alone",
    "run": ".venv/bin/pytest tests/test_bytg_image_ignore.py::test_bytg_a_linked_exclude_file_is_left_alone",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-ET-001",
+   "phase": "T",
+   "name": "lab ecs tag: an ECS of the native API gets the ECS tag call with its project",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_ecs_tag.py::test_bytg_an_ecs_of_the_native_api_gets_the_ecs_tag_call_with_its_project",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-ET-002",
+   "phase": "T",
+   "name": "lab ecs tag: a cloudservers create without the tag gets it, one with its own tag keeps it",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_ecs_tag.py::test_bytg_a_cloudservers_create_without_the_tag_gets_it_and_one_with_its_own_tag_keeps_it",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-ET-003",
+   "phase": "T",
+   "name": "lab ecs tag: a create with the tag of another project is refused and nothing is sent",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_ecs_tag.py::test_bytg_a_create_with_the_tag_of_another_project_is_refused_and_nothing_is_sent",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-ET-004",
+   "phase": "T",
+   "name": "lab ecs tag: an ECS create that cannot carry the tag is refused before it is sent",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_ecs_tag.py::test_bytg_an_ecs_create_that_cannot_carry_the_tag_is_refused_before_it_is_sent",
+   "status": "passing"
   }
  ],
- "total_tests": 4243,
+ "total_tests": 4247,
  "checked": "2026-11-21"
 }
