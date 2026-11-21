@@ -6,8 +6,10 @@ The host has no office suite, so this is the one route from a text deliverable t
 The writer uses the four standard fonts every reader carries (Helvetica, Helvetica-Bold, Helvetica-Oblique, Courier)
 in WinAnsi, so it needs no font file and the text stays selectable: pdftotext gives back every heading, list item and
 code line. It knows headings h1 to h3, paragraphs with bold, italic and inline code, bullet and numbered lists, code
-blocks in Courier that keep their lines and indents (a line longer than the page wraps onto the next line with a drawn
-arrow at the break, which is not text, so a copied line comes back as it was written), Markdown pipe tables as a
+blocks in Courier that keep their lines and indents (a block whose longest line is wider than the page gets a smaller
+font, down to 6 pt, until that line fits, so a copied command stays one line; only a line too long even at 6 pt wraps
+onto the next line with a drawn arrow at the break, which is not text, so the pieces joined are the line as it was
+written), Markdown pipe tables as a
 ruled grid (a bold header row repeated on every page the table runs onto, column widths fitted to the page from the
 content, text wrapped inside its cell, left, centre or right as the separator row says), HTML tables as aligned
 Courier text, links as their text with the URL after it and a link annotation, a page number on every page and the title and
@@ -64,6 +66,7 @@ STYLES = {"h1": (17, 24, 0.5), "h2": (12, 17, 1.0), "h3": (11, 15, 0.6), "p": (1
           "code": (9, 12, 0.2), "table": (9, 12, 0.2), "grid": (9, 11, 0.4)}
 GRID_PAD_X, GRID_PAD_Y, GRID_RULE, GRID_SHADE = 4, 3, 0.5, 0.9
 LIST_INDENT = 16
+CODE_FLOOR = 6.0                                # the smallest code font before a code line wraps
 TAB = 8
 
 # Advance widths in 1/1000 em of the standard fonts (Adobe AFM) for the characters 32 to 126; Oblique is Helvetica.
@@ -353,14 +356,28 @@ def _chunks(line: str, cols: int) -> list[str]:
     return out + [line]
 
 
+def _fixed_size(widths: list[float], size: float) -> float:
+    """The font size of a fixed-width block whose lines are `widths` wide at `size`: that size when every line fits
+    the text width, else smaller until the longest line fits, never below CODE_FLOOR. A line too long even at the
+    floor does not count, as no size saves it: it wraps at the size the other lines need."""
+    limit = TEXT_W * size / CODE_FLOOR
+    longest = max((w for w in widths if w <= limit), default=0.0)
+    if longest <= TEXT_W:
+        return size
+    return max(CODE_FLOOR, int(size * TEXT_W / longest * 10) / 10.0)
+
+
 def _draw_fixed(pages: _Pages, lines: list[str], kind: str) -> None:
-    size, lead, before = STYLES[kind]
+    base, lead, before = STYLES[kind]
+    lines = [line.expandtabs(TAB).rstrip() for line in lines]
+    widths = [_width(line, "c", base) for line in lines]
+    size = _fixed_size(widths, base)
+    lead = lead * size / base
     cols = max(int(TEXT_W / (0.6 * size)) - 2, 10)       # room for the wrap mark
     if pages.ops[-1]:
         pages.y -= lead * before
-    for line in lines:
-        line = line.expandtabs(TAB).rstrip()
-        chunks = _chunks(line, cols)
+    for line, width in zip(lines, widths):
+        chunks = [line] if width * size / base <= TEXT_W else _chunks(line, cols)
         for n, chunk in enumerate(chunks):
             y = pages.line(lead)
             if chunk:

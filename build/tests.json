@@ -29602,8 +29602,43 @@
    "name": "safefile: two uids (root only): the other user reads the shared file, never the private one",
    "run": ".venv/bin/pytest tests/test_safefile.py::test_across_two_uids_the_other_user_reads_the_shared_file_and_never_the_private_one",
    "status": "passing"
+  },
+  {
+   "id": "BYTG1-1",
+   "phase": "T",
+   "name": "pdf code lines: a long powershell line copies out as one line in a smaller font",
+   "run": ".venv/bin/pytest tests/test_pdf_code_lines.py::test_a_long_powershell_line_copies_out_as_one_line_in_a_smaller_font",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG1-2",
+   "phase": "T",
+   "name": "pdf code lines: a block of short lines keeps the code size",
+   "run": ".venv/bin/pytest tests/test_pdf_code_lines.py::test_a_block_of_short_lines_keeps_the_code_size",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG1-3",
+   "phase": "T",
+   "name": "pdf code lines: only a line too long at the floor wraps and the block takes the size the others need",
+   "run": ".venv/bin/pytest tests/test_pdf_code_lines.py::test_only_a_line_too_long_at_the_floor_wraps_and_the_block_takes_the_size_the_others_need",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG1-4",
+   "phase": "T",
+   "name": "pdf code lines: the size rule fits the longest line and stops at the floor",
+   "run": ".venv/bin/pytest tests/test_pdf_code_lines.py::test_the_size_rule_fits_the_longest_line_and_stops_at_the_floor",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG1-5",
+   "phase": "T",
+   "name": "pdf code lines: a long code line with cyrillic stays one line in the embedded font",
+   "run": ".venv/bin/pytest tests/test_pdf_code_lines.py::test_a_long_code_line_with_cyrillic_stays_one_line_in_the_embedded_font",
+   "status": "passing"
   }
  ],
- "total_tests": 4229,
- "checked": "2026-11-20"
+ "total_tests": 4234,
+ "checked": "2026-11-21"
 }
