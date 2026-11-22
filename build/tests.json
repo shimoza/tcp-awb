@@ -29882,8 +29882,29 @@
    "name": "howto code blocks: a block without a closing fence ends with the draft and render writes it",
    "run": ".venv/bin/pytest tests/test_howto_code_blocks.py::test_bytg_a_block_without_a_closing_fence_ends_with_the_draft_and_render_writes_it",
    "status": "passing"
+  },
+  {
+   "id": "6EDQ-SS-001",
+   "phase": "T",
+   "name": "side stop: the stop hook asks no side session for state and open",
+   "run": ".venv/bin/pytest tests/test_6edq_side_stop.py::test_6edq_the_stop_hook_asks_no_side_session_for_state_and_open",
+   "status": "passing"
+  },
+  {
+   "id": "6EDQ-SS-002",
+   "phase": "T",
+   "name": "side stop: the main session is still asked",
+   "run": ".venv/bin/pytest tests/test_6edq_side_stop.py::test_6edq_the_main_session_is_still_asked",
+   "status": "passing"
+  },
+  {
+   "id": "6EDQ-SS-003",
+   "phase": "T",
+   "name": "side stop: a side worktree is told by its folder or its branch",
+   "run": ".venv/bin/pytest tests/test_6edq_side_stop.py::test_6edq_a_side_worktree_is_told_by_its_folder_or_its_branch",
+   "status": "passing"
   }
  ],
- "total_tests": 4269,
+ "total_tests": 4272,
  "checked": "2026-11-22"
 }

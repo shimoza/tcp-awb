@@ -1597,10 +1597,16 @@ def hook_stop(data: dict) -> int:
         contrib_msg = None if notified else packages.due(config.paths(), root, data.get("transcript_path"), data.get("session_id"))
     except Exception:
         contrib_msg = None
+    # a side session (.side/NAME, branch side/NAME) leaves STATE.md and OPEN.md to the main session (tcp-6edq)
+    try:
+        from awb import side
+        sidetree = side.is_side_worktree(root)
+    except Exception:
+        sidetree = False
     late_msg = None
     try:
         from awb import status as _status
-        late_msg = None if notified else _status.reminder(root)
+        late_msg = None if notified or sidetree else _status.reminder(root)
     except Exception:
         late_msg = None
     try:
@@ -1613,7 +1619,7 @@ def hook_stop(data: dict) -> int:
     open_msg = None
     try:
         from awb import opensweep
-        open_msg = None if notified else opensweep.reminder(root)
+        open_msg = None if notified or sidetree else opensweep.reminder(root)
     except (OSError, UnicodeError, opensweep.OpenError):
         pass
     # task GT: the stop hook never asks for a review, a tier or a request check

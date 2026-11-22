@@ -76,6 +76,32 @@ class SideError(Exception):
     """A fixed message; never a file's content."""
 
 
+def is_side_worktree(root: Path | None) -> bool:
+    """True when `root` is the folder of a side session: a linked git worktree (its .git is a file) that is
+    .side/NAME of a project or is on a branch side/NAME. STATE.md and OPEN.md belong to the main session there, so
+    the stop hook asks a side session for neither (tcp-6edq). Reads two small files, runs no git."""
+    if root is None:
+        return False
+    root = Path(root)
+    try:
+        dotgit = root / ".git"
+        if not stat.S_ISREG(os.lstat(dotgit).st_mode):
+            return False
+        if root.parent.name == SIDE_DIR and _NAME_RE.fullmatch(root.name):
+            return True
+        with open(dotgit, encoding="utf-8") as fh:
+            line = fh.read(4096).strip()
+        if not line.startswith("gitdir:"):
+            return False
+        gitdir = Path(line[len("gitdir:"):].strip())
+        gitdir = gitdir if gitdir.is_absolute() else root / gitdir
+        with open(gitdir / "HEAD", encoding="utf-8") as fh:
+            head = fh.read(4096).strip()
+    except (OSError, UnicodeError, ValueError):
+        return False
+    return head.startswith("ref: refs/heads/side/")
+
+
 def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
