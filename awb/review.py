@@ -1430,7 +1430,7 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
         # offered is what the latest service description lists: a deliverable never proposes anything else
         from awb import offered
         catalog = offered.load()
-        for name in offered.mentions(text, catalog):
+        for name in offered.mentions(text, catalog, skip_negated=True):
             problems.append("service: %s is not offered on TCP (the service description of %s)"
                             % (name, offered.revision_label(catalog)))
 

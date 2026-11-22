@@ -136,10 +136,29 @@ def check(name: str, catalog: Catalog | None = None, today: str | None = None) -
                                     if confirmed else ""))
 
 
-def mentions(text: str, catalog: Catalog | None = None, today: str | None = None) -> list[str]:
+_NEGATED = re.compile(r"\b(no longer|not offered|not available|not bookable|not part of|discontinued|withdrawn|retired|"
+                      r"ramped down|end of sale|end of life|was removed|were removed)\b", re.I)
+
+
+def _sentences(text: str) -> list[str]:
+    return [p for p in re.split(r"(?<=[.!?;])\s+|\n\s*\n|\n[-*] ", text) if p.strip()]
+
+
+def mentions(text: str, catalog: Catalog | None = None, today: str | None = None,
+             skip_negated: bool = False) -> list[str]:
     """The services `text` names that are not offered: the hand-kept list and the sections the service description
     marks no longer available or bookable, by name or short name, each once. A short name an offered service also
-    uses is left alone."""
+    uses is left alone. With `skip_negated` a service is left out when every sentence that names it also says it is
+    not offered (no longer offered, discontinued, withdrawn and the like): a text may say a service is gone."""
+    if skip_negated:
+        parts = _sentences(text)
+        named = mentions(text, catalog, today)
+        kept = []
+        for name in named:
+            hits = [p for p in parts if name in mentions(p, catalog, today)]
+            if not hits or not all(_NEGATED.search(p) for p in hits):
+                kept.append(name)
+        return kept
     catalog = catalog or load()
     today = today or date.today().isoformat()
     live_forms = {key(f) for s in catalog.services if not s.withdrawn(today) for f in s.forms()}

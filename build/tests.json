@@ -29791,8 +29791,29 @@
    "name": "awb service update in a read-only release names the checkout and writes nothing",
    "run": ".venv/bin/pytest tests/test_services_readonly.py",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-NEG-1",
+   "phase": "T",
+   "name": "review l0 services: a sentence that says the service is no longer offered passes",
+   "run": ".venv/bin/pytest tests/test_offered_negated.py",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-NEG-2",
+   "phase": "T",
+   "name": "review l0 services: a proposal of the service is still found",
+   "run": ".venv/bin/pytest tests/test_offered_negated.py",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-NEG-3",
+   "phase": "T",
+   "name": "review l0 services: without the flag every mention counts as before",
+   "run": ".venv/bin/pytest tests/test_offered_negated.py",
+   "status": "passing"
   }
  ],
- "total_tests": 4256,
+ "total_tests": 4259,
  "checked": "2026-11-21"
 }
