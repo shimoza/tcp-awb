@@ -226,7 +226,7 @@ Enabling DNSSEC
 Xeon Gold
 FLAT, GRAPH
 Foundation Services
-# --- the services of the T Cloud Public service description and the ones not offered (awb service update), revision 2026-10-09
+# --- the services of the T Cloud Public service description and the ones not offered (awb service update), revision 2026-11-18
 Alert Service
 Anti-DDoS
 API Gateway

@@ -29784,8 +29784,15 @@
    "name": "winlab get kept: a complete transfer without the machine's SHA-256 is kept, not deleted",
    "run": ".venv/bin/pytest tests/test_bytg_winlab_get_kept.py::test_bytg_a_complete_transfer_without_the_machines_sha256_is_kept_not_deleted",
    "status": "passing"
+  },
+  {
+   "id": "SVC-RO-1",
+   "phase": "T",
+   "name": "awb service update in a read-only release names the checkout and writes nothing",
+   "run": ".venv/bin/pytest tests/test_services_readonly.py",
+   "status": "passing"
   }
  ],
- "total_tests": 4255,
+ "total_tests": 4256,
  "checked": "2026-11-21"
 }

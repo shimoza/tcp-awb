@@ -18,6 +18,7 @@ chats and the review live in the core (awb/offered.py).
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -220,6 +221,11 @@ def main(argv: list[str] | None = None) -> int:
             print("%-7s %-62s %s" % (s.number, s.name + (" (%s)" % ", ".join(s.aliases) if s.aliases else ""), state))
         return 0
     if args.command == "update":
+        if not os.access(CATALOG.parent, os.W_OK):
+            print("awb service update: %s cannot be written here (an installed release is read-only); run it in "
+                  "the repository checkout (.venv/bin/awb service update), commit rules/ and deploy" % CATALOG.parent,
+                  file=sys.stderr)
+            return 2
         catalog, candidates = update()
         print("awb service: %d services of the revision %s written to rules/services.tsv"
               % (len(catalog.services), catalog.revision))

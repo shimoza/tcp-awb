@@ -1,4 +1,4 @@
-# The services of the T Cloud Public service description, revision 2026-10-09 (awb service update).
+# The services of the T Cloud Public service description, revision 2026-11-18 (awb service update).
 # number	name	area	status	other names	no longer from	no longer what
 3.1.1	Elastic Cloud Server	Computing	offered	ECS		
 3.1.2	Dedicated host	Computing	offered	DeH | DH		
