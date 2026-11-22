@@ -1241,7 +1241,7 @@ customer data; add refuses a machine without `--no-customer-data`. A window give
 1440 minutes and ends by itself at its end. A machine has at most one open window. `open` for the project that
 holds it extends that window: the new end is now plus `--minutes`, or `--until HH:MM` (local host time, today, or
 tomorrow when that time has passed), never earlier than the end it had; `--public-image` is added when given and
-never taken away. The window of another project is still refused until you close it. An hour before the end the
+never taken away. A get of a disk image in a window without `--public-image` says so in one line before the transfer: the secret check comes after the whole transfer and a hit deletes the copy. The window of another project is still refused until you close it. An hour before the end the
 project session is told once at its next prompt, with the open command to ask you for, and `awb owner status`
 shows the window as "ends in N min" with `awb winlab open NAME --minutes 60 --project CODE`. The registry is `winlab.json`
 beside keys.conf, mode 600. add, open, close and remove are refused for the work user; add, remove and

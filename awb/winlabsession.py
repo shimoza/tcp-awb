@@ -1564,6 +1564,10 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         if not isinstance(st, dict) or type(st.get("size")) is not int or st["size"] < 0:
             raise WinlabError("the machine returned an invalid file size")
         size = st["size"]
+        if not _public_window(machine) and _disk_suffix(winpath, dst):
+            # a disk image of a window without --public-image gets the secret check after the whole transfer, and a
+            # hit deletes it: said before the transfer starts (tcp-bytg 2026-11-22: 10.3 GB for 15 minutes, deleted)
+            print(DISK_NOTE % (winpath, name), file=sys.stderr, flush=True)
         same = (record.get("winpath") == winpath and record.get("file") == rel and record.get("size") == size
                 and record.get("mtime") == st.get("mtime"))
         _reclaim(folder, record, part, size)
@@ -1587,7 +1591,7 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
     expected = str(final.get("sha256", "")).lower() if final and final.get("size") == size else None
     if expected is not None and not re.fullmatch(r"[0-9a-f]{64}", expected):
         expected = None                     # no SHA-256 from the machine: kept, never deleted (tcp-bytg ask 11)
-    public_window = machine.get("public_image") is True or (machine.get("window") or {}).get("public_image") is True
+    public_window = _public_window(machine)
     rec = dict(record if same else {}, winpath=winpath, file=rel, size=size, mtime=st.get("mtime"), machine=name)
     mismatch = "the SHA-256 of the copy does not match %s on %s" % (winpath, name)
     own = not check and _own_image(folder, part, dst, size)
@@ -1602,6 +1606,23 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         _ledger_own(root, rel, size, sha)
     return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "file": rel,
             "log": path.relative_to(root)}
+
+
+DISK_NOTE = ("note: %s is a disk image and the window of %s was opened without --public-image: after the whole "
+             "transfer it gets the secret check, and a secret in it deletes the copy. For a public image built in the "
+             "lab the owner opens the window with `awb winlab open NAME --minutes N --project CODE --public-image` in "
+             "his own terminal; stop with Ctrl-C now to do that first")
+"""The line before the transfer of a disk image in a window without --public-image (tcp-bytg 2026-11-22)."""
+
+
+def _public_window(machine: dict) -> bool:
+    return machine.get("public_image") is True or (machine.get("window") or {}).get("public_image") is True
+
+
+def _disk_suffix(winpath: str, dst: Path) -> bool:
+    """True when the Windows path or the target ends in a disk image suffix (DISK_IMAGES, any case)."""
+    tail = winpath.replace("\\", "/").rsplit("/", 1)[-1]
+    return any(n.lower().endswith(tuple(DISK_IMAGES)) for n in (tail, dst.name))
 
 
 OWN_IMAGE = "disk image from the lab machine: own lab output, no name check (owner decision 2026-11-20)"
