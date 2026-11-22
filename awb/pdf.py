@@ -412,10 +412,18 @@ def _draw_fixed(pages: _Pages, lines: list[str], kind: str) -> None:
     size = _fixed_size(widths, base)
     lead = lead * size / base
     cols = max(int(TEXT_W / (0.6 * size)) - 2, 10)       # room for the wrap mark
+    rows = [[line] if width * size / base <= TEXT_W else _chunks(line, cols) for line, width in zip(lines, widths)]
+    room = PAGE_H - 2 * MARGIN                           # the height of a page for text
     if pages.ops[-1]:
         pages.y -= lead * before
-    for line, width in zip(lines, widths):
-        chunks = [line] if width * size / base <= TEXT_W else _chunks(line, cols)
+        # a block that fits a page goes on one page: it moves to the next one when it does not fit here (tcp-bytg)
+        height = lead * sum(len(chunks) for chunks in rows)
+        if height <= room and pages.y - height < MARGIN:
+            pages.new_page()
+    for chunks in rows:
+        # a block longer than a page breaks between its lines, never inside a wrapped line
+        if lead * len(chunks) <= room and pages.y - lead * len(chunks) < MARGIN:
+            pages.new_page()
         for n, chunk in enumerate(chunks):
             y = pages.line(lead)
             if chunk:

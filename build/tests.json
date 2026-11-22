@@ -29840,8 +29840,29 @@
    "name": "console mask: the lab client writes no console password into the run log",
    "run": ".venv/bin/pytest tests/test_6edq_console_mask.py::test_6edq_the_lab_client_writes_no_console_password_into_the_run_log",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-CP-001",
+   "phase": "T",
+   "name": "pdf code pages: a code block that fits a page moves whole to the next page",
+   "run": ".venv/bin/pytest tests/test_pdf_code_pages.py::test_bytg_a_code_block_that_fits_a_page_moves_whole_to_the_next_page",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-CP-002",
+   "phase": "T",
+   "name": "pdf code pages: a code block longer than a page breaks between its lines",
+   "run": ".venv/bin/pytest tests/test_pdf_code_pages.py::test_bytg_a_code_block_longer_than_a_page_breaks_between_its_lines",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-CP-003",
+   "phase": "T",
+   "name": "pdf code pages: a short code block in room stays where it is",
+   "run": ".venv/bin/pytest tests/test_pdf_code_pages.py::test_bytg_a_short_code_block_in_room_stays_where_it_is",
+   "status": "passing"
   }
  ],
- "total_tests": 4263,
+ "total_tests": 4266,
  "checked": "2026-11-22"
 }
