@@ -242,7 +242,9 @@ below a resource the run made). A delete that answers 2xx or 404 removes the rec
 resource by another API version (`/v1.1/images/ID` for `/v2/images/ID`), what was recorded below it and a leftover
 of an earlier run of the project on the tenant. The call log is
 `notes/lab-runs/<run>.log` of the project; a boot script (user_data) is written there only as a placeholder with its
-length, and the commit gate checks the log for secrets only. A log that grows over 2 MiB (a run log or a Windows
+length, a password the image prints on its serial console (the `user:password` lines after cloud-init's "Set the
+following 'random' passwords", a chpasswd line and its list, `password for USER: x`) as [secret] in the answer of the
+service and in the log, and the commit gate checks the log for secrets only. A log that grows over 2 MiB (a run log or a Windows
 lab log under `notes/winlab/`) moves to `full/` beside it (the writer adds it to the project's `.gitignore`) and
 git keeps `<run>.summary.md`: start, end, calls, errors, created resources, the path of the full log and its
 SHA-256 (`awb/lablog.py`, written again at the end of the run). After the move the full log is the run log: every

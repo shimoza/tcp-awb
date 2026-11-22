@@ -29812,8 +29812,36 @@
    "name": "review l0 services: without the flag every mention counts as before",
    "run": ".venv/bin/pytest tests/test_offered_negated.py",
    "status": "passing"
+  },
+  {
+   "id": "6EDQ-CM-001",
+   "phase": "T",
+   "name": "console mask: the random password line of cloud-init is masked raw and as json",
+   "run": ".venv/bin/pytest tests/test_6edq_console_mask.py::test_6edq_the_random_password_line_of_cloud_init_is_masked_raw_and_as_json",
+   "status": "passing"
+  },
+  {
+   "id": "6EDQ-CM-002",
+   "phase": "T",
+   "name": "console mask: chpasswd and password lines of a console are masked and prose stays",
+   "run": ".venv/bin/pytest tests/test_6edq_console_mask.py::test_6edq_chpasswd_and_password_lines_of_a_console_are_masked_and_prose_stays",
+   "status": "passing"
+  },
+  {
+   "id": "6EDQ-CM-003",
+   "phase": "T",
+   "name": "console mask: the key service masks the console in its answer",
+   "run": ".venv/bin/pytest tests/test_6edq_console_mask.py::test_6edq_the_key_service_masks_the_console_in_its_answer",
+   "status": "passing"
+  },
+  {
+   "id": "6EDQ-CM-004",
+   "phase": "T",
+   "name": "console mask: the lab client writes no console password into the run log",
+   "run": ".venv/bin/pytest tests/test_6edq_console_mask.py::test_6edq_the_lab_client_writes_no_console_password_into_the_run_log",
+   "status": "passing"
   }
  ],
- "total_tests": 4259,
- "checked": "2026-11-21"
+ "total_tests": 4263,
+ "checked": "2026-11-22"
 }

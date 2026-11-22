@@ -5,6 +5,10 @@ bodies and every id (domains, projects, users, groups, resources, request ids, t
 JWT). Only these are touched:
 
     password, login        replaced with [secret] and [login]
+    console password       a password an image prints on its serial console: the `user:password` lines after the
+                           cloud-init line "Set the following 'random' passwords", the `user:password` pairs of a
+                           chpasswd line and the lines of its list, `password for user: x`, also inside the JSON of
+                           an os-getConsoleOutput answer where a line break is the two characters \\n (tcp-6edq)
     temporary credential   an IAM token, a JWT, a security token, a signature, a bearer value and the access and
                            secret key of a temporary credential (a text that carries a security token) are
                            shortened to their first 8 characters, "..." and the length: `MIIEhgYJ...(4321 chars)`
@@ -42,8 +46,11 @@ _KEY_RE = re.compile(
     r"(?i)(?<![\w-])(?P<key>[\"']?(?:access|secret|ak|sk|access[_-]?key(?:[_-]?id)?|accesskey(?:id)?|"
     r"secret[_-]?(?:access[_-]?)?key|secretkey)" + _SEP + r")" + _LONG)
 _SIGNED_ACCESS_RE = re.compile(r"(?P<key>\bAccess=)(?P<q>)(?P<value>[A-Za-z0-9]{12,})")
+_AFTER_BREAK = r"(?:(?<![\w-])|(?<=\\[nrt]))"
+"""The start of a field: no word character before it, or a line break or a tab written as JSON escapes (the
+console text under output of os-getConsoleOutput, `...\\npassword: x`)."""
 _PASSWORD_RE = re.compile(
-    r"(?i)(?<![\w-])(?P<key>[\"']?(?:[\w.-]*[_.-])?(?:pass(?:word|wd|wort|phrase)?|pwd|kennwort)" + _SEP + r")"
+    r"(?i)" + _AFTER_BREAK + r"(?P<key>[\"']?(?:[\w.-]*[_.-])?(?:pass(?:word|wd|wort|phrase)?|pwd|kennwort)" + _SEP + r")"
     + _VALUE)
 PS_PASSWORD_RE = re.compile(
     r"""(?i)(?<![\w-])(?P<key>(?:-[A-Za-z]*(?:password|passwort|pwd)|convertto-securestring(?:[ \t]+-string)?)"""
@@ -67,9 +74,63 @@ def ps_password_sub(text: str, counts: Counter) -> str:
 
 
 _LOGIN_RE = re.compile(
-    r"(?i)(?<![\w-])(?P<key>[\"']?(?:login(?:[_-]?name)?|user[_-]?name|username)" + _SEP + r")" + _VALUE)
+    r"(?i)" + _AFTER_BREAK + r"(?P<key>[\"']?(?:login(?:[_-]?name)?|user[_-]?name|username)" + _SEP + r")" + _VALUE)
 _AUTH_USER_RE = re.compile(r"""(?P<key>"user"\s*:\s*\{[^{}]*?"name"\s*:\s*")(?P<q>)(?P<value>[^"\n]+)(?=")""")
 """The name of the user in an IAM body ({"user": {"name": ...}}): the login of a password or a user call."""
+_PASSWORD_FOR_RE = re.compile(
+    r"(?i)" + _AFTER_BREAK + r"(?P<key>(?:new[ \t]+)?password[ \t]+(?:for|of)[ \t]+(?:user[ \t]+)?[\w.@-]{1,64}[ \t]*"
+    r"(?:is[ \t]+|[:=][ \t]*))"
+    r"""(?P<q>["']?)(?P<value>(?=[^\s"'`,;<>(){}\[\]]*[\d!#$%&*+?@^~])[^\s"'`,;<>(){}\[\]]+)""")
+"""`Password for ubuntu: x`, `new password of user root is x`: a console line that names the user first. The
+value carries a digit or a symbol, so prose (`the password for root: change it`) stays."""
+_CONSOLE_HINT_RE = re.compile(r"(?i)chpasswd|set the following '?random'? passwords?")
+_CONSOLE_BREAK_RE = re.compile(r"(\r?\n|\\r\\n|\\n|\\r)")
+"""A line break of a console text: a real one or the JSON escape of one (\\n, \\r\\n)."""
+_RANDOM_HEAD_RE = re.compile(r"(?i)set the following '?random'? passwords?")
+_CONSOLE_PAIR_LINE_RE = re.compile(
+    r"""(?P<key>[ \t"']*(?:\[[ \t\d.]+\][ \t]*)?(?:cloud-init\[\d+\]:[ \t]*)?(?:-[ \t]+)?["']?"""
+    r"""[a-z_][a-z0-9_.-]{0,31}:)(?P<q>)(?P<value>[^\s"'\\]+)(?P<rest>["']?[ \t]*["']?[ \t]*,?[ \t]*)""")
+"""A line of a console password list (`ubuntu:x`, `  - root:x`, `[  12.3] cloud-init[812]: ubuntu:x`)."""
+_CHPASSWD_LIST_RE = re.compile(r"""(?i)[ \t"']*(?:list|expire|users|type)["']?[ \t]*:.*""")
+_INLINE_PAIR_RE = re.compile(r"""(?<![\w./:@-])(?P<key>[a-z_][a-z0-9_.-]{0,31}:)(?P<q>)(?P<value>[^\s"'\\|;:/][^\s"'\\|;]*)""")
+
+
+def _console_passwords(text: str, counts: Counter) -> str:
+    """`text` with the passwords of a console masked: the `user:password` lines after the cloud-init line "Set the
+    following 'random' passwords", the `user:password` pairs on a chpasswd line and the list lines after it. A line
+    break may be the JSON escape \\n of an answer body."""
+    if not _CONSOLE_HINT_RE.search(text):
+        return text
+    parts = _CONSOLE_BREAK_RE.split(text)
+
+    def value(m) -> str:
+        """The text of the match `m` with its value masked."""
+        if _kept(m.group("value")):
+            return m.group(0)
+        counts["secret"] += 1
+        a, b = m.start("value") - m.start(), m.end("value") - m.start()
+        return m.group(0)[:a] + SECRET + m.group(0)[b:]
+
+    state = 0                   # 1: after the random passwords line, 2: after a chpasswd line
+    for i in range(0, len(parts), 2):
+        line = parts[i]
+        if state:
+            m = _CONSOLE_PAIR_LINE_RE.fullmatch(line)
+            if m:
+                parts[i] = value(m)
+                continue
+            if state == 2 and _CHPASSWD_LIST_RE.fullmatch(line):
+                continue
+            state = 0
+        if _RANDOM_HEAD_RE.search(line):
+            state = 1
+        elif "chpasswd" in line.lower():
+            parts[i] = _INLINE_PAIR_RE.sub(lambda m: m.group(0) if m.group("key").lower() == "chpasswd:" else value(m),
+                                           line)
+            state = 2
+    return "".join(parts)
+
+
 _REFERENCE_RE = re.compile(r"^(?:var|local|module|data|each|self|path|count)\.[\w.\[\]-]+$")
 """A reference of Terraform (var.admin_password), never a value."""
 _TEMP_HINT_RE = re.compile(r"(?i)security[_-]?token|x-security-token|sessiontoken|session_token")
@@ -185,7 +246,9 @@ def _shorten(text: str, counts: Counter) -> tuple[str, Counter]:
             return m.group("key") + m.group("q") + new
         return sub
 
+    text = _console_passwords(text, counts)
     text = _PASSWORD_RE.sub(field("secret"), text)
+    text = _PASSWORD_FOR_RE.sub(field("secret"), text)
     text = ps_password_sub(text, counts)
     text = _LOGIN_RE.sub(field("login"), text)
     text = _AUTH_USER_RE.sub(field("login"), text)
