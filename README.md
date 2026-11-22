@@ -1000,7 +1000,8 @@ edits the text and never invents a label. A draft that exists is not overwritten
 
 `--internal` writes the version with images for your own use: each step cites its source and embeds its image from
 `deliverables/images/` (only the cited ones). `awb howto render FILE` writes one self-contained HTML file next to the
-draft and refuses a draft with images unless `--internal`; an internal page says "internal, never publish" at the top
+draft, a fenced code block (three backticks or tildes, with or without a language) as a code block whose lines a
+reader copies as written, also one indented under a step, and refuses a draft with images unless `--internal`; an internal page says "internal, never publish" at the top
 and never goes out. `awb xchg put` refuses an HTML or Markdown file that embeds or links an image unless the owner
 passes `--internal-image` in his own terminal. `--pdf` also writes the PDF of the page next to it with the writer
 of `awb pdf` (see "A PDF of a deliverable" below). The outward text goes out with `awb xchg put FILE` to a

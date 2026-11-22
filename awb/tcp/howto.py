@@ -180,7 +180,11 @@ def draft(topic: str, *, base: Path, project: Path, service: str | None = None, 
 
 _CSS = ("body{font:16px/1.5 system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;color:#1b1b1b}"
         "img{max-width:100%;border:1px solid #bbb;margin:.5rem 0}code{background:#f0f0f0;padding:0 .2em}"
-        "li{margin:.8rem 0}")
+        "li{margin:.8rem 0}pre{background:#f0f0f0;padding:.6rem .8rem;overflow-x:auto;line-height:1.35}"
+        "pre code{padding:0;background:none}")
+_FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})\s*([\w+#.-]*)[^`]*$")
+"""The opening line of a fenced code block: its indent, the fence (three or more backticks or tildes) and the
+language word."""
 
 
 def _inline(text: str, root: Path, problems: list[str]) -> str:
@@ -237,7 +241,33 @@ def to_html(markdown: str, root: Path) -> tuple[str, list[str]]:
             body.append("<p>%s</p>" % _inline(" ".join(para), root, problems))
             para.clear()
 
+    fence: tuple[str, str, str] | None = None     # an open code block: its indent, its fence and its language
+    code: list[str] = []
+
+    def end_code() -> None:
+        lang = fence[2]
+        attr = ' class="language-%s"' % html.escape(lang, quote=True) if lang else ""
+        block = "<pre><code%s>%s</code></pre>" % (attr, html.escape("\n".join(code), quote=False))
+        body.append(block)
+        code.clear()
+
     for raw in markdown.splitlines():
+        if fence is not None:
+            indent, mark, _ = fence
+            closing = raw.strip()
+            if closing[:1] == mark[0] and set(closing) == {mark[0]} and len(closing) >= len(mark):
+                end_code()
+                fence = None
+            else:
+                code.append(raw[len(indent):] if raw.startswith(indent) else raw.lstrip())
+            continue
+        opened = _FENCE_RE.match(raw)
+        if opened:
+            flush()
+            if not (opened.group(1) and stack):     # a block indented under a step stays in the step
+                close()
+            fence = (opened.group(1), opened.group(2), opened.group(3))
+            continue
         line = raw.rstrip()
         h = re.match(r"^(#{1,3})\s+(.*)$", line)
         ol = re.match(r"^(\d+)\.\s+(.*)$", line)
@@ -288,6 +318,8 @@ def to_html(markdown: str, root: Path) -> tuple[str, list[str]]:
         else:
             close()
             para.append(line.strip())
+    if fence is not None:                         # a block without its closing fence ends with the draft
+        end_code()
     flush()
     close()
     doc = ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>%s</title>'
