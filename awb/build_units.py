@@ -173,7 +173,12 @@ class Host:
     model_key: Path | None = None
     model: str = "key"
     """build_model of the host file: `login` (his subscription login in the build user's home, the default of the
-    host file) or `key` (the model key above). The tests and the selftest default to `key` without a key."""
+    host file) or `key` (the model key above). The tests and the selftest default to `key` without a key. With
+    `build_model = auto` this is the model of the next session, chosen by the runner (awb/buildbudget.py)."""
+    mode: str = ""
+    """build_model as the host file says it (login, key or auto); empty is the same as `model`."""
+    key_cap: float = 25.0
+    """key_week_cap_usd of the host file: the cap of the key runs of one week on the auto fallback."""
     register: Path | None = None
     build_uid: int | None = None
     git_run: Callable = subprocess.run
@@ -199,6 +204,10 @@ class Host:
     quiet: bool = False
     working: Path | None = None
     """The owner's working copy `awb build check` takes a branch or commit from; None is the current folder."""
+
+    @property
+    def build_mode(self) -> str:
+        return self.mode or self.model
 
     @property
     def main_git(self) -> Path:
@@ -242,12 +251,15 @@ class Host:
             uid = pwd.getpwnam(user).pw_uid
         except KeyError:
             uid = None
-        model = conf.get("build_model", "login")
-        key = conf.get("build_model_key") if model == "key" else None
+        from awb import buildbudget
+
+        mode = conf.get("build_model", "login")
+        model = "login" if mode == "auto" else mode
+        key = conf.get("build_model_key") if mode in ("key", "auto") else None
         p = config.paths()
         return cls(root=build_root(), runs=build.runs_dir(), queue=build.queue_dir(),
                    units=SystemdUnits(user), board=p.shared / "build", model_key=Path(key) if key else None,
-                   model=model,
+                   model=model, mode=mode, key_cap=buildbudget.cap_of(conf),
                    register=p.register, build_uid=uid, push=conf.get("build_push", "yes") in ("yes", "deployed"),
                    push_deployed=conf.get("build_push", "yes") == "deployed",
                    push_url=conf.get("build_push_url", PUSH_URL), mail=send_mail)

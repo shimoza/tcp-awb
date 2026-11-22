@@ -583,11 +583,12 @@ OWNER_ENDED = [
      "end": "2026-11-20T06:41:00Z", "outcome": "red"},
     {"kind": "labrun", "id": "run-20261120-071500-ab2c", "project": "tcp-q7m4", "start": "2026-11-20T07:15:00Z",
      "end": "2026-11-20T08:02:00Z", "outcome": "ok"}]
-EVENT_KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login")
+EVENT_KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login", "budget")
 EVENT_KINDS_TEXT = ("task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of "
-                    "an awb timer unit), vault or keys (the daemon locked or down) or login (a lapsed Claude login).")
+                    "an awb timer unit), vault or keys (the daemon locked or down), login (a lapsed Claude login) "
+                    "or budget (the build on the API key after a subscription limit or the weekly key cap reached).")
 EVENT_ID_TEXT = ("The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab "
-                 "run, the timer unit without .service, vault, keys or build-user.")
+                 "run, the timer unit without .service, vault, keys, build-user, key-fallback or key-cap.")
 HEALTH_ANSWER = {
     "generated_at": "2026-11-20T09:30:00Z",
     "health": [

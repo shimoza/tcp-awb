@@ -448,7 +448,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0 if word in ("sent", "empty") else 1
             view = "all" if a.all is not None else "dev" if a.dev else "decisions"
             items, parked = ownerwait.collect(view=view, code=a.all or None)
-            print("\n".join(events.status_lines(events.folder()) + [""]
+            from awb import buildbudget
+
+            print("\n".join(events.status_lines(events.folder()) + [buildbudget.host_line(), ""]
                             + ownerwait.render(items, parked, ownerwait.notes())))
             return 0
         global REUSE

@@ -53,10 +53,13 @@ from pathlib import Path
 from awb import codes
 
 FILE = "events.jsonl"
-KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login")
+KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login", "budget")
 STATE_KINDS = ("vault", "keys", "login")
 """An open item of these kinds is a state that waits on the owner (locked, lapsed), its end the state gone."""
 LOGIN_IDS = ("build-user",)
+BUDGET_IDS = ("key-fallback", "key-cap")
+"""The budget of the build runner (awb/buildbudget.py): an open item is the build on the API key after a subscription
+limit (its ETA the reset) or the weekly key cap reached; the runner mails each switch itself, the push sends none."""
 OUTCOMES = ("ok", "red", "stopped", "needs-you")
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}")
 PROJECT_RE = re.compile(r"(?:%s|%s)" % (codes.PROJECT, codes.TCP_PROJECT_WIDE))   # status_shape.PROJECT_CODE_RE
@@ -68,7 +71,8 @@ HISTORY = 10
 """The ETA of a task, a check or a deploy: the median duration of the last HISTORY ended items of its kind."""
 RUNNING_MAX = 200
 KIND_SHOWN = {"task": "build task", "check": "check", "deploy": "deploy", "lab": "lab window", "ask": "dev ask",
-              "labrun": "lab run", "job": "timer job", "vault": "vault", "keys": "key service", "login": "login"}
+              "labrun": "lab run", "job": "timer job", "vault": "vault", "keys": "key service", "login": "login",
+              "budget": "build budget"}
 STATE_SHOWN = {"vault": ("the vault locked", "the vault unlocked"),
                "keys": ("the key service locked", "the key service unlocked"),
                "login": ("the Claude login of the %s lapsed", "the Claude login of the %s back")}
@@ -104,7 +108,8 @@ def _valid(kind: str, eid: str, project: str | None) -> bool:
     return (kind in KINDS and isinstance(eid, str) and bool(ID_RE.fullmatch(eid))
             and (project is None or (isinstance(project, str) and bool(PROJECT_RE.fullmatch(project))))
             and (kind not in ("vault", "keys") or (eid == kind and project is None))
-            and (kind != "login" or (eid in LOGIN_IDS and project is None)))
+            and (kind != "login" or (eid in LOGIN_IDS and project is None))
+            and (kind != "budget" or (eid in BUDGET_IDS and project is None)))
 
 
 def _append(board: Path, data: dict, create: bool) -> bool:
@@ -324,7 +329,13 @@ def _hm(stamp: str | None, today: dt.date) -> str:
     return t.strftime("%H:%M") if t.date() == today else t.strftime("%m-%d %H:%M")
 
 
+BUDGET_SHOWN = {"key-fallback": ("build tasks on the API key", "build tasks back on the login"),
+                "key-cap": ("the weekly key cap of the build reached", "the weekly key cap of the build cleared")}
+
+
 def _what(item: dict, ended: bool = False) -> str:
+    if item["kind"] == "budget":
+        return BUDGET_SHOWN[item["id"]][1 if ended else 0]
     if item["kind"] in STATE_KINDS:
         text = STATE_SHOWN[item["kind"]][1 if ended else 0]
         return text % item["id"].replace("-", " ") if "%s" in text else text

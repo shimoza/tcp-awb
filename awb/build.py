@@ -714,6 +714,8 @@ def _waits(task: Task, run: Run | None, done: set[str], states: dict[str, str], 
         return "your answer: awb build answer %s" % task.id
     if w == "red":
         return "your word: awb build retry %s or awb build widen %s PATH..." % (task.id, task.id)
+    if run.state == "held: usage limit":
+        return "the runner: the API key (build_model = auto) or the reset of the subscription limit"
     if w in ("hung", "stopped", "held", "interrupted", "stale"):
         return "your word: awb build retry %s" % task.id
     if w == "green":
@@ -1355,8 +1357,11 @@ def main(argv: list[str] | None = None) -> int:
 
             return builddraft.cmd_draft(args.finding, args.source, args.out, args.tid)
         if args.command == "list":
+            from awb import buildbudget
+
             for ln in list_lines() or ["build: the queue is empty"]:
                 _out(ln)
+            _out(buildbudget.host_line())
             return 0
         if args.command == "status":
             if args.ended:

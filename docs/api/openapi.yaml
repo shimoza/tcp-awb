@@ -7261,7 +7261,7 @@ components:
       properties:
         kind:
           type: string
-          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down) or login (a lapsed Claude login).
+          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down), login (a lapsed Claude login) or budget (the build on the API key after a subscription limit or the weekly key cap reached).
           enum:
             - task
             - check
@@ -7273,9 +7273,10 @@ components:
             - vault
             - keys
             - login
+            - budget
         id:
           type: string
-          description: The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys or build-user.
+          description: The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys, build-user, key-fallback or key-cap.
           pattern: "^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"
         project:
           type:
@@ -7307,7 +7308,7 @@ components:
       properties:
         kind:
           type: string
-          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down) or login (a lapsed Claude login).
+          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down), login (a lapsed Claude login) or budget (the build on the API key after a subscription limit or the weekly key cap reached).
           enum:
             - task
             - check
@@ -7319,9 +7320,10 @@ components:
             - vault
             - keys
             - login
+            - budget
         id:
           type: string
-          description: The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys or build-user.
+          description: The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys, build-user, key-fallback or key-cap.
           pattern: "^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"
         project:
           type:

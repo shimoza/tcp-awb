@@ -1681,7 +1681,13 @@ the build user's home only the token fields (`accessToken`, `refreshToken`, `exp
 (and the same account id, where the login there has one) as the login there and expires later by at most 48 hours; a login
 of the task that names another or none stays where it is and the run's `result.md` says so in one line (a task
 cannot replace your login with its own). `build_model = key` in `/etc/awb/paths.conf` switches
-to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. The runner's unit `awb-buildd.service` is installed and
+to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. `build_model = auto`
+runs on your login and, after a subscription limit (the 5-hour or the weekly one), holds the task as `held: usage
+limit`, runs it again and the next ones on that key until the reset (sonnet, opus only for a block whose title names
+a security review) and goes back to the login then; `key_week_cap_usd` (25 unless you write another) caps the key
+runs of a week, at the cap the queue waits as `key cap`. Each switch is one mail with the spend of the week, and
+`awb build list` and `awb owner status` name the mode (`awb/buildbudget.py`). With `login` a limit holds the task
+and the queue until the reset. The runner's unit `awb-buildd.service` is installed and
 you enable it when you are ready (`sudo systemctl enable --now awb-buildd.service`); `sudo seal/verify.sh` proves the rest. `seal/README.md`, section "The build side", has the details.
 
 | when | what to run |

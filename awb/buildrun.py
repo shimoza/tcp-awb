@@ -58,6 +58,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import fcntl
+import json
 import math
 import os
 import re
@@ -66,7 +67,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from awb import build, build_probe, config, events, parts  # noqa: F401 (build_probe: reached through parts.join)
+from awb import build, build_probe, buildbudget, config, events, parts  # noqa: F401 (build_probe: through parts.join)
 from awb.build_checks import (BUNDLE_MAX, CHECK_WAIT, TAIL_LINES, GitFailed, Stop, _fail, _json, _matcher,
                               _plain_path, check_answer, check_books, check_branch_commits, check_client,
                               check_commits, check_gate, check_hollow, check_identity, check_onto_main, check_outdir,
@@ -74,7 +75,7 @@ from awb.build_checks import (BUNDLE_MAX, CHECK_WAIT, TAIL_LINES, GitFailed, Sto
                               commit_fields, ensure_main, fetch_bundle, fetch_ref, git, handover, is_ancestor,
                               oversized, owner_identity, parse_result, resolve_ref, rev, roll_week, scan_commits,
                               unit_run)
-from awb.build_unit_side import MODELS, SHA_RE, UUID_RE, handin
+from awb.build_unit_side import KEY_IN_HOME, MODELS, SHA_RE, UUID_RE, handin
 from awb.build_units import (CLIENT, PROBE_UNIT, RESULTS, SMALL_MAX, UNIT_RE, Ctx, Ended, Host, Spec, _hidden, _read,
                              _take, _text, _write, board_read, board_write, client_argv, model_allow, name_binds,
                              resolvers, wait)
@@ -160,7 +161,8 @@ class Runner:
 
     def event_end(self, tid: str, state: str) -> None:
         h = self.host
-        outcome = events.build_outcome(state)
+        # a task held for a subscription limit waits on the runner, not on him: no needs-you push for it
+        outcome = "stopped" if state == buildbudget.HELD_LIMIT else events.build_outcome(state)
         if h.board is not None and outcome is not None:
             events.end(event_kind(tid), tid, outcome, board=h.board, now=h.now())
 
@@ -271,14 +273,45 @@ class Runner:
         """The build model of the host file is login or key; with login, a task held for a missing login holds the
         whole queue until he logs in and retries it (the owner cannot look into the build user's home himself)."""
         h = self.host
-        if h.model not in MODELS:
+        if h.model not in MODELS or h.mode not in ("",) + buildbudget.MODES:
             return "build model"
+        if h.build_mode in buildbudget.MODES:
+            hold = buildbudget.choose(h.build_mode, h.runs, h.wall(), h.key_cap)[1]
+            if hold is not None:
+                return hold
         if h.model == "login":
             for tid in build.ids_with_runs(h.runs):
                 r = build.latest(tid, h.runs)
                 if r is not None and r.state == LOGIN_HELD:
                     return "login missing"
         return None
+
+    def budget_tick(self) -> str | None:
+        """The budget (awb/buildbudget.py): the switches since the last pass mailed, with build_model = auto the
+        model of the next session; returns the hold of the budget or None."""
+        h = self.host
+        mode = h.build_mode
+        if mode not in buildbudget.MODES or h.model not in MODELS:
+            return None
+        buildbudget.tick(mode, h.runs, h.wall(), h.key_cap, h.board, self.mail)
+        model, hold = buildbudget.choose(mode, h.runs, h.wall(), h.key_cap)
+        if mode == "auto":
+            h.model = model
+        return hold
+
+    def release_limits(self, by_id: dict) -> None:
+        """A task held for a subscription limit gets a new queued run once the budget lets a session start (the key
+        fallback or the reset passed); the held run stays as its record."""
+        h = self.host
+        for tid in build.ids_with_runs(h.runs):
+            r = build.latest(tid, h.runs)
+            if r is None or r.state != buildbudget.HELD_LIMIT or tid not in by_id:
+                continue
+            with build.task_lock(tid, h.runs):
+                cur = build.latest(tid, h.runs)
+                if cur is not None and cur.n == r.n and cur.state == buildbudget.HELD_LIMIT:
+                    build.new_run(tid, h.runs, now=h.now())
+                    self.log("%s run %d: held for the usage limit, queued again on the %s" % (tid, r.n, h.model))
 
     def poll_once(self) -> bool:
         """One pass: the open business of the records first, then the next task. True when something ran."""
@@ -288,6 +321,8 @@ class Runner:
         except OSError:
             tasks = []
         by_id = {t.id: t for t in tasks}
+        if self.budget_tick() is None:
+            self.release_limits(by_id)
         for tid in build.ids_with_runs(h.runs):
             r = build.latest(tid, h.runs)
             if r is None:
@@ -313,8 +348,9 @@ class Runner:
             if why != self.held_queue:
                 self.held_queue = why
                 self.log("queue held: %s" % why)
-                self.mail("Workbench build queue: held", ["The queue is held: %s." % why,
-                                                          "No session is spent until it clears."])
+                if why not in buildbudget.HOLDS:     # the budget mails its own switches
+                    self.mail("Workbench build queue: held", ["The queue is held: %s." % why,
+                                                              "No session is spent until it clears."])
             self.write_board()
             return False
         if self.held_queue is not None:
@@ -433,6 +469,7 @@ class Runner:
         found = model_allow(h)
         if found is None:
             return self.finish(ctx, "held: model endpoint")
+        _write(ctx.folder / "model", h.model + "\n")
         bundle = ctx.folder / "main.bundle"
         git(h, "bundle", "create", "--quiet", str(bundle), "refs/heads/main")
         key = (_key(h) or b"") if h.model == "key" else b""
@@ -482,6 +519,7 @@ class Runner:
             build.write_state(ctx.folder, "answered", h.now())
             self.held_queue = "model endpoint"
             return None
+        _write(ctx.folder / "model", h.model + "\n")
         _write(ctx.folder / "handin", handin((_key(h) or b"") if h.model == "key" else b"", None))
         try:
             e = unit_run(h, ctx, "prep", ["rekey", str(h.root), task.id, str(run.n), session] +
@@ -510,9 +548,14 @@ class Runner:
         self.phase(ctx, "agent")
         clone, home = h.clone(ctx.tid, ctx.n), h.home(ctx.tid, ctx.n)
         t = h.template
-        spec = Spec("awb-task-%s" % ctx.tid, client_argv(h, ctx.task, session), clock, str(clone), str(home),
+        task, settings = ctx.task, t / ".claude" / "settings.json"
+        if h.build_mode == "auto" and h.model == "key":
+            # the key fallback: sonnet unless the block is an opus security review, the settings with apiKeyHelper
+            task = dataclasses.replace(task, model=buildbudget.fallback_model(task.model, task.title))
+            settings = key_settings(settings, ctx.folder)
+        spec = Spec("awb-task-%s" % ctx.tid, client_argv(h, task, session), clock, str(clone), str(home),
                     rw=[str(clone), str(home)], hidden=_hidden(h, ctx),
-                    binds=[(str(t / ".claude" / "settings.json"), str(home / ".claude" / "settings.json")),
+                    binds=[(str(settings), str(home / ".claude" / "settings.json")),
                            (str(t / ".claude" / "CLAUDE.md"), str(home / ".claude" / "CLAUDE.md")),
                            (str(t / ".gitconfig"), str(home / ".gitconfig"))] + name_binds(ctx.folder, names),
                     allow=allow, env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1"},
@@ -539,6 +582,11 @@ class Runner:
             os.unlink(ctx.folder / "stop-wanted")
         raw = _read(ctx.folder / "result.json", RESULT_MAX)
         obj = parse_result(raw)
+        used = (_text(ctx.folder / "model") or h.model).strip()
+        if used == "key":
+            usd, source = buildbudget.cost_of(obj, ctx.task.budget if ctx.task is not None else 0)
+            asked = len(list(ctx.folder.glob("result.asked-*.json")))
+            buildbudget.record(h.runs, h.wall(), ctx.tid, ctx.n, "r%d" % asked, usd, source)
         if obj is not None and isinstance(obj.get("result"), str):
             _write(ctx.folder / "message.txt", clean_message(obj["result"].encode("utf-8")))
         if obj is not None and isinstance(obj.get("session_id"), str) and UUID_RE.fullmatch(obj["session_id"]):
@@ -554,6 +602,11 @@ class Runner:
             check_answer(ctx, obj)
         except Stop as s:
             state = s.state
+        if state is not None and state not in ("asked", "stopped: by_owner") and used == "login":
+            found, reset = buildbudget.find_limit([raw, _read(ctx.folder / "agent.err", buildbudget.SCAN_MAX)],
+                                                  h.wall())
+            if found:
+                return self.limit_hit(ctx, reset)
         if state == "asked":
             clean(h, ctx, "key")
             self._checks_log(ctx)
@@ -565,6 +618,21 @@ class Runner:
                 return self.finish(ctx, state, note="one retry in %d min" % (h.retry_wait // 60))
             return self.finish(ctx, state)
         self.judge_and_merge(ctx)
+
+    def limit_hit(self, ctx: Ctx, reset: int | None) -> None:
+        """A session on the login that ended on a subscription limit: the task is held, not failed. The reset goes
+        into budget.json; with build_model = auto the next pass runs it again on the key (one switch mail), else it
+        runs again after the reset."""
+        h = self.host
+        clean(h, ctx, "home")
+        self._checks_log(ctx)
+        until = buildbudget.hit(h.runs, h.wall(), reset)
+        _write(ctx.folder / "limit", "%d\n" % until)
+        auto = h.build_mode == "auto"
+        self.finish(ctx, buildbudget.HELD_LIMIT, note="the subscription limit resets %s; the task runs again %s" % (
+            buildbudget._utc(until), "on the API key" if auto else "after the reset"), mail=not auto)
+        if auto:
+            buildbudget.tick("auto", h.runs, h.wall(), h.key_cap, h.board, self.mail)
 
     def _api_retry(self, ctx: Ctx, obj: dict | None) -> bool:
         """D-S4: an API error before the first tool call (num_turns 0 from a valid object), once, after ten
@@ -775,7 +843,7 @@ class Runner:
 
     # ------------------------------------------------------------------ the end of a run
 
-    def finish(self, ctx: Ctx, state: str, note: str = "") -> None:
+    def finish(self, ctx: Ctx, state: str, note: str = "", mail: bool = True) -> None:
         h = self.host
         prev = _text(ctx.folder / "state") or ""
         self.state(ctx, state)
@@ -787,7 +855,7 @@ class Runner:
         info = deployed_info(h)
         write_result(h, ctx, state, info, note)
         self.write_board(info)
-        if state.startswith("held: ") and prev.split("\t", 1)[0] == state:
+        if not mail or (state.startswith("held: ") and prev.split("\t", 1)[0] == state):
             return
         self.mail_run(ctx, state, info, note)
 
@@ -885,6 +953,23 @@ def acquire_lock(runs: Path) -> int | None:
         os.close(fd)
         return None
     return fd
+
+
+KEY_HELPER = 'cat "$HOME/%s"' % KEY_IN_HOME
+"""The apiKeyHelper of a key run on the auto fallback, the line seal/setup.sh writes for build_model = key."""
+
+
+def key_settings(template: Path, folder: Path) -> Path:
+    """The template's settings with apiKeyHelper (the key in the task home), for a key run on the auto fallback:
+    written into the run folder (644, the build user reads it in the unit) and bound over the home's settings."""
+    data = json.loads(_text(template) or "{}")
+    if not isinstance(data, dict):
+        raise ValueError("the template's settings are no object")
+    data.setdefault("apiKeyHelper", KEY_HELPER)
+    path = Path(folder) / "settings.key.json"
+    _write(path, json.dumps(data, indent=2) + "\n", 0o644)
+    os.chmod(path, 0o644)
+    return path
 
 
 def snapshot_prompt(host: Host, ctx: Ctx, prompt: str) -> None:
@@ -1042,6 +1127,8 @@ def next_step(ctx: Ctx, state: str) -> str:
         return "awb build retry %s or awb build widen %s PATH..." % (ctx.tid, ctx.tid)
     if state == LOGIN_HELD:
         return login_note(ctx.tid)
+    if state == buildbudget.HELD_LIMIT:
+        return "nothing: the runner runs it again on the API key (build_model = auto) or after the reset"
     if w == "held":
         return "the runner tries again when the cause clears"
     return "awb build retry %s" % ctx.tid
@@ -1244,7 +1331,8 @@ def _nudge_mark(r: build.Run) -> list[str] | None:
 def nudge_due(host: Host, r: build.Run) -> bool:
     """The run is asked, red or held for NUDGE_MINUTES and its state line of now has no mail yet. An answer, a widen
     or a retry writes a new state or a new run, so a due run had none of them since."""
-    if r.word not in NUDGE_WORDS or r.since is None or not _TSV_STATE.fullmatch(r.state):
+    if r.word not in NUDGE_WORDS or r.since is None or not _TSV_STATE.fullmatch(r.state) or \
+            r.state == buildbudget.HELD_LIMIT:
         return False
     if (host.now() - r.since).total_seconds() < NUDGE_MINUTES * 60:
         return False

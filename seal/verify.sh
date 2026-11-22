@@ -580,7 +580,7 @@ net_lines() {
     # net_lines MODEL: the lines of awb build probe (awb/build_probe.py probe_lines), in its order
     printf '%s\n' "the probe unit with a task's own properties runs as the build user" \
         "the probe unit reaches the model endpoint ($MODEL_HOST)"
-    [ "$1" != login ] || printf '%s\n' "the probe unit reaches the token host of his login ($TOKEN_HOST)"
+    [ "$1" = key ] || printf '%s\n' "the probe unit reaches the token host of his login ($TOKEN_HOST)"
     printf '%s\n' "the probe unit cannot reach a TCP API host ($TCP_API_HOST)" "the probe unit cannot reach $GITHUB_HOST" \
         "the probe unit cannot connect to the host's loopback (127.0.0.1:22)" \
         "the probe unit cannot connect to the resolver stub's address (127.0.0.53:22)" \
@@ -624,6 +624,14 @@ build_model_check() {
         key)
             grep -q '"apiKeyHelper"' "$t/.claude/settings.json" 2>/dev/null || out=1
             report "$out" "the build side runs on the model key (build_model = key)"
+            allowed "the model key of a build task is the owner's (400) and matches its source" sh -c \
+                'test -f "$1" && test ! -L "$1" && test "$(stat -c "%U %a" -- "$1")" = "$3 400" && cmp -s -- "$1" "$2"' \
+                verify "$(conf_value build_model_key)" "$(conf_value build_model_key_source)" "$owner"
+            ;;
+        auto)
+            grep -q '"apiKeyHelper"' "$t/.claude/settings.json" 2>/dev/null && out=1
+            [ -f "$login" ] && [ ! -L "$login" ] && [ "$(stat -c %U -- "$login")" = "$BUILD_USER" ] || out=1
+            report "$out" "the build side runs on his login and the model key after a limit (build_model = auto)"
             allowed "the model key of a build task is the owner's (400) and matches its source" sh -c \
                 'test -f "$1" && test ! -L "$1" && test "$(stat -c "%U %a" -- "$1")" = "$3 400" && cmp -s -- "$1" "$2"' \
                 verify "$(conf_value build_model_key)" "$(conf_value build_model_key_source)" "$owner"

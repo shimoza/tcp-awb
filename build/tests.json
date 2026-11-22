@@ -29924,8 +29924,92 @@
    "name": "side take old result: a side that writes its own result over the old one is taken",
    "run": ".venv/bin/pytest tests/test_6edq_side_take_old_result.py::test_6edq_a_side_that_writes_its_own_result_over_the_old_one_is_taken",
    "status": "passing"
+  },
+  {
+   "id": "BUDGET-001",
+   "phase": "T",
+   "name": "budget: the limit texts are found and their reset is parsed [weekly]",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_the_limit_texts_are_found_and_their_reset_is_parsed[weekly]",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-002",
+   "phase": "T",
+   "name": "budget: the limit texts are found and their reset is parsed [five-hour]",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_the_limit_texts_are_found_and_their_reset_is_parsed[five-hour]",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-003",
+   "phase": "T",
+   "name": "budget: the limit texts are found and their reset is parsed [date]",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_the_limit_texts_are_found_and_their_reset_is_parsed[date]",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-004",
+   "phase": "T",
+   "name": "budget: the limit texts are found and their reset is parsed [minutes]",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_the_limit_texts_are_found_and_their_reset_is_parsed[minutes]",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-005",
+   "phase": "T",
+   "name": "budget: the limit texts are found and their reset is parsed [epoch]",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_the_limit_texts_are_found_and_their_reset_is_parsed[epoch]",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-006",
+   "phase": "T",
+   "name": "budget: the limit texts are found and their reset is parsed [rate-limit]",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_the_limit_texts_are_found_and_their_reset_is_parsed[rate-limit]",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-007",
+   "phase": "T",
+   "name": "budget: the fallback model is sonnet unless an opus security review",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_the_fallback_model_is_sonnet_unless_the_block_is_an_opus_security_review",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-008",
+   "phase": "T",
+   "name": "budget: each switch is one event and one mail with the spend, the cap holds until the next week",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_each_switch_is_one_event_and_one_mail_with_the_spend_and_the_cap_holds_until_the_next_week",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-009",
+   "phase": "T",
+   "name": "budget: a hit without a reset waits an hour, the host file reads auto and the cap",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_a_hit_without_a_reset_waits_an_hour_and_the_host_file_reads_auto_and_the_cap",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-010",
+   "phase": "T",
+   "name": "budget: auto holds the task on a limit, runs it on the key with sonnet, back after the reset",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_auto_holds_the_task_on_a_limit_then_runs_it_on_the_key_with_sonnet_and_goes_back_after_the_reset",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-011",
+   "phase": "T",
+   "name": "budget: auto at the key cap holds the queue with one mail and list names it",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_auto_at_the_key_cap_holds_the_queue_with_one_mail_and_list_names_it",
+   "status": "passing"
+  },
+  {
+   "id": "BUDGET-012",
+   "phase": "T",
+   "name": "budget: login mode holds the task and the queue until the reset",
+   "run": ".venv/bin/pytest tests/test_build_budget.py::test_login_mode_holds_the_task_and_the_queue_until_the_reset_then_runs_it_on_the_login",
+   "status": "passing"
   }
  ],
- "total_tests": 4275,
+ "total_tests": 4287,
  "checked": "2026-11-22"
 }

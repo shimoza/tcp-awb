@@ -782,14 +782,14 @@ kept_conf() {
     printf '%s' "${value:-$2}"
 }
 
-# build_model_mode: build_model of the host file (login unless it says key; a test's dry run may name it); any
-# other value refuses the plan before the first change
+# build_model_mode: build_model of the host file (login unless it says key or auto; a test's dry run may name it);
+# any other value refuses the plan before the first change
 build_model_mode() {
     local mode="${AWB_SETUP_BUILD_MODEL:-}"
     [ -n "$mode" ] || mode=$(kept_conf build_model "$BUILD_MODEL_DEFAULT")
     case "$mode" in
-        login | key) printf '%s' "$mode" ;;
-        *) die "build_model in $CONF_FILE is login or key" ;;
+        login | key | auto) printf '%s' "$mode" ;;
+        *) die "build_model in $CONF_FILE is login, key or auto" ;;
     esac
 }
 
@@ -838,6 +838,7 @@ build_model = $build_model
 build_model_key = $BUILD_MODEL_KEY
 build_model_key_source = $(kept_conf build_model_key_source "$BUILD_MODEL_KEY_SOURCE")
 build_push = $(kept_conf build_push yes)
+key_week_cap_usd = $(kept_conf key_week_cap_usd 25)
 $web_keys
 EOF
     run_if_present "$CONF_DIR/blocklist.txt" chown root:"$WORK_GROUP" "$CONF_DIR/blocklist.txt"
@@ -1547,6 +1548,13 @@ build_model_credential() {
     # in the build user's own home; no key copy then, and one left from an earlier key mode goes. key: the copy below
     if [ "$build_model" = key ]; then
         info "the build model is the model key (build_model = key in the host file)"
+        build_model_key
+        return 0
+    fi
+    if [ "$build_model" = auto ]; then
+        # awb/buildbudget.py: the login, the key after a subscription limit; the settings stay without apiKeyHelper,
+        # the runner binds its own copy with the helper for a key run
+        info "the build model is his login with the model key after a subscription limit (build_model = auto)"
         build_model_key
         return 0
     fi

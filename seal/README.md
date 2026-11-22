@@ -273,6 +273,9 @@ most 64 MB and no `/dev/mqueue`. A probe of that unit counts only after the unit
   `apiKeyHelper`. The runner hands the key to each task's home and removes it with the home. It is the owner's file,
   not root's with the owner's group: the runner's unit carries the group `awb`, not his own group, and the host has
   no ACL tools.
+- With `auto` (awb/buildbudget.py): the login and the key copy as with `key`; the template's settings stay without
+  `apiKeyHelper`, the runner binds a copy with it from the run folder for a key run after a subscription limit. The
+  host file keeps `key_week_cap_usd` (25 unless he wrote another), the weekly cap of those key runs.
 - `tcp-shared/build` (the work user's, group `awb`, 3770): the runner writes `state.tsv` there for the board.
 - The host file gets `build_model` (login unless he wrote key), `build_model_key`, `build_model_key_source` and
   `build_push` (yes unless he wrote no or deployed: the runner pushes a green `main` to GitHub, D-S2; `deployed` pushes only up to the commit `/opt/tcp-awb/DEPLOYED` names as live; the update keeps the value).
