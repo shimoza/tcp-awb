@@ -1310,7 +1310,12 @@ the `.awb-part` of a transfer are ignored in every project by its `.git/info/exc
 A received file is checked in place: a name or a secret deletes it. When the name check cannot run (the vault is
 locked, the rate limit wait ran out) the get keeps the file unpublished as `FILE.awb-part` with its SHA-256 and how
 far the checks got; the same get with `--recheck` checks it again from there, without a transfer and without an open
-window, and a part changed since the get is deleted.
+window, and a part changed since the get is deleted. A complete transfer is never deleted for a check that did not
+run: a SIGTERM or SIGHUP during the checks (a tool call that ran out of time) ends the get with one state line
+("kept unpublished as FILE.awb-part (checked to X of Y) ... --recheck goes on from there"), a get killed outright
+leaves its file under the private name its record names and the next get or `--recheck` gives it its part name back,
+and a machine that gave no SHA-256 keeps the part for the same get again, without a transfer. A check over 64 MB
+prints a progress line every minute.
 A disk image that get brings from a lab machine is our own lab output and gets no name check: after the transfer and
 the SHA-256 compare it gets the secret check (none in a public image window) and is published, and the run log and
 the project ledger get one line with the file, size, SHA-256 and "own lab output, no name check". The rule is to check

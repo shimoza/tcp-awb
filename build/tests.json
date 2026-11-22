@@ -29756,8 +29756,36 @@
    "name": "lab image delete: the same id under another kind or an object of a bucket is not matched",
    "run": ".venv/bin/pytest tests/test_bytg_lab_image_delete.py::test_bytg_the_same_id_under_another_kind_or_an_object_of_a_bucket_is_not_matched",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-WK-001",
+   "phase": "T",
+   "name": "winlab get kept: a signal during the check keeps the image and recheck resumes it",
+   "run": ".venv/bin/pytest tests/test_bytg_winlab_get_kept.py::test_bytg_a_signal_during_the_check_keeps_the_image_and_recheck_resumes_it",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WK-002",
+   "phase": "T",
+   "name": "winlab get kept: a killed get gives the file back and the same get needs no transfer",
+   "run": ".venv/bin/pytest tests/test_bytg_winlab_get_kept.py::test_bytg_a_killed_get_gives_the_file_back_and_the_same_get_needs_no_transfer",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WK-003",
+   "phase": "T",
+   "name": "winlab get kept: a killed get is finished by recheck without the machine",
+   "run": ".venv/bin/pytest tests/test_bytg_winlab_get_kept.py::test_bytg_a_killed_get_is_finished_by_recheck_without_the_machine",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-WK-004",
+   "phase": "T",
+   "name": "winlab get kept: a complete transfer without the machine's SHA-256 is kept, not deleted",
+   "run": ".venv/bin/pytest tests/test_bytg_winlab_get_kept.py::test_bytg_a_complete_transfer_without_the_machines_sha256_is_kept_not_deleted",
+   "status": "passing"
   }
  ],
- "total_tests": 4251,
+ "total_tests": 4255,
  "checked": "2026-11-21"
 }

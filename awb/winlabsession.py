@@ -114,6 +114,15 @@ RUN_PACE_WINDOW = 60.0
 of the same user keep 2 MB a minute and no request comes back as "rate"."""
 PROGRESS_EVERY = 60.0
 """Seconds between two progress lines of the run check on stderr."""
+STAGED_RE = re.compile(r"^\.winlab-[0-9a-f]{32}(?:\.[A-Za-z0-9]{1,16})?$")
+"""The private name a received file has while it is checked (_check_and_publish); the record keeps it as `staged`."""
+KEPT_LINE = ("the received file is kept unpublished as %s (checked to %s of %s): %s; `awb winlab get %s %s --recheck` "
+             "goes on from there without a transfer")
+"""The state line of a received file that is complete and not published yet: where it is, how far the checks got,
+why and the command that finishes them."""
+AGAIN_LINE = ("the received file is kept unpublished as %s (%s, complete): %s; `awb winlab get %s %s` again, while the "
+              "window is open, compares it without a transfer and runs the checks")
+"""The state line of a complete received file whose SHA-256 was not compared yet."""
 DISK_IMAGES = {".vhdx": "vhdx", ".vhd": "vhd", ".vmdk": "vmdk", ".qcow2": "qcow2", ".iso": "iso", ".img": "img"}
 """The suffix of a disk image and its kind."""
 SECTOR = 512
@@ -152,6 +161,12 @@ _XESC_RE = re.compile(r"_x([0-9A-Fa-f]{4})_")
 
 class Offline(Exception):
     """The machine cannot be reached or the connection dropped. The message is one line, never a text sent."""
+
+
+class Stopped(BaseException):
+    """SIGTERM or SIGHUP during a get (a tool call that ran out of time, a closed session): a BaseException, so no
+    `except Exception` takes it and every finally gives the received file back under its part name (tcp-bytg ask 11:
+    ten complete transfers of disk images were lost when the check was cut off)."""
 
 
 class Transport:
@@ -1521,6 +1536,10 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
     except WinlabError as err:
         log(root, machine, "get from %s" % machine, ["from %s" % winpath, "failed: %s" % err])
         raise
+    except Stopped:
+        log(root, machine, "get from %s" % machine, ["from %s" % winpath, "stopped by a signal during the transfer: "
+                                                     "the same get again resumes it"])
+        raise
 
 
 def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path, check: bool = False) -> dict:
@@ -1547,6 +1566,7 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         size = st["size"]
         same = (record.get("winpath") == winpath and record.get("file") == rel and record.get("size") == size
                 and record.get("mtime") == st.get("mtime"))
+        _reclaim(folder, record, part, size)
         _write_json(rpath, {"winpath": winpath, "file": rel, "size": size, "mtime": st.get("mtime"), "machine": name})
         fd = winlab._regular(folder, part, os.O_RDWR | os.O_CREAT)
         with os.fdopen(fd, "r+b") as fh:
@@ -1565,6 +1585,8 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
     finally:
         transport.close()
     expected = str(final.get("sha256", "")).lower() if final and final.get("size") == size else None
+    if expected is not None and not re.fullmatch(r"[0-9a-f]{64}", expected):
+        expected = None                     # no SHA-256 from the machine: kept, never deleted (tcp-bytg ask 11)
     public_window = machine.get("public_image") is True or (machine.get("window") or {}).get("public_image") is True
     rec = dict(record if same else {}, winpath=winpath, file=rel, size=size, mtime=st.get("mtime"), machine=name)
     mismatch = "the SHA-256 of the copy does not match %s on %s" % (winpath, name)
@@ -1738,14 +1760,28 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
 
     # The part is renamed to a private name for the checks, so nothing can replace it while they run. A copy did
     # the same at twice the disk: a 21.9 GB image of tcp-bytg (2026-11-19) filled the host and ended in OSError.
-    staged = ".winlab-" + secrets.token_hex(16) + dst.suffix
+    if expected is None:
+        # a complete transfer is never deleted for a SHA-256 the machine did not give (tcp-bytg ask 11)
+        raise WinlabError(AGAIN_LINE % (rec["file"] + PART, _size(size), "the machine gave no SHA-256 to compare",
+                                        rec["winpath"], rec["file"]))
+    suffix = dst.suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,16}", dst.suffix) else ""
+    staged = ".winlab-" + secrets.token_hex(16) + suffix
     snapshot = Path("/proc/self/fd/%d" % folder) / staged
     winlab._regular(folder, part)                           # a regular file, no link, before it is moved
+    # the record names the private name first: a get or a recheck after a kill (SIGKILL, no finally) finds the
+    # file there and gives it its part name back (_reclaim, tcp-bytg ask 11)
+    rec["staged"] = staged
+    _write_json(rpath, rec)
     os.rename(part, staged, src_dir_fd=folder, dst_dir_fd=folder)
     back = True                                             # an unexpected failure gives the part back for a resume
     try:
-        sha = _sha256(snapshot)
-        if expected is None or expected != sha:
+        try:
+            sha = _sha256(snapshot)
+        except Stopped:
+            raise WinlabError(AGAIN_LINE % (rec["file"] + PART, _size(size),
+                                            "stopped by a signal before its SHA-256 was compared", rec["winpath"],
+                                            rec["file"])) from None
+        if expected != sha:
             back = False
             _unlink(rpath)
             raise WinlabError("%s: the part was deleted, nothing kept" % mismatch)
@@ -1787,6 +1823,9 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
                 if runs is not None and start:
                     print("name check of the disk image: resumed at %s of %s" % (_size(start), _size(size)),
                           file=sys.stderr, flush=True)
+                elif start:
+                    print("checks of the received file: resumed at %s of %s" % (_size(start), _size(size)),
+                          file=sys.stderr, flush=True)
                 while data := fh.read(PIECE):
                     text = tail + _piece_text(data)
                     if piece_names and _piece_names(text):
@@ -1802,6 +1841,11 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
                         if size > CHECK_WHOLE_MAX:
                             rec["checked"] = at
                             _write_json(rpath, rec)
+                            if time.monotonic() - shown >= PROGRESS_EVERY:
+                                print("checks of the received file: read %s of %s, nothing found so far; it stays "
+                                      "unpublished until they end" % (_size(at), _size(size)), file=sys.stderr,
+                                      flush=True)
+                                shown = time.monotonic()
                         continue
                     if runs.full() or at - marked >= RUN_MARK:
                         runs.flush()
@@ -1820,6 +1864,11 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
                               "(checked to %s of %s); the same get with --recheck checks it again without a "
                               "transfer" % (exc, rec["file"] + PART, _size(rec.get("checked") or 0), _size(size))
                               ) from None
+        except Stopped:
+            # a signal cut the checks off (tcp-bytg ask 11): the file is complete, kept, and the checks resume
+            raise WinlabError(KEPT_LINE % (rec["file"] + PART, _size(rec.get("checked") or 0), _size(size),
+                                           "the checks were stopped by a signal", rec["winpath"], rec["file"])
+                              ) from None
         except WinlabError:
             back = False
             _unlink(rpath)
@@ -1831,11 +1880,42 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
         try:
             if back:
                 os.rename(staged, part, src_dir_fd=folder, dst_dir_fd=folder)
+                if rec.pop("staged", None) is not None and os.path.exists(rpath):
+                    _write_json(rpath, rec)
             else:
                 os.unlink(staged, dir_fd=folder)
         except FileNotFoundError:
             pass
     return sha, public
+
+
+def _reclaim(folder: int, rec: dict, part: str, size: int) -> bool:
+    """The received file back under its part name when a get or a recheck was killed while it was checked under its
+    private name (`staged` of the record; tcp-bytg ask 11). A complete file replaces a shorter part a later get
+    began; a shorter one is left where it is. True when it moved."""
+    staged = rec.get("staged")
+    if not isinstance(staged, str) or not STAGED_RE.fullmatch(staged):
+        return False
+    try:
+        fd = winlab._regular(folder, staged)
+    except FileNotFoundError:
+        return False
+    try:
+        have = os.fstat(fd).st_size
+    finally:
+        os.close(fd)
+    try:
+        fd = winlab._regular(folder, part)
+        other = os.fstat(fd).st_size
+        os.close(fd)
+    except FileNotFoundError:
+        other = -1
+    if have != size and other >= 0:
+        return False
+    os.replace(staged, part, src_dir_fd=folder, dst_dir_fd=folder)
+    print("awb winlab: the received file of an earlier get that was cut off is back as %s (%s)"
+          % (part, _size(have)), file=sys.stderr)
+    return True
 
 
 @_serial
@@ -1859,6 +1939,9 @@ def recheck(winpath: str, file: str, machine: str | None = None, root: Path | No
     try:
         with winlab._parent(dst, create=False) as folder:
             part = dst.name + PART
+            if _reclaim(folder, rec, part, rec["size"]):
+                rec.pop("staged", None)
+                _write_json(rpath, rec)
             try:
                 fd = winlab._regular(folder, part)
             except FileNotFoundError:
@@ -1976,17 +2059,8 @@ def main(args: argparse.Namespace, tail: list[str] | None) -> int:
                 _size(result["size"]), args.winpath, result["machine"],
                 ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))
             return EXIT_OK
-        if command == "get" and getattr(args, "recheck", False):
-            result = recheck(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
-            print("awb winlab: checked %s of %s from %s again, sha256 %s, published as %s" % (
-                _size(result["size"]), args.winpath, result["machine"], result["sha256"][:12], result["file"]))
-            return EXIT_OK
         if command == "get":
-            result = get(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
-            print("awb winlab: got %s into %s from %s, sha256 matches%s" % (
-                _size(result["size"]), result["file"], result["machine"],
-                ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))
-            return EXIT_OK
+            return _stoppable(_get_command, args)
     except Offline as err:
         print("awb winlab: offline: %s" % err, file=sys.stderr)
         return EXIT_OFFLINE
@@ -1997,3 +2071,42 @@ def main(args: argparse.Namespace, tail: list[str] | None) -> int:
         print("awb winlab: %s (operating system error)" % type(err).__name__, file=sys.stderr)
         return EXIT_REFUSED
     return EXIT_REFUSED
+
+
+def _stoppable(fn, args) -> int:
+    """`fn(args)` with SIGTERM and SIGHUP turned into Stopped (only the main thread can set a handler), so a get
+    that is cut off keeps what it received and says so in one line."""
+    import signal
+
+    def stop(signum, _frame):
+        raise Stopped(signum)
+
+    old = {}
+    try:
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            old[sig] = signal.signal(sig, stop)
+    except ValueError:
+        pass
+    try:
+        return fn(args)
+    except Stopped:
+        print("awb winlab: stopped by a signal: what was received stays as its part; the same get again resumes it",
+              file=sys.stderr)
+        return EXIT_REFUSED
+    finally:
+        for sig, handler in old.items():
+            signal.signal(sig, handler)
+
+
+def _get_command(args) -> int:
+    """`awb winlab get` and `get --recheck`; the errors go to main."""
+    if getattr(args, "recheck", False):
+        result = recheck(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
+        print("awb winlab: checked %s of %s from %s again, sha256 %s, published as %s" % (
+            _size(result["size"]), args.winpath, result["machine"], result["sha256"][:12], result["file"]))
+        return EXIT_OK
+    result = get(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
+    print("awb winlab: got %s into %s from %s, sha256 matches%s" % (
+        _size(result["size"]), result["file"], result["machine"],
+        ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))
+    return EXIT_OK
