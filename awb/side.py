@@ -18,7 +18,8 @@ session never writes in .side/NAME and the side session never writes outside it,
 same files.
 
 `status` prints one line per side session: name, state (running, done, failed, lost), model, effort, commits and
-whether a result is there. `take` copies SIDE-RESULT.md to notes/side-NAME.md of the main folder and lists the
+whether a result of its own is there. `take` copies SIDE-RESULT.md to notes/side-NAME.md of the main folder (not
+one equal to the SIDE-RESULT.md of the start commit: an earlier result a merge brought in) and lists the
 commits and files of the branch; with `--merge` it merges side/NAME into the main branch (no fast-forward; a
 conflict is aborted and named) and removes the worktree and the branch. `stop` ends a running side session,
 `drop` removes its worktree and branch without taking anything.
@@ -357,7 +358,8 @@ def start(name: str, brief: str, model: str = DEFAULT_MODEL, effort: str = DEFAU
     proc = None
     fds = []
     try:
-        _git(root, "worktree", "add", "--quiet", "-b", "side/" + name, str(p["wt"]), "HEAD")
+        base = _git(root, "rev-parse", "HEAD").stdout.strip()
+        _git(root, "worktree", "add", "--quiet", "-b", "side/" + name, str(p["wt"]), base)
         try:
             rulesync.sync_project(p["wt"])
         except Exception:  # the start guard names the rules then
@@ -377,7 +379,7 @@ def start(name: str, brief: str, model: str = DEFAULT_MODEL, effort: str = DEFAU
         os.unlink(prompt.name, dir_fd=basefd)
         _write(root, p["state"], json.dumps({"name": name, "model": model, "effort": effort, "started": now(),
                                            "pid": proc.pid, "birth": _birth(proc.pid),
-                                           "brief": bpath.relative_to(root).as_posix()}) + "\n")
+                                           "brief": bpath.relative_to(root).as_posix(), "base": base}) + "\n")
     except Exception:
         if proc is not None:
             try:
@@ -458,6 +460,34 @@ def _state(p: dict[str, Path]) -> tuple[str, dict]:
     return "lost", meta
 
 
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def _inherited(root: Path, name: str, meta: dict, text: str) -> bool:
+    """True when `text`, the SIDE-RESULT.md of the worktree, is the one of the commit the side session started
+    from: the result of an earlier side session that a merge brought into the project, not this session's
+    (tcp-6edq: a take of failed sessions with no commit copied such an old result). The start commit is the one
+    the record names, else the merge base of the project and side/NAME. False when git cannot tell."""
+    base = meta.get("base") if isinstance(meta, dict) else None
+    if not (isinstance(base, str) and _COMMIT_RE.fullmatch(base)):
+        r = _git(root, "merge-base", "HEAD", "side/" + name, check=False)
+        base = r.stdout.strip() if r.returncode == 0 else ""
+        if not _COMMIT_RE.fullmatch(base):
+            return False
+    r = _git(root, "show", "%s:%s" % (base, RESULT), check=False)
+    return r.returncode == 0 and r.stdout == text
+
+
+def _has_result(root: Path, p: dict[str, Path], name: str, meta: dict) -> bool:
+    """A SIDE-RESULT.md of this side session is in its worktree (not one it inherited)."""
+    if not _plain(root, p["wt"] / RESULT):
+        return False
+    try:
+        return not _inherited(root, name, meta, _read(root, p["wt"] / RESULT, MAX_RESULT))
+    except (OSError, SideError):
+        return True
+
+
 @_command
 def status_lines(cwd: Path | None = None) -> list[str]:
     root = project_root(cwd)
@@ -476,7 +506,7 @@ def status_lines(cwd: Path | None = None) -> list[str]:
         n = n if re.fullmatch(r"[0-9]+", n) else "0"
         lines.append("%s  %s  %s/%s  %s commit(s)  result: %s"
                      % (name, st, model, effort, n,
-                        "yes" if _plain(root, p["wt"] / RESULT) else "no"))
+                        "yes" if _has_result(root, p, name, meta) else "no"))
     return lines or ["no side sessions"]
 
 
@@ -486,15 +516,18 @@ def take(name: str, merge: bool = False, cwd: Path | None = None) -> list[str]:
     p = _paths(root, _name(name))
     if not p["state"].exists():
         raise SideError("no side session of that name: awb side status")
-    st, _ = _state(p)
+    st, meta = _state(p)
     if st == "running":
         raise SideError("the side session still runs: awb side status, or awb side stop NAME")
     out = []
     result = p["wt"] / RESULT
     if os.path.lexists(p["wt"]) and not _plain(root, p["wt"], directory=True):
         raise SideError("the worktree must be a directory of this project")
-    if os.path.lexists(result):
-        text = _read(root, result, MAX_RESULT)
+    text = _read(root, result, MAX_RESULT) if os.path.lexists(result) else None
+    if text is not None and _inherited(root, name, meta, text):
+        out.append("result: none (%s is the one of the start commit, an earlier result, not this session's)"
+                   % RESULT)
+    elif text is not None:
         _require_safe(text)
         notes = root / NOTES
         notes.mkdir(exist_ok=True)

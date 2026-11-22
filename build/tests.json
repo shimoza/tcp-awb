@@ -29903,8 +29903,29 @@
    "name": "side stop: a side worktree is told by its folder or its branch",
    "run": ".venv/bin/pytest tests/test_6edq_side_stop.py::test_6edq_a_side_worktree_is_told_by_its_folder_or_its_branch",
    "status": "passing"
+  },
+  {
+   "id": "6EDQ-ST-001",
+   "phase": "T",
+   "name": "side take old result: a failed side with no commit takes no old result",
+   "run": ".venv/bin/pytest tests/test_6edq_side_take_old_result.py::test_6edq_a_failed_side_with_no_commit_takes_no_old_result",
+   "status": "passing"
+  },
+  {
+   "id": "6EDQ-ST-002",
+   "phase": "T",
+   "name": "side take old result: a record without its start commit uses the merge base",
+   "run": ".venv/bin/pytest tests/test_6edq_side_take_old_result.py::test_6edq_a_record_without_its_start_commit_uses_the_merge_base",
+   "status": "passing"
+  },
+  {
+   "id": "6EDQ-ST-003",
+   "phase": "T",
+   "name": "side take old result: a side that writes its own result over the old one is taken",
+   "run": ".venv/bin/pytest tests/test_6edq_side_take_old_result.py::test_6edq_a_side_that_writes_its_own_result_over_the_old_one_is_taken",
+   "status": "passing"
   }
  ],
- "total_tests": 4272,
+ "total_tests": 4275,
  "checked": "2026-11-22"
 }
