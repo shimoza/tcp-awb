@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 48, 2026-11-23 to 2026-11-29 (in progress)
 ### Changed
+- The keep list in an encrypted vault takes a second phrase again: `seal_file` keeps an existing `.gpg` and refused the new list, so every `awb register keep` after the first one answered "the vault daemon refused the request" (found by tcp-ui5o on 2026-11-23); the sealed list of before steps aside for the seal and comes back when it fails. Tests: `tests/test_ui5o_keep_second_seal.py`.
 - tcp-bytg ask 2026-11-21-3: `awb lab --help` names the Workbench's python for a script that imports `awb.labclient` (plain python3 has no awb module); `awb lab run start` said it already. Tests: `tests/test_bytg_lab_interpreter.py`.
 - tcp-bytg ask 2026-11-21-2: `awb kb add` and `amend` let a file name such as `setupapi.dev.log` pass (a web-address hit followed at once by a known file suffix is a file name; a real web address is still refused), and a refusal for a similar entry now comes after the list of similar entries with `nothing was added` as the last line. Tests: `tests/test_bytg_kb_file_names.py`.
 - tcp-bytg ask 2026-11-21-9: `awb dev status [--all]` lists the open development asks of the project of the working folder (`--all` the answered ones too, with their note and release); a session saw an answer only as a new note before. Tests: `tests/test_bytg_dev_status.py`.

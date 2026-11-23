@@ -20,6 +20,11 @@ def _sealed_keep(p: config.Paths) -> Path:
     return p.keep_list.with_name(p.keep_list.name + ".gpg")
 
 
+def _aside_keep(p: config.Paths) -> Path:
+    """Where the sealed list of before waits while a new one is sealed (keep_phrases)."""
+    return p.keep_list.with_name(p.keep_list.name + ".gpg.before")
+
+
 def _vault_call(p: config.Paths, op: str, **fields) -> dict:
     """One request to the vault daemon for the keep list. Errors carry no value."""
     from awb import vault
@@ -41,6 +46,8 @@ def _read_keep(p: config.Paths) -> str:
     copy when there is one. Missing -> empty."""
     parts: list[str] = []
     sealed = _sealed_keep(p)
+    if not sealed.exists() and _aside_keep(p).exists():
+        os.replace(_aside_keep(p), sealed)      # a seal that stopped half way: the list of before comes back
     if sealed.exists():
         answer = _vault_call(p, "open_file", path=str(sealed))
         try:
@@ -120,13 +127,24 @@ def keep_phrases(p: config.Paths, phrases: list[str]) -> tuple[int, int]:
         before = None
     _write_private(p.keep_list, "".join(k + "\n" for k in kept))
     if encrypted:
+        # seal_file keeps an existing <file>.gpg (the recovery of an interrupted seal) and refuses when it does not
+        # decrypt to the new plaintext, so the sealed list of before steps aside for the seal and comes back when it
+        # fails (tcp-ui5o 2026-11-23: every keep after the first one was refused)
+        sealed, aside = _sealed_keep(p), _aside_keep(p)
+        moved = sealed.exists()
+        if moved:
+            os.replace(sealed, aside)
         try:
             _vault_call(p, "seal_file", path=str(p.keep_list))
         except BaseException:
+            if moved:
+                os.replace(aside, sealed)
             # no new plaintext stays behind; a plaintext copy that was there before is put back as it was
             if before is None:
                 p.keep_list.unlink(missing_ok=True)
             else:
                 _write_private(p.keep_list, before.decode("utf-8"))
             raise
+        if moved:
+            aside.unlink(missing_ok=True)
     return added, len(kept)

@@ -30162,8 +30162,15 @@
    "name": "lab help: names the Workbench python",
    "run": ".venv/bin/pytest tests/test_bytg_lab_interpreter.py::test_bytg_the_lab_help_names_the_workbench_python",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-K-5",
+   "phase": "T",
+   "name": "keep list: a second and a third keep go through a real daemon",
+   "run": ".venv/bin/pytest tests/test_ui5o_keep_second_seal.py::test_ui5o_a_second_and_a_third_keep_go_through_a_real_daemon",
+   "status": "passing"
   }
  ],
- "total_tests": 4309,
+ "total_tests": 4310,
  "checked": "2026-11-22"
 }
