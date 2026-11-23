@@ -305,3 +305,81 @@ def command(args, p: config.Paths) -> int:
     except ReviewError as err:
         print("awb register review: %s" % err, file=sys.stderr)
         return 2
+
+
+# --------------------------------------------------------------------------- keep by token (tcp-ui5o ask 2, 2026-11-23)
+
+def _token_key(token: str) -> str:
+    """"[name 2]", "name 2" or "NAME 2" -> "[name 2]"; anything else -> ""."""
+    from awb.intake.wipe.runstate import TOKEN_RE
+
+    t = " ".join(token.strip().strip("[]").split()).lower()
+    t = "[%s]" % t
+    return t if TOKEN_RE.fullmatch(t) else ""
+
+
+def _report_files(report: str) -> set[str]:
+    out, inside = set(), False
+    for line in report.splitlines():
+        if line.startswith("## "):
+            inside = line.strip() == "## Files"
+            continue
+        if inside and line.startswith("|") and not line.startswith("| file id") and not line.startswith("| ---"):
+            out.add(_cells(line)[0])
+    return out
+
+
+def wiped_values(report: str) -> dict[str, list[str]]:
+    """token -> the values the candidate rules wiped under it (section Wiped of a private report). Only the tokens
+    of wipe mode ([person N], [company N], [place N], [name N]): a register code or a data code (URL-XXXX, MAIL-XXXX)
+    never comes out of here."""
+    out: dict[str, list[str]] = {}
+    inside = False
+    for line in report.splitlines():
+        if line.startswith("## "):
+            inside = line.strip() == "## Wiped"
+            continue
+        if not inside or not line.startswith("|") or line.startswith("| value") or line.startswith("| ---"):
+            continue
+        cells = _cells(line)
+        if len(cells) >= 3 and _token_key(cells[2]) and cells[0]:
+            out.setdefault(_token_key(cells[2]), []).append(cells[0])
+    return out
+
+
+def report_for(p: config.Paths, customer: str, file_id: str | None = None) -> Path:
+    """The newest private report of `customer`; with `file_id` the newest one whose run took that file."""
+    if file_id is None:
+        return latest_report(p, customer)
+    folder = p.private_reports / customer
+    reports = sorted(f for f in folder.glob("*.md*") if f.is_file()) if folder.is_dir() else []
+    for path in reversed(reports):
+        if file_id in _report_files(read_report(path)):
+            return path
+    raise ReviewError("no private report of %s took the file %s" % (customer, file_id))
+
+
+def keep_tokens(p: config.Paths, code: str, tokens: list[str], file_id: str | None = None) -> tuple[int, int, list[str]]:
+    """Put the values behind wipe tokens of a project's import on the keep list, without anyone typing or seeing
+    them: a public term the wipe took for a name (owner side, the private report is read through the vault).
+    Returns (added, phrases in the keep list, tokens not found). Nothing here prints a value."""
+    from awb import projects
+
+    project = next((pr for pr in projects.load(p) if pr.code == code), None)
+    if project is None:
+        raise ReviewError("%s is not a project of this host" % code)
+    customer = project.customer if project.customer != projects.NO_CUSTOMER else code
+    wanted = []
+    for t in tokens:
+        k = _token_key(t)
+        if not k:
+            raise ReviewError("a token reads like \"name 2\", \"person 1\", \"company 3\" or \"place 1\"")
+        if k not in wanted:
+            wanted.append(k)
+    found = wiped_values(read_report(report_for(p, customer, file_id)))
+    values = [v for k in wanted for v in found.get(k, [])]
+    missing = [k for k in wanted if k not in found]
+    if not values:
+        return 0, len(intake.load_keep(p)), missing
+    added, count = intake.keep_phrases(p, values)
+    return added, count, missing

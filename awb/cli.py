@@ -210,6 +210,8 @@ def _cmd_register_keep(args, p: config.Paths) -> int:
     """Add a reviewed phrase to the keep list or print the list (vault side). The phrase is never echoed."""
     from awb import intake
 
+    if args.from_project or args.token or args.file_id:
+        return _register_keep_tokens(args, p)
     if args.list:
         if args.phrase is not None:
             return _err("register keep: give a phrase or --list, not both")
@@ -234,6 +236,29 @@ def _cmd_register_keep(args, p: config.Paths) -> int:
     else:
         print("the phrase was kept before, %d in the keep list" % count)
     return EXIT_OK
+
+
+def _register_keep_tokens(args, p: config.Paths) -> int:
+    """`awb register keep --from tcp-xxxx --token "name 2" [--token ...] [--file F-XXXX]`: the values behind wipe
+    tokens of the project's import go on the keep list, read from the private report; nothing is typed or shown."""
+    from awb import candidates, intake
+
+    if args.phrase is not None or args.list:
+        return _err("register keep: --from takes tokens, not a phrase or --list")
+    if not (args.from_project and args.token):
+        return _err("register keep: --from tcp-xxxx and at least one --token \"name 2\"")
+    if not codes.is_project_code(args.from_project):
+        return _err("register keep: a project code reads tcp-xxxx")
+    try:
+        added, count, missing = candidates.keep_tokens(p, args.from_project, args.token, args.file_id)
+    except (candidates.ReviewError, intake.IntakeError, OSError) as err:
+        return _err("register keep: %s" % err)
+    if missing:
+        print("not in the report as a wiped name: %s (a link or a mail address is a data code and is not kept "
+              "this way)" % ", ".join(missing))
+    print("kept %d new phrase(s), %d in the keep list; next: awb import %s --redo"
+          % (added, count, args.from_project))
+    return EXIT_OK if not missing else 1
 
 
 def _cmd_register_review(args, p: config.Paths) -> int:
@@ -771,6 +796,12 @@ def _build() -> argparse.ArgumentParser:
     s = rsub.add_parser("keep", help="keep a reviewed phrase out of future candidates (vault side)")
     s.add_argument("phrase", nargs="?", default=None, help="the phrase or - to read it from standard input")
     s.add_argument("--list", action="store_true", help="print the kept phrases (vault side only)")
+    s.add_argument("--from", dest="from_project", default=None, metavar="tcp-xxxx",
+                   help="keep the values behind wipe tokens of this project's import, named with --token")
+    s.add_argument("--token", action="append", default=[], metavar="\"name 2\"",
+                   help="a wipe token as the session sees it ([name 2], [person 1], ...); again for more")
+    s.add_argument("--file", dest="file_id", default=None, metavar="F-XXXX",
+                   help="with --from: the import run that took this file (default the newest run)")
     s.set_defaults(func=_cmd_register_keep)
     s = rsub.add_parser("review", help="sort the candidates of an intake stopped by --review in an editor: mark the "
                                        "real names, the rest is kept as not a name (owner's terminal)")
