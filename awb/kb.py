@@ -433,12 +433,32 @@ def _require_register(register_path: Path) -> None:
         _name_hits("", register_path)
 
 
+FILE_SUFFIXES = frozenset(("log", "txt", "xml", "json", "ini", "cfg", "conf", "yaml", "yml", "csv", "evtx", "etl",
+                           "dll", "exe", "sys", "inf", "cat", "ps1", "psm1", "bat", "cmd", "sh", "py", "md", "reg",
+                           "msi", "cab", "vhd", "vhdx", "qcow2", "img", "iso", "tar", "gz", "zip", "out", "err"))
+"""File suffixes: a web-address hit followed at once by `.SUFFIX` is a file name such as setupapi.dev.log (tcp-bytg
+ask 2 of 2026-11-21: the `.dev` inside it read as a domain)."""
+
+
+def _without_file_names(text: str, hits: list) -> list:
+    out = []
+    for h in hits:
+        if isinstance(h, dict) and h.get("cls") == "url" and isinstance(h.get("start"), int) \
+                and isinstance(h.get("length"), int):
+            span = text[h["start"]:h["start"] + h["length"]]
+            m = re.match(r"\.([A-Za-z0-9]{1,6})(?![A-Za-z0-9.])", text[h["start"] + h["length"]:])
+            if m and m.group(1).lower() in FILE_SUFFIXES and "/" not in span and ":" not in span and "@" not in span:
+                continue
+        out.append(h)
+    return out
+
+
 def _name_hits(text: str, register_path: Path) -> list[dict]:
     try:
         hits = check.check_text(text, register_path)
     except register.RegisterError as err:   # check.CheckUnavailable included
         raise KBError(_unavailable(err)) from None
-    return _without_service_names(text, hits)
+    return _without_file_names(text, _without_service_names(text, hits))
 
 
 @functools.lru_cache(maxsize=4)
@@ -1842,9 +1862,13 @@ def _statement_of(parts: Sequence[str]) -> str:
 
 
 def _refused(command: str, ref: Refused, reg: Path, today: date) -> int:
+    # tcp-bytg ask 2 of 2026-11-21: the list of similar entries came after the refusal and hid it; the refusal is
+    # the last thing said, with "nothing was added" so it cannot be missed
+    _print_similar(ref.similar, reg, today)
+    sys.stdout.flush()
     for reason in ref.reasons:
         print("awb kb %s: refused: %s" % (command, reason), file=sys.stderr)
-    _print_similar(ref.similar, reg, today)
+    print("awb kb %s: nothing was %s" % (command, "added" if command == "add" else "changed"), file=sys.stderr)
     return 1
 
 

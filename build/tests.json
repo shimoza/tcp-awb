@@ -30127,8 +30127,36 @@
    "name": "dev status: no ask of another project",
    "run": ".venv/bin/pytest tests/test_bytg_dev_status.py::test_bytg_status_shows_no_ask_of_another_project",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-KF-1",
+   "phase": "T",
+   "name": "kb add: a log file name passes",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_file_names.py::test_bytg_a_log_file_name_passes_the_kb_add",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KF-2",
+   "phase": "T",
+   "name": "kb add: a web address is still refused",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_file_names.py::test_bytg_a_web_address_in_a_statement_is_still_refused",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KF-3",
+   "phase": "T",
+   "name": "kb add: the refusal of a similar entry comes last",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_file_names.py::test_bytg_the_refusal_of_a_similar_entry_comes_last",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KF-4",
+   "phase": "T",
+   "name": "kb: only a known suffix right after the hit makes a file name",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_file_names.py::test_bytg_only_a_known_suffix_right_after_the_hit_makes_a_file_name",
+   "status": "passing"
   }
  ],
- "total_tests": 4304,
+ "total_tests": 4308,
  "checked": "2026-11-22"
 }
