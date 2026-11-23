@@ -30169,8 +30169,29 @@
    "name": "keep list: a second and a third keep go through a real daemon",
    "run": ".venv/bin/pytest tests/test_ui5o_keep_second_seal.py::test_ui5o_a_second_and_a_third_keep_go_through_a_real_daemon",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-DD-1",
+   "phase": "T",
+   "name": "doc fetch: the redirect of debian.org to www is followed",
+   "run": ".venv/bin/pytest tests/test_bytg_doc_debian.py::test_bytg_the_redirect_of_debian_org_to_www_is_followed",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-DD-2",
+   "phase": "T",
+   "name": "doc fetch: www and wiki of debian.org are on the list",
+   "run": ".venv/bin/pytest tests/test_bytg_doc_debian.py::test_bytg_the_debian_hosts_are_on_the_list",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-DD-3",
+   "phase": "T",
+   "name": "doc fetch: the host rule stays exact",
+   "run": ".venv/bin/pytest tests/test_bytg_doc_debian.py::test_bytg_the_host_rule_stays_exact",
+   "status": "passing"
   }
  ],
- "total_tests": 4310,
+ "total_tests": 4313,
  "checked": "2026-11-22"
 }

@@ -35,6 +35,8 @@ redhat.com
 ubuntu.com
 canonical.com
 debian.org
+www.debian.org
+wiki.debian.org
 openssl.org
 openbao.org
 vaultproject.io
