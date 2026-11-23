@@ -239,7 +239,7 @@ security tokens come shortened to 8 characters, "..." and the length, and such a
 again as `X-Auth-Token` or `credential=`. Every create is recorded with its delete (a POST whose answer names a new
 id or name, a PUT or PATCH of a path a read before did not find; not the upload of an image's data and not a PUT
 below a resource the run made). A delete that answers 2xx or 404 removes the record it names, also when it names the
-resource by another API version (`/v1.1/images/ID` for `/v2/images/ID`), what was recorded below it and a leftover
+resource by another API version (`/v1.1/images/ID` or `/v1/cloudimages/ID` for `/v2/images/ID`), what was recorded below it and a leftover
 of an earlier run of the project on the tenant. The call log is
 `notes/lab-runs/<run>.log` of the project; a boot script (user_data) is written there only as a placeholder with its
 length, a password the image prints on its serial console (the `user:password` lines after cloud-init's "Set the

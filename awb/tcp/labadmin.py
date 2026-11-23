@@ -435,16 +435,25 @@ def _segs(path) -> list[str]:
     return [s for s in str(path or "").strip("/").split("/") if s]
 
 
+KIND_SAME = {"cloudimages": "images"}
+"""Kinds that name one resource under two APIs: /v1/cloudimages/ID is the image /v2/images/ID (tcp-bytg 2026-11-22-7:
+two entries of run 6bq3 recorded as ims cloudimages stayed live after a DELETE /v2/images/ID answered 204)."""
+
+
+def _kinds(path) -> list[str]:
+    return [KIND_SAME.get(s, s) for s in _segs(path)]
+
+
 def same_resource(a: str, b: str) -> bool:
     """True when two paths end in the same kind and id: /v2/images/ID and /v1.1/images/ID (tcp-bytg ask 5: an image
-    deleted with 204 by another API version stayed live in the run)."""
-    x, y = _segs(a), _segs(b)
+    deleted with 204 by another API version stayed live in the run), also /v1/cloudimages/ID (KIND_SAME)."""
+    x, y = _kinds(a), _kinds(b)
     return len(x) >= 2 and len(y) >= 2 and x[-2:] == y[-2:] and bool(_RID_RE.match(x[-1]))
 
 
 def under(child: str, parent: str) -> bool:
     """True when `child` is a path below the resource `parent` names, also by another API version of it."""
-    c, p = _segs(child), _segs(parent)
+    c, p = _kinds(child), _kinds(parent)
     if len(c) > len(p) and c[:len(p)] == p and p:
         return True
     if len(p) < 2 or not _RID_RE.match(p[-1]):
