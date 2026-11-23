@@ -57,11 +57,11 @@ def test_ui5o_a_register_code_a_data_code_or_a_broken_mark_is_refused(home, proj
 def test_ui5o_only_the_wiped_section_gives_values():
     report = "\n".join([
         "## Replacements", "", "| token | class | value | count | where and positions |", "| --- | --- | --- | --- | --- |",
-        "| %s | CUST | Registered Form | 1 | x |" % fx.CUSTOMER_CODE,
-        "| [name 1] | unknown | Not From Here | 1 | x |", "",
+        "| %s | CUST | registered form | 1 | x |" % fx.CUSTOMER_CODE,
+        "| [name 1] | unknown | not from here | 1 | x |", "",
         "## Wiped", "", "| value | class | token | rule | count | where and positions |",
         "| --- | --- | --- | --- | --- | --- |",
-        "| Alpha \\| Beta | unknown | [name 1] | run | 1 | x |",
-        "| %s | CUST | %s | run | 1 | x |" % ("Other Form", fx.CUSTOMER_CODE), "",
+        "| alpha \\| beta | unknown | [name 1] | run | 1 | x |",
+        "| %s | CUST | %s | run | 1 | x |" % ("other form", fx.CUSTOMER_CODE), "",
     ])
-    assert candidates.wiped_values(report) == {"[name 1]": ["Alpha | Beta"]}
+    assert candidates.wiped_values(report) == {"[name 1]": ["alpha | beta"]}
