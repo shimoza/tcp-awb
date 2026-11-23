@@ -2001,9 +2001,16 @@ def main(argv: list[str] | None = None) -> int:
         print("awb gate: the commit hook is installed: %s" % hook)
         return 0
     if not (args.staged or args.pushed or args.message or args.selftest or args.paths):
-        print("awb gate: give --staged, --pushed, --message FILE, --selftest, --install or at least one path",
-              file=sys.stderr)
-        return 2
+        # tcp-bytg ask 7 of 2026-11-21: the project rules say "awb gate before every commit"; inside a repository
+        # the plain call is the check of what that commit takes
+        try:
+            _toplevel(args.repo if args.repo is not None else Path.cwd())
+        except GateError:
+            print("awb gate: give --staged, --pushed, --message FILE, --selftest, --install or at least one path",
+                  file=sys.stderr)
+            return 2
+        print("awb gate: no argument: checking the staged files (--staged)", file=sys.stderr)
+        args.staged = True
     updates = parse_push_lines(sys.stdin.read()) if args.pushed else []
 
     register_path = args.register

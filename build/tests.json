@@ -30099,8 +30099,22 @@
    "name": "register keep --from: only the Wiped section gives values",
    "run": ".venv/bin/pytest tests/test_ui5o_keep_from_import.py::test_ui5o_only_the_wiped_section_gives_values",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-1",
+   "phase": "T",
+   "name": "gate: the plain call checks the staged files",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_plain.py::test_bytg_the_plain_gate_checks_the_staged_files",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GP-2",
+   "phase": "T",
+   "name": "gate: outside a repository the plain call asks for an argument",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_plain.py::test_bytg_outside_a_repository_the_plain_gate_asks_for_an_argument",
+   "status": "passing"
   }
  ],
- "total_tests": 4300,
+ "total_tests": 4302,
  "checked": "2026-11-22"
 }
