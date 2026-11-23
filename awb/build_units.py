@@ -65,8 +65,8 @@ SUITE_SECONDS = 2700        # D-S6; 45 min since 2026-11-19 (stopgap of Q-0013):
 RETRY_WAIT = 600            # D-S4: the one retry of an API error before the first tool call, after ten minutes
 SMALL_MAX = 1 << 20
 CPU_QUOTA = "200%"
-SUITE_CPU_QUOTA = "400%"
-"""The suite unit's share (Q-0013): its SUITE_WORKERS test files at a time each get a core of the four. The session
+SUITE_CPU_QUOTA = "800%"
+"""The suite unit's share (Q-0013): its SUITE_WORKERS test files at a time each get a core of the eight (host x1.2xlarge.4 since 2026-11-23, Q-0031). The session
 and helper units keep CPU_QUOTA."""
 MEMORY_MAX = "6G"
 TASKS_MAX = 512

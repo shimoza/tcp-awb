@@ -3,7 +3,11 @@
 What changed in the Architect Workbench, one entry per week (ISO week, Monday to Sunday), newest first. The form
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and projects appear as codes only.
 
-## Week 47, 2026-11-16 to 2026-11-22 (in progress)
+## Week 48, 2026-11-23 to 2026-11-29 (in progress)
+### Changed
+- `awb build check` (Q-0031): the host is an x1.2xlarge.4 with 8 vCPU and 32 GB since 2026-11-23, so the suite unit runs eight test files at a time (was four) under `CPUQuota=800%` (was 400%); the other units keep 200%. Tests: `tests/test_suite_parallel.py` (owner's yes of 2026-11-23 for the quota line).
+
+## Week 47, 2026-11-16 to 2026-11-22
 ### Added
 - Budget fallback of the build runner (owner's yes of 2026-11-22, `awb/buildbudget.py`): a task session on the subscription login that ends on the 5-hour or the weekly limit is `held: usage limit` with the reset the text names (an hour when none), never failed and never nudged. `build_model = auto` in the host file runs on the login and after a limit runs the held task again and the next ones on the model key until the reset, then on the login again; on the key a block's opus becomes sonnet unless its title names a security review. `key_week_cap_usd` (25 unless set) caps the key runs of an ISO week from `total_cost_usd` of each run (its budget when it reports none) in `runs/key-ledger.tsv`; at the cap the queue waits as `key cap`. Each switch (to the key, back to the login, the cap reached) is one event of the new kind `budget` and one mail with the spend of the week; `awb build list` and `awb owner status` name the mode. `seal/setup.sh` takes `auto` (the key copied, the settings without `apiKeyHelper`) and keeps `key_week_cap_usd`, `seal/verify.sh` checks it. Tests: `tests/test_build_budget.py`.
 - Contents with page numbers and a page per part in `awb pdf` (tcp-bytg ask 15): a line `<!-- toc -->` in the Markdown (the same comment in HTML) puts a contents table there, each h1 and h2 after it with a dot leader and the page it starts on, laid out in two passes with the page map of the first (again until it settles, at most four); `--h1-page` starts a new page before each level-1 heading that is not at the top of a page already, off by default so other PDFs keep their pages. 6 tests in `tests/test_pdf_contents.py`.

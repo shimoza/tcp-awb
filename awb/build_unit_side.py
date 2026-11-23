@@ -53,7 +53,7 @@ LOGIN_KEPT_LINE = "- login: the task's login names another account or none and w
 MODELS = ("login", "key")
 FAULT_SECONDS = 600         # every thread's stack when one test takes ten minutes
 RERUN_MAX = 20              # A7: more failed nodes than this get no rerun, a broad failure is no flake
-SUITE_WORKERS = 4
+SUITE_WORKERS = 8
 """Q-0013: the whole suite (no tokens) runs as one pytest per test file, SUITE_WORKERS at a time from one queue,
 each worker with a HOME and a TMPDIR of its own; the junit files are merged into one. One process for the whole
 suite took 26 to 29 minutes against the clock of 30."""

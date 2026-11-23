@@ -126,12 +126,12 @@ def test_merge_junit_counts_the_cases_of_every_file_and_reads_no_doctype(tmp_pat
 
 def test_the_suite_unit_has_its_own_cpu_share_and_the_longer_clock_and_the_other_units_keep_theirs():
     assert build_units.SUITE_SECONDS == 2700 and build_units.Host.suite_seconds == 2700
-    assert build_units.CPU_QUOTA == "200%" and build_units.SUITE_CPU_QUOTA == "400%"
+    assert build_units.CPU_QUOTA == "200%" and build_units.SUITE_CPU_QUOTA == "800%"
     units = build_units.SystemdUnits("awb-build")
     plain = units.argv(build_units.Spec("awb-task-B-012", ["x"], 60, "/tmp", "/tmp"))
     suite = units.argv(build_units.Spec("awb-task-B-012-suite", ["x"], 60, "/tmp", "/tmp",
                                         cpu=build_units.SUITE_CPU_QUOTA))
-    assert "--property=CPUQuota=200%" in plain and "--property=CPUQuota=400%" in suite
+    assert "--property=CPUQuota=200%" in plain and "--property=CPUQuota=800%" in suite
 
 
 def test_a_file_with_its_own_process_pool_runs_alone_before_the_queue(tmp_path):
