@@ -761,7 +761,7 @@ def _programs(words: list) -> set[int]:
     return out
 
 
-_CLOUD_CALL_VALUED = frozenset(("--tenant", "--role", "--region", "--query", "--body", "--project", "--scope"))
+_CLOUD_CALL_VALUED = frozenset(("--tenant", "--role", "--region", "--query", "--body", "--project", "--scope", "--header"))
 """The options of `awb cloud call` that take a value (COMMANDS.md)."""
 
 

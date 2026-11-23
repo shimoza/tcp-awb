@@ -136,6 +136,14 @@ _PATH_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}\Z")
 _PROJECT_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 """Used with fullmatch only: `$` alone also matches before a trailing newline."""
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
+_HEADER_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,63}\Z")
+_HEADER_VALUE_RE = re.compile(r"^[\x20-\x7e]{1,256}\Z")
+MAX_HEADERS = 8
+SIGNING_HEADERS = frozenset(("authorization", "host", "content-length", "content-type", "x-sdk-date",
+                             "x-sdk-content-sha256", "x-auth-token", "x-security-token", "x-project-id",
+                             "x-domain-id"))
+"""Headers a caller never sets: the key service signs and scopes the call with them itself (tcp-ui5o ask 1 of
+2026-11-23 asked for a header such as Client-Request-Id of RFS)."""
 _REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}\Z")
 _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|user_?password|root_?password"
                               r"|db_?password|login_?password)\Z")
@@ -159,6 +167,28 @@ without a project, with the read key only. Sessions run as the work user and kee
 class KeysError(Exception):
     """A step of the key service that cannot run. The message never carries a key, a secret or a path of the
     password store."""
+
+
+def call_headers(req: dict) -> dict | None:
+    """The extra request headers of a call (`awb cloud call --header K=V`): plain names, printable values, at most
+    MAX_HEADERS, never a header of the signature or the scope and never on an OBS call. None when none were sent."""
+    raw = req.get("headers")
+    if raw is None or raw == {}:
+        return None
+    if not isinstance(raw, dict) or len(raw) > MAX_HEADERS:
+        raise Refused("headers are an object of at most %d names and values" % MAX_HEADERS)
+    if req.get("service") == "obs":
+        raise Refused("a header is for a call through the API gateway, not for OBS")
+    out: dict[str, str] = {}
+    for k, v in raw.items():
+        if not (isinstance(k, str) and _HEADER_NAME_RE.match(k)):
+            raise Refused("a header name reads like Client-Request-Id")
+        if not (isinstance(v, str) and _HEADER_VALUE_RE.match(v)):
+            raise Refused("the value of header %s is 1 to 256 printable characters" % k)
+        if k.lower() in SIGNING_HEADERS or k.lower() in (x.lower() for x in out):
+            raise Refused("the key service sets header %s itself or it is named twice" % k)
+        out[k] = v
+    return out
 
 
 class Refused(KeysError):
@@ -1251,6 +1281,7 @@ class Service:
             if not isinstance(body, (dict, list)) or len(json.dumps(body)) > MAX_BODY:
                 raise Refused("a body is a JSON object of at most %d bytes" % MAX_BODY)
             body = fill(body, tenant.get("secrets", {}), drawn=drawn)
+        extra = call_headers(req)
         keys = obs.Keys(pair["ak"], pair["sk"])
         client = cloud.Client(keys, region, endpoint=self.endpoint, label=alias, timeout=60.0)
         # PT: every create of a project carries its awb-project tag (awb/tcp/projecttags.py)
@@ -1258,7 +1289,7 @@ class Service:
         if method in WRITE_METHODS and isinstance(project, str) and _PROJECT_RE.fullmatch(project):
             body, tagged = projecttags.inject(method, service, path, body, project)
         try:
-            r = client.request(method, service, path, query=query or None, body=body)
+            r = client.request(method, service, path, query=query or None, body=body, headers=extra)
             answer = {"ok": True, "status": r.status, "data": r.data, "text": r.text, "size": r.size,
                       "cut": r.cut}
         except cloud.CloudError as err:
@@ -1472,7 +1503,8 @@ class Service:
                 raise Refused("a body is a JSON object of at most %d bytes" % MAX_BODY)
             body = fill(body, {}, drawn=drawn)
         used: list[str] = list(drawn)
-        project_id, headers = None, None
+        extra = call_headers(req)
+        project_id, headers = None, (dict(extra) if extra else None)
         if scope is not None:
             listing = self._readonly_listing(uid, alias, tenant, entry, project, used)
             try:
@@ -1483,7 +1515,7 @@ class Service:
                 raise Refused("refused: the project %s is in %s, not in %s" % (scope, target["region"], req["region"]))
             region, project_id = target["region"], target["id"]
             if auth == "key":
-                headers = {"X-Project-Id": project_id}
+                headers = dict(headers or {}, **{"X-Project-Id": project_id})
         makers = self._readonly_makers(uid, alias, tenant, entry, region, project, used, project_id, write)
         answer = self._readonly_send(makers, method, service, path, query, headers, body)
         self._log(uid, alias, "write" if write else "read", method, service, region, answer["status"], project)

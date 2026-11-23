@@ -950,7 +950,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | a price workbook | `awb pricebook build estimate.txt --lang de` | the workbook (.xlsx) and a summary (.md) for a mail; `awb pricebook diff OLD NEW` compares versions |
 | compute | `awb calc "730 * 0.0418 * 3" --places 2` | the exact result, recorded as `K-N` for the review |
 | the test tenants | `awb cloud tenants`, `awb tenant now test-1` | the tenants by alias and what runs there |
-| call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service (an OBS list such as `GET obs /` whole as data); a write needs `--role lab` and runs for the project of the folder |
+| call the TCP API | `awb cloud call GET vpc "/v1/{project_id}/vpcs" --tenant test-1` | the answer, signed by the key service (an OBS list such as `GET obs /` whole as data); a write needs `--role lab` and runs for the project of the folder; `--header Client-Request-Id=ID` adds a request header |
 | a live check in one command | `awb lab run ecs-boot-ssh --project tcp-q7m4 --tenant test-1` | raise, check, evidence in `evidence/`, always torn down and proven gone (in the project's folder `--project` and `--tenant` default from SCOPE.md); `awb lab list` and `awb lab dry-run RECIPE` first |
 | a migration | `awb migrate init --from azure`, then `awb migrate next` | the next phase, its worker and its files |
 | review a text | `awb review init`, `claims`, `l0`, `pass` | the claim list with evidence and a review record; a translation named `<file>.de.md`, `.en.md` or `.ru.md` is accepted |

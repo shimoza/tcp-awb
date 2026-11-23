@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 48, 2026-11-23 to 2026-11-29 (in progress)
 ### Changed
+- tcp-ui5o ask 2026-11-23-1: `awb cloud call --header K=V` sends an extra request header such as `Client-Request-Id` (RFS answered APIGW.0106 without it); the key service refuses a header of the signature or the scope, a broken one and any on OBS. Tests: `tests/test_ui5o_cloud_call_header.py`.
 - `awb lab run status` no longer lists an image as live after its delete when the run recorded it under `/v1/cloudimages/ID` (tcp-bytg 2026-11-22-7: two entries of a run stayed live after `DELETE /v2/images/ID` answered 204): `cloudimages` and `images` are one kind for the same id (`labadmin.KIND_SAME`), so the delete of the image or its 404 ends both. Tests: `tests/test_bytg_lab_cloudimages_delete.py`.
 - `awb build check` (Q-0031): the host is an x1.2xlarge.4 with 8 vCPU and 32 GB since 2026-11-23, so the suite unit runs eight test files at a time (was four) under `CPUQuota=800%` (was 400%); the other units keep 200%. Tests: `tests/test_suite_parallel.py` (owner's yes of 2026-11-23 for the quota line).
 

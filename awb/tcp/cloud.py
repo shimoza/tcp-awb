@@ -372,6 +372,17 @@ def _pairs(values: list[str]) -> dict[str, list[str]]:
     return out
 
 
+def _header_pairs(values: list[str]) -> dict[str, str]:
+    """--header K=V (or K:V) into one object; the key service checks the names and values."""
+    out: dict[str, str] = {}
+    for item in values:
+        cut = min((i for i in (item.find("="), item.find(":")) if i > 0), default=-1)
+        if cut < 0:
+            raise CloudError("a header reads K=V, for example Client-Request-Id=ID")
+        out[item[:cut].strip()] = item[cut + 1:].strip()
+    return out
+
+
 def _keys_error():
     from awb.tcp import keys
 
@@ -411,6 +422,8 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--region", default=None)
     k.add_argument("--query", action="append", default=[], metavar="K=V")
     k.add_argument("--body", default=None, metavar="FILE", help="a JSON file; a password field may hold {{secret:NAME}}")
+    k.add_argument("--header", action="append", default=[], metavar="K=V",
+                   help="an extra request header such as Client-Request-Id=ID (not a header of the signature)")
     k.add_argument("--project", default=None, help="the project code (default: the project of the working folder)")
     k.add_argument("--scope", default=None, metavar="NAME|ID",
                    help="a read-only tenant only: the TCP project to read (eu-de, eu-nl, eu-de_<suffix> or its id); "
@@ -549,6 +562,8 @@ def _through_service(args) -> int:
                "body": body, "project": _project_code(args.project)}
         if args.scope:
             req["scope"] = args.scope
+        if args.header:
+            req["headers"] = _header_pairs(args.header)
         answer = _keys.request(_keys.call_socket(), req)
     except (_keys.KeysError, CloudError) as err:
         print("awb cloud: %s" % err, file=sys.stderr)

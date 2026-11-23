@@ -30043,8 +30043,36 @@
    "name": "lab run: cloudimages and images are one kind for the same id only",
    "run": ".venv/bin/pytest tests/test_bytg_lab_cloudimages_delete.py::test_bytg_cloudimages_same_kind_only_for_the_same_id",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-H-1",
+   "phase": "T",
+   "name": "cloud call: a plain header reaches the gateway signed",
+   "run": ".venv/bin/pytest tests/test_ui5o_cloud_call_header.py::test_ui5o_a_plain_header_reaches_the_gateway_signed",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-H-2",
+   "phase": "T",
+   "name": "cloud call: a header of the signature or a broken one is refused",
+   "run": ".venv/bin/pytest tests/test_ui5o_cloud_call_header.py::test_ui5o_a_header_of_the_signature_or_a_broken_one_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-H-3",
+   "phase": "T",
+   "name": "cloud call: no header on an OBS call",
+   "run": ".venv/bin/pytest tests/test_ui5o_cloud_call_header.py::test_ui5o_no_header_on_an_obs_call",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-H-4",
+   "phase": "T",
+   "name": "cloud call: --header reads K=V and K:V",
+   "run": ".venv/bin/pytest tests/test_ui5o_cloud_call_header.py::test_ui5o_the_command_line_reads_k_v_and_k_colon_v",
+   "status": "passing"
   }
  ],
- "total_tests": 4292,
+ "total_tests": 4296,
  "checked": "2026-11-22"
 }
