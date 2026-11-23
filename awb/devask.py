@@ -190,19 +190,25 @@ def _main_folder(root: Path) -> Path | None:
     return root.parent.parent
 
 
-def write(p: config.Paths, text: str, blocks: bool = False, command: str = "not supplied",
-          error: str = "not supplied") -> Path:
+def _here(p: config.Paths, verb: str):
+    """The registered project of the working folder (a side worktree counts as its project); AskError otherwise."""
     from awb import hooks, projects
 
     root = hooks.project_root(Path.cwd())
     if root is not None:
         root = _main_folder(root)
     if root is None or not codes.is_project_code(root.name):
-        raise AskError("run awb dev ask in a registered project")
+        raise AskError("run awb dev %s in a registered project" % verb)
     pr = next((pr for pr in projects.load(p) if pr.code == root.name and
                Path(pr.path).resolve() == root.resolve() and pr.state in projects.LIVE_STATES), None)
     if pr is None:
-        raise AskError("run awb dev ask in an active or parked registered project")
+        raise AskError("run awb dev %s in an active or parked registered project" % verb)
+    return pr
+
+
+def write(p: config.Paths, text: str, blocks: bool = False, command: str = "not supplied",
+          error: str = "not supplied") -> Path:
+    pr = _here(p, "ask")
     if not text.strip():
         raise AskError("give the ask some text")
     screen(p, "\n".join((pr.code, text, command, error)))
@@ -248,6 +254,39 @@ def open_asks(p: config.Paths) -> list[tuple[Path, dict]]:
     except (OSError, AskError):
         return out
     return out
+
+
+def project_asks(p: config.Paths, code: str, closed: bool = False) -> list[tuple[str, dict]]:
+    """(handle, header) of the asks of one project, oldest first; open ones only unless `closed` (tcp-bytg ask 9 of
+    2026-11-21: a session saw an answer only as a new note and could not list its open asks). Only the header is
+    read; an unreadable ask is left out."""
+    out = []
+    try:
+        with _notices_directory(p) as directory:
+            for name in sorted(os.listdir(directory)):
+                if not FILE_RE.fullmatch(name) or not name[11:].startswith(code + "-"):
+                    continue
+                try:
+                    data = read(p.shared / FOLDER / name, text=_bytes(Path(name), dir_fd=directory))
+                except (AskError, OSError, UnicodeError):
+                    continue
+                if data["project"] == code and (closed or data["state"] == "open"):
+                    out.append((name[:-3], data))
+    except (OSError, AskError):
+        return out
+    return sorted(out, key=lambda hd: (hd[1]["created"], hd[0]))
+
+
+def status_lines(asks: list[tuple[str, dict]]) -> list[str]:
+    lines = []
+    for handle, d in asks:
+        state = d["state"] + (" blocks" if d.get("blocks") and d["state"] == "open" else "")
+        line = "%-28s %-12s %s" % (handle, state, d["title"])
+        if d["state"] == "closed":
+            line += "  (answer %s%s)" % (d.get("answer", "-"),
+                                         ", release %s" % str(d["release"])[:7] if d.get("release") else "")
+        lines.append(line)
+    return lines
 
 
 def answer(p: config.Paths, code: str, file: str, title: str, text: str) -> Path:
@@ -418,11 +457,26 @@ def main(argv: list[str] | None = None) -> int:
     ask.add_argument("--blocks", action="store_true", help="mark the request as blocking the project task")
     ask.add_argument("--command", default="not supplied", help="the command that failed, recorded without running it")
     ask.add_argument("--error", default="not supplied", help="the error text of that command")
+    st = sub.add_parser("status", help="the open asks of the current project (--all: the answered ones too)")
+    st.add_argument("--all", action="store_true", help="also the closed asks with their answer note")
     close = sub.add_parser("close", help="close the open asks a released commit names (the deploy runs it as the "
                                          "work user)")
     close.add_argument("--release", required=True, metavar="COMMIT", help="the full commit id of the live release")
     close.add_argument("handles", nargs="+", metavar="HANDLE", help="an ask file name without .md")
     args = ap.parse_args(argv)
+    if args.cmd == "status":
+        p = config.paths()
+        try:
+            pr = _here(p, "status")
+        except (AskError, projects.ProjectError, OSError) as exc:
+            print("awb dev status: %s" % (exc if isinstance(exc, AskError) else type(exc).__name__), file=sys.stderr)
+            return 2
+        asks = project_asks(p, pr.code, closed=args.all)
+        for line in status_lines(asks):
+            print(line)
+        n_open = sum(1 for _, d in asks if d["state"] == "open")
+        print("%s: %d open ask(s)%s" % (pr.code, n_open, "" if args.all else "; --all lists the answered ones too"))
+        return 0
     if args.cmd == "close":
         try:
             lines, ok = released(config.paths(), args.handles, args.release)

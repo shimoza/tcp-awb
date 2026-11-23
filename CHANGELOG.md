@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 48, 2026-11-23 to 2026-11-29 (in progress)
 ### Changed
+- tcp-bytg ask 2026-11-21-9: `awb dev status [--all]` lists the open development asks of the project of the working folder (`--all` the answered ones too, with their note and release); a session saw an answer only as a new note before. Tests: `tests/test_bytg_dev_status.py`.
 - tcp-bytg ask 2026-11-21-7: `awb gate` with no argument inside a repository checks the staged files as `--staged` does and says so in one line (the project rules say `awb gate` before every commit; the plain call printed only its usage); outside a repository it still asks for an argument. Tests: `tests/test_bytg_gate_plain.py`.
 - tcp-ui5o ask 2026-11-23-2: `awb register keep --from tcp-xxxx --token "name 2"` keeps the value behind a wipe token of the project's import (read from the private report, never typed or shown), so a public term the wipe took for a name comes back with one `awb import tcp-xxxx --redo` instead of a reveal for each edit; the keep list holds for every later intake. Tests: `tests/test_ui5o_keep_from_import.py`.
 - tcp-ui5o ask 2026-11-23-1: `awb cloud call --header K=V` sends an extra request header such as `Client-Request-Id` (RFS answered APIGW.0106 without it); the key service refuses a header of the signature or the scope, a broken one and any on OBS. Tests: `tests/test_ui5o_cloud_call_header.py`.

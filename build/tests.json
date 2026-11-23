@@ -30113,8 +30113,22 @@
    "name": "gate: outside a repository the plain call asks for an argument",
    "run": ".venv/bin/pytest tests/test_bytg_gate_plain.py::test_bytg_outside_a_repository_the_plain_gate_asks_for_an_argument",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-DS-1",
+   "phase": "T",
+   "name": "dev status: open asks, --all the answered ones too",
+   "run": ".venv/bin/pytest tests/test_bytg_dev_status.py::test_bytg_status_lists_the_open_asks_and_all_the_answered_ones_too",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-DS-2",
+   "phase": "T",
+   "name": "dev status: no ask of another project",
+   "run": ".venv/bin/pytest tests/test_bytg_dev_status.py::test_bytg_status_shows_no_ask_of_another_project",
+   "status": "passing"
   }
  ],
- "total_tests": 4302,
+ "total_tests": 4304,
  "checked": "2026-11-22"
 }
