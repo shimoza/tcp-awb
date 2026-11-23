@@ -1780,6 +1780,15 @@ def scope_defaults(start: Path | None = None) -> tuple[str | None, str | None]:
     return line("code") or root.name, line("tenant")
 
 
+
+def script_line() -> str:
+    """The help line of the interpreter for a lab run script (tcp-bytg ask 3 of 2026-11-21: plain python3 has no
+    awb module and no rule or help named the one that has)."""
+    return ("A script of a lab run imports awb.labclient: run it with the Workbench's python, %s "
+            "evidence/<folder>/poc.py; plain python3 has no awb module." % (sys.executable or
+                                                                         "/opt/tcp-awb/venv/bin/python3"))
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
@@ -1794,7 +1803,8 @@ def main(argv: list[str] | None = None) -> int:
         from awb import labclient
 
         return labclient.obs_main(argv[1:])
-    ap = SafeParser(prog="awb lab", description="Lab recipes: a live check on a test tenant in one command.")
+    ap = SafeParser(prog="awb lab", description="Lab recipes: a live check on a test tenant in one command.",
+                    epilog=script_line())
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     sub.add_parser("list", help="the recipes, their question and their cost guard")
     d = sub.add_parser("dry-run", help="the calls a run would make; no call is made")

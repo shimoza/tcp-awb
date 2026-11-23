@@ -5,6 +5,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 
 ## Week 48, 2026-11-23 to 2026-11-29 (in progress)
 ### Changed
+- tcp-bytg ask 2026-11-21-3: `awb lab --help` names the Workbench's python for a script that imports `awb.labclient` (plain python3 has no awb module); `awb lab run start` said it already. Tests: `tests/test_bytg_lab_interpreter.py`.
 - tcp-bytg ask 2026-11-21-2: `awb kb add` and `amend` let a file name such as `setupapi.dev.log` pass (a web-address hit followed at once by a known file suffix is a file name; a real web address is still refused), and a refusal for a similar entry now comes after the list of similar entries with `nothing was added` as the last line. Tests: `tests/test_bytg_kb_file_names.py`.
 - tcp-bytg ask 2026-11-21-9: `awb dev status [--all]` lists the open development asks of the project of the working folder (`--all` the answered ones too, with their note and release); a session saw an answer only as a new note before. Tests: `tests/test_bytg_dev_status.py`.
 - tcp-bytg ask 2026-11-21-7: `awb gate` with no argument inside a repository checks the staged files as `--staged` does and says so in one line (the project rules say `awb gate` before every commit; the plain call printed only its usage); outside a repository it still asks for an argument. Tests: `tests/test_bytg_gate_plain.py`.

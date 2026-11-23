@@ -30155,8 +30155,15 @@
    "name": "kb: only a known suffix right after the hit makes a file name",
    "run": ".venv/bin/pytest tests/test_bytg_kb_file_names.py::test_bytg_only_a_known_suffix_right_after_the_hit_makes_a_file_name",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-LI-1",
+   "phase": "T",
+   "name": "lab help: names the Workbench python",
+   "run": ".venv/bin/pytest tests/test_bytg_lab_interpreter.py::test_bytg_the_lab_help_names_the_workbench_python",
+   "status": "passing"
   }
  ],
- "total_tests": 4308,
+ "total_tests": 4309,
  "checked": "2026-11-22"
 }
