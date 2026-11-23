@@ -30190,8 +30190,22 @@
    "name": "doc fetch: the host rule stays exact",
    "run": ".venv/bin/pytest tests/test_bytg_doc_debian.py::test_bytg_the_host_rule_stays_exact",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-E-1",
+   "phase": "T",
+   "name": "egress allow: the first grant on a host without a grants file is written",
+   "run": ".venv/bin/pytest tests/test_ui5o_egress_first_grant.py::test_the_first_grant_on_a_host_without_a_grants_file_is_written",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-E-2",
+   "phase": "T",
+   "name": "egress allow: a refusal of the work user name check writes nothing",
+   "run": ".venv/bin/pytest tests/test_ui5o_egress_first_grant.py::test_a_refusal_of_the_work_user_name_check_writes_nothing",
+   "status": "passing"
   }
  ],
- "total_tests": 4313,
+ "total_tests": 4315,
  "checked": "2026-11-22"
 }

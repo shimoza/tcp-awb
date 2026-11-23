@@ -30,6 +30,7 @@ import os
 import pwd
 import re
 import stat
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -199,7 +200,8 @@ class Owner:
     user: Callable | None = None        # None: the name of the current uid
     geteuid: Callable = os.geteuid
     cwd: Callable = Path.cwd
-    ledger_add: Callable | None = None  # None: awb.ledger.add
+    ledger_add: Callable | None = None  # None: awb.ledger.add, handed to the work user when the owner cannot write
+    run: Callable = subprocess.run      # the hand-over to the work user (sudo -n -u WORK awb ledger add)
     now: Callable = time.time
 
     def dir(self) -> Path:
@@ -281,16 +283,47 @@ def _log(folder: Path, action: str, g: Grant, now: float) -> None:
         fh.write("\t".join((stamp, action, g.host, g.project, g.until, g.why)) + "\n")
 
 
+def _ledger_as_work(o: Owner, done: str, project: str, why: str) -> None:
+    """The shared ledger belongs to the work user and the owner may only read it: the entry goes through
+    `awb ledger add` as the work user, which runs the same name check."""
+    from awb import config
+
+    work = config.work_user()
+    if not work:
+        raise GrantError("the ledger cannot be written by this user and the host file names no work user, "
+                         "nothing was written")
+    awb_bin = "/usr/local/bin/awb" if os.path.exists("/usr/local/bin/awb") else "awb"
+    cmd = ["sudo", "-n", "-u", work, "-H", awb_bin, "ledger", "add", "--kind", "tooling", "--done", done,
+           "--project", project, "--outcome", why]
+    try:
+        done_run = o.run(cmd, cwd="/", stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        raise GrantError("the ledger entry could not be handed to the work user, nothing was written") from None
+    if done_run.returncode == 1:
+        raise GrantRefused("the reason failed the name check: write it with codes, nothing was written")
+    if done_run.returncode != 0:
+        raise GrantError("the work user could not take the ledger entry (sudo -n -u %s awb ledger add), nothing "
+                         "was written" % work)
+
+
 def _ledger(o: Owner, done: str, project: str, why: str) -> None:
     from awb import ledger
 
-    add = o.ledger_add or ledger.add
     try:
-        add("tooling", done, project=project, outcome=why, tags=())
+        if o.ledger_add is not None:
+            o.ledger_add("tooling", done, project=project, outcome=why, tags=())
+        else:
+            try:
+                ledger.add("tooling", done, project=project, outcome=why, tags=())
+            except PermissionError:
+                _ledger_as_work(o, done, project, why)
     except ledger.Refused:
         raise GrantRefused("the reason failed the name check: write it with codes, nothing was written") from None
     except ledger.LedgerError:
         raise GrantError("the ledger could not check or take the entry, nothing was written") from None
+    except OSError:
+        raise GrantError("the ledger could not be written, nothing was written") from None
 
 
 def _clean_why(why: str) -> str:
