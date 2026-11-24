@@ -534,7 +534,9 @@ def test_ph_replace_failure_preserves_old_pdf_and_removes_temporary_file(project
     assert sorted(p.name for p in src.parent.iterdir()) == [src.name, out.name]
 
 
-def test_ph_pdf_permissions_are_private_without_changing_umask(project, monkeypatch):
+def test_ph_pdf_permissions_are_group_readable_in_a_project_without_changing_umask(project, monkeypatch):
+    """Replaced on the owner's yes of 2026-11-24 (was: ..._are_private_...): inside a project folder the PDF is
+    0664 so the owner's awb xchg put can read it; the umask is still never changed."""
     import os
     import stat
 
@@ -548,7 +550,7 @@ def test_ph_pdf_permissions_are_private_without_changing_umask(project, monkeypa
 
     monkeypatch.setattr(os, "umask", mask)
     out, _, _ = pdf.convert(src)
-    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    assert stat.S_IMODE(out.stat().st_mode) == 0o664
     assert calls == []
 
 

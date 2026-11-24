@@ -38,7 +38,8 @@ place), without the "#id" after its text; one to an id the page lacks stays text
 
 The PDF goes next to FILE unless --out names another file; either way it must lie inside the project folder of the
 current folder (its SCOPE.md) or the session scratch folder (/tmp/claude-UID), as must the input. Linked path components and special files are refused. Output files are
-private (0600), published atomically; concurrent conversions may replace each other with complete PDFs.
+group-readable (0664) inside a project folder, so the owner's awb xchg put can read them, and private
+(0600) in the session scratch folder, published atomically; concurrent conversions may replace each other with complete PDFs.
 Names and secrets in source, parsed text, links, paths and metadata refuse publication. Input lines and joined
 Markdown paragraphs are limited to 16384 characters, tables to 100000 rectangular cells and output to 1000 pages.
 A document whose text is all WinAnsi keeps the standard fonts. One with a character outside WinAnsi (Cyrillic for
@@ -1512,6 +1513,14 @@ def _target_regular(parent: int, name: str) -> None:
         raise PdfError("a link, folder or special file stands where the PDF should be")
 
 
+def _in_scratch(target: Path) -> bool:
+    try:
+        Path(os.path.abspath(target)).relative_to(os.path.abspath(SCRATCH % os.getuid()))
+        return True
+    except ValueError:
+        return False
+
+
 def _publish(target: Path, data: bytes) -> None:
     parent = _directory(target.parent)
     tmp = None
@@ -1532,6 +1541,10 @@ def _publish(target: Path, data: bytes) -> None:
             raise PdfError("cannot create PDF temporary file")
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
+            # inside a project folder the file is group-readable, so the owner's awb xchg put can read it (owner's
+            # word 2026-11-24); in the session scratch folder it stays private
+            if not _in_scratch(target):
+                os.fchmod(stream.fileno(), 0o664)
             written = os.fstat(stream.fileno())
         # Refuse a moved/replaced parent before publication; cleanup uses the pinned fd.
         current = _directory(target.parent)

@@ -73,3 +73,19 @@ def test_ui5o_xchg_names_a_file_it_cannot_read(tmp_path, monkeypatch):
                 pass
     assert "guide.pdf cannot be read by this user" in str(err.value)
     assert "exchange folder cannot be opened" not in str(err.value)
+
+
+def test_ui5o_pdf_and_docx_are_group_readable_in_a_project_and_private_in_scratch(project, tmp_path, monkeypatch):
+    import stat
+
+    src = project / "guide.html"
+    src.write_text(PAGE, encoding="utf-8")
+    assert stat.S_IMODE(pdf.convert(src)[0].stat().st_mode) == 0o664
+    assert stat.S_IMODE(docx.convert(src)[0].stat().st_mode) == 0o664
+    scratch = tmp_path / "scratch-%d"
+    (tmp_path / ("scratch-%d" % os.getuid())).mkdir()
+    monkeypatch.setattr(pdf, "SCRATCH", str(scratch))
+    inner = Path(str(scratch) % os.getuid()) / "guide.html"
+    inner.write_text(PAGE, encoding="utf-8")
+    monkeypatch.chdir(inner.parent)
+    assert stat.S_IMODE(pdf.convert(inner)[0].stat().st_mode) == 0o600

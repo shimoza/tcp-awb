@@ -23845,8 +23845,8 @@
   {
    "id": "PDF-H19",
    "phase": "T",
-   "name": "pdf: pdf permissions are private without changing umask",
-   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_pdf_permissions_are_private_without_changing_umask",
+   "name": "pdf: pdf permissions are private without changing umask (0664 in a project since 2026-11-24)",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_pdf_permissions_are_group_readable_in_a_project_without_changing_umask",
    "status": "passing"
   },
   {
@@ -31023,8 +31023,15 @@
    "name": "xchg: a file it cannot read is named",
    "run": ".venv/bin/pytest tests/test_ui5o_docx_h4.py::test_ui5o_xchg_names_a_file_it_cannot_read",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-H4-4",
+   "phase": "T",
+   "name": "pdf and docx: 0664 in a project, 0600 in scratch",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx_h4.py::test_ui5o_pdf_and_docx_are_group_readable_in_a_project_and_private_in_scratch",
+   "status": "passing"
   }
  ],
- "total_tests": 4432,
+ "total_tests": 4433,
  "checked": "2026-11-22"
 }
