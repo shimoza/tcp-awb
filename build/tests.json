@@ -30204,8 +30204,22 @@
    "name": "egress allow: a refusal of the work user name check writes nothing",
    "run": ".venv/bin/pytest tests/test_ui5o_egress_first_grant.py::test_a_refusal_of_the_work_user_name_check_writes_nothing",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-PQ-1",
+   "phase": "T",
+   "name": "key service: a query in the path is refused with the hint",
+   "run": ".venv/bin/pytest tests/test_bytg_path_query_hint.py::test_bytg_a_query_in_the_path_is_refused_with_the_hint",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-PQ-2",
+   "phase": "T",
+   "name": "key service: a bad path without a query keeps the plain refusal",
+   "run": ".venv/bin/pytest tests/test_bytg_path_query_hint.py::test_bytg_a_bad_path_without_a_query_keeps_the_plain_refusal",
+   "status": "passing"
   }
  ],
- "total_tests": 4315,
+ "total_tests": 4317,
  "checked": "2026-11-22"
 }

@@ -133,6 +133,16 @@ _ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,40}\Z")
 _SERVICE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}\Z")
+
+
+def path_refusal(path) -> str:
+    """The refusal of a path that is not plain; a path with a query string is told where the query goes."""
+    if isinstance(path, str) and "?" in path:
+        return ("a path is plain: /v2/cloudimages; a query goes beside it (awb cloud call --query K=V, a lab call "
+                "\"query\": {...}, labclient params=)")
+    return "a path is plain: /v1/{project_id}/cloudservers"
+
+
 _PROJECT_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 """Used with fullmatch only: `$` alone also matches before a trailing newline."""
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
@@ -1249,7 +1259,7 @@ class Service:
             raise Refused("the key service does not write to %s; credentials and identities are an owner task"
                           % service)
         if not _plain_path(path):
-            raise Refused("a path is plain: /v1/{project_id}/cloudservers")
+            raise Refused(path_refusal(path))
         if method in WRITE_METHODS:
             # K9: the write is one METHOD service path triple of the lab_writes line, matched whole with its query
             # keys; without the line no write is signed
@@ -1473,7 +1483,7 @@ class Service:
         if not isinstance(service, str) or not _SERVICE_NAME_RE.match(service):
             raise Refused("a service name reads like ecs or vpc")
         if not _plain_path(path):
-            raise Refused("a path is plain: /v1/{project_id}/cloudservers")
+            raise Refused(path_refusal(path))
         query = req.get("query") or {}
         if not isinstance(query, dict) or not all(isinstance(k, str) and isinstance(v, (str, list))
                                                   for k, v in query.items()):
