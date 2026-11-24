@@ -30589,8 +30589,36 @@
    "name": "labclient: awb lab obs link prints the URL once, the run log keeps no URL",
    "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_labclient_prints_the_link_once_and_logs_no_url",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-DW-1",
+   "phase": "T",
+   "name": "doc fetch: a name hit is named by class and line, never by value",
+   "run": ".venv/bin/pytest tests/test_bytg_doc_withheld_reason.py::test_bytg_a_name_hit_is_named_by_class_and_line_never_by_value",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-DW-2",
+   "phase": "T",
+   "name": "doc fetch: a public page has no reason and stays whole",
+   "run": ".venv/bin/pytest tests/test_bytg_doc_withheld_reason.py::test_bytg_a_public_page_has_no_reason_and_stays_whole",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-DW-3",
+   "phase": "T",
+   "name": "doc fetch: a secret is named by its class",
+   "run": ".venv/bin/pytest tests/test_bytg_doc_withheld_reason.py::test_bytg_a_secret_is_named_by_its_class",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-DW-4",
+   "phase": "T",
+   "name": "doc fetch: a control character is named with its line",
+   "run": ".venv/bin/pytest tests/test_bytg_doc_withheld_reason.py::test_bytg_a_control_character_is_named_with_its_line",
+   "status": "passing"
   }
  ],
- "total_tests": 4370,
+ "total_tests": 4374,
  "checked": "2026-11-22"
 }

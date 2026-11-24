@@ -162,30 +162,46 @@ def _append(fd: int, data: bytes) -> None:
         raise
 
 
-def _public(text: str, fallback: str) -> str:
-    """Withhold private output and checker failures, with an unconfigured development fallback."""
+def _line_of(text: str, at: int) -> str:
+    return "line %d of %d" % (text.count("\n", 0, max(at, 0)) + 1, text.count("\n") + 1)
+
+
+def private_reason(text: str) -> str | None:
+    """Why `text` is withheld, without its value: the class of the first hit and its line; None when it is public.
+    The same decision as `_public`."""
     from awb import check, config
 
     try:
         text.encode("utf-8")
-        if any(unicodedata.category(c).startswith("C") and c not in "\n\t" for c in text) \
-                or check._secret_classes(text):
-            return fallback
+        for i, c in enumerate(text):
+            if unicodedata.category(c).startswith("C") and c not in "\n\t":
+                return "a control character at %s" % _line_of(text, i)
+        secrets_found = check._secret_classes(text)
+        if secrets_found:
+            return "a secret (%s)" % ", ".join(sorted(secrets_found))
         register = config.paths().register
         try:
             hits = check.check_text(text, register)
         except check.CheckUnavailable:
             if config.is_work_user():
-                return fallback
+                return "the name check is unavailable"
             try:
                 register.parent.stat()
             except FileNotFoundError:
                 hits = []
             else:
-                return fallback
-        return fallback if any(hit.get("cls") == "name" for hit in hits) else text
+                return "the name check is unavailable"
+        names = sorted(h.get("start", 0) for h in hits if h.get("cls") == "name")
+        if names:
+            return "%d form(s) of the name register, the first at %s" % (len(names), _line_of(text, names[0]))
+        return None
     except Exception:
-        return fallback
+        return "the check failed"
+
+
+def _public(text: str, fallback: str) -> str:
+    """Withhold private output and checker failures, with an unconfigured development fallback."""
+    return text if private_reason(text) is None else fallback
 
 
 # --------------------------------------------------------------------------- the checks (both sides)
@@ -885,9 +901,10 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
             page = one(url, links=bool(req.get("links")))
     except DocError as err:
         return {"ok": False, "error": str(err)}, None
-    text = _public(page["text"], "")
-    if text != page["text"]:
-        return {"ok": False, "error": "refused: private documentation text withheld"}, None
+    why = private_reason(page["text"])
+    if why is not None:
+        return {"ok": False, "error": "refused: private documentation text withheld (%s)" % why}, None
+    text = page["text"]
     data = text.encode("utf-8")
     name = None
     try:
@@ -1003,8 +1020,9 @@ def _fetch_cmd(args) -> int:
         return 2
     head = header(source, fetched, answer.get("kind"), answer.get("pages"))
     text = head + "\n\n" + body
-    if _public(text, "") != text:
-        print("refused: private documentation text withheld", file=sys.stderr)
+    why = private_reason(text)
+    if why is not None:
+        print("refused: private documentation text withheld (%s)" % why, file=sys.stderr)
         return 1
     if out is None:
         sys.stdout.write(text)
