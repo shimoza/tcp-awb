@@ -36,6 +36,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 ### Fixed
 - tcp-bj3o ask 2026-11-24-1: `awb side take NAME --merge` after a plain `awb side take NAME`, and a second or third merge, no longer conflict. The merge commits the result as `notes/side-NAME.md` and leaves `SIDE-RESULT.md` as the main branch has it; the untracked copy of the plain take gives way. A conflict on any other file still aborts.
 - tcp-bytg ask 2026-11-24-1: `awb calc` in a side session records into `calc/calc.tsv` of its project under the same lock, so the main session and a side session never give one K id twice.
+- `seal/setup.sh` keeps the owner's line `doc_hosts` of `paths.conf` when it rewrites the host file. The deploy of 2026-11-24 dropped it, so `awb doc hosts add` refused until the line was put back by hand.
 
 ## Week 47, 2026-11-16 to 2026-11-22
 ### Added
@@ -80,6 +81,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - Drafting skill (Q-0015, edit mode): all fixes of one message go in one pass, the master in the target language is fixed first and the Russian reading copy made again from it, each round shows the whole Russian text from the first line to the last with no change list, a small edit gets only `awb write keep` and `awb write check` while the review runs once at the end, the length stays at the budget set from the request, and a named meeting or German reader gets the German version at once. Tests: `tests/test_drafting_edit_mode.py`.
 
 ### Fixed
+- `seal/setup.sh` keeps the owner's line `doc_hosts` of `paths.conf` when it rewrites the host file. The deploy of 2026-11-24 dropped it, so `awb doc hosts add` refused until the line was put back by hand.
 - `awb service update` in an installed release (read-only rules folder) ended in a PermissionError traceback; it now says in one line to run it in the repository checkout, commit `rules/` and deploy, and writes nothing. The service description of 2026-11-18 is in `rules/services.tsv` (79 services, unchanged list).
 - `awb review` l0 no longer blocks a deliverable on "service: X is not offered on TCP" when every sentence that names X says it is no longer offered (discontinued, withdrawn, not available and the like); a sentence that proposes X is still a finding; the chat note keeps counting every mention (tcp-ui5o ask of 2026-11-22).
 - `awb side take` copies only a result the side session wrote (tcp-6edq ask 2026-11-21-tcp-6edq-1: a take of three failed side sessions with no commit wrote `notes/side-NAME.md` with an old result, because a merged side session had brought its `SIDE-RESULT.md` into the project and every new worktree started with it): `start` records the start commit, and a `SIDE-RESULT.md` equal to the one of that commit (the merge base of the project and `side/NAME` for an older record) is no result: take writes nothing and says so, `awb side status` shows `result: no`. Tests: `tests/test_6edq_side_take_old_result.py`.
