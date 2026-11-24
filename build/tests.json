@@ -23846,7 +23846,7 @@
    "id": "PDF-H19",
    "phase": "T",
    "name": "pdf: pdf permissions are private without changing umask (0664 in a project since 2026-11-24)",
-   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_pdf_permissions_are_group_readable_in_a_project_without_changing_umask",
+   "run": ".venv/bin/pytest tests/test_pdf.py::test_ph_pdf_permissions_are_private_without_changing_umask",
    "status": "passing"
   },
   {
