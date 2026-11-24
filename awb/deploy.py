@@ -226,6 +226,8 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/refresh.py": "awb refresh, run by the owner or a timer of his",
     "awb/reportcodes.py": ("awb report --codes, run by the owner, his hourly timer awb-report-codes and the work "
                            "side's awb-report-codes-work (oneshots)"),
+    "awb/reportkpi.py": ("the KPI file beside projects.csv of awb report --codes (task 7), loaded by it only, so the "
+                         "same oneshots"),
     "awb/tcp/dataset.py": "awb dataset build|put|weekly, run by the owner, the refresh or his timer awb-dataset-weekly",
     "awb/tcp/tcp_facts_mcp.py": "the MCP server of the dataset, copied into every build and run by its recipient",
     "awb/tcp/web/contract.py": "awb api write|check, writes and checks docs/api/openapi.yaml",

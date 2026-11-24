@@ -31044,8 +31044,78 @@
    "name": "ask kind: the key service takes a put and refuses every other exchange",
    "run": ".venv/bin/pytest tests/test_s2z5_ask_put.py::test_s2z5_the_key_service_lets_an_ask_project_put_and_refuses_every_other_exchange",
    "status": "passing"
+  },
+  {
+   "id": "KPI-1",
+   "phase": "T",
+   "name": "report kpi: ten headers pinned, projects.csv six unchanged",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_the_ten_headers_are_pinned_and_the_six_stay_as_they_are",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-2",
+   "phase": "T",
+   "name": "report kpi: every project since 2026-09-01, closed and deleted too",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_one_row_per_project_since_the_start_closed_and_deleted_too",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-3",
+   "phase": "T",
+   "name": "report kpi: goal, tags, deliverables withheld on a hit",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_a_text_with_a_name_or_a_detector_hit_is_withheld",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-4",
+   "phase": "T",
+   "name": "report kpi: --out named projects-kpi.csv refused",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_out_named_like_the_kpi_file_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-5",
+   "phase": "T",
+   "name": "report kpi: work side hands over, owner side checks again",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_the_sealed_split_hands_the_file_over_and_the_owner_side_checks_it",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-6",
+   "phase": "T",
+   "name": "report kpi: an untrusted shared file is refused, projects.csv still written",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_a_file_the_owner_side_cannot_trust_is_refused_and_projects_csv_still_goes",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-7",
+   "phase": "T",
+   "name": "report kpi: no work side file yet is one line, exit 0",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_no_file_of_the_work_side_yet_is_one_line_and_no_failure",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-8",
+   "phase": "T",
+   "name": "report kpi: put to reports/, if-changed puts nothing again",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_put_sends_both_kpi_files_to_reports_and_if_changed_keeps_them",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-9",
+   "phase": "T",
+   "name": "report kpi: laptop fetch, previous kept, sha256 checked",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_the_laptop_brings_the_file_keeps_the_previous_and_says_when_there_is_none",
+   "status": "passing"
+  },
+  {
+   "id": "KPI-10",
+   "phase": "T",
+   "name": "report kpi: awb clean report brings both files",
+   "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_awb_clean_report_brings_both_files",
+   "status": "passing"
   }
  ],
- "total_tests": 4435,
+ "total_tests": 4445,
  "checked": "2026-11-22"
 }

@@ -843,6 +843,13 @@ It downloads `reports/projects.csv` and `reports/projects.meta.json` of the buck
 checks the sha256, keeps the file before and replaces the new one in one step with three tries while Excel holds it.
 It never uploads.
 
+The same command brings the KPI file `projects-kpi.csv` (and keeps `projects-kpi.previous.csv`) for the reports and
+the half-year review: every project since 2026-09-01, closed ones too, ten columns (project code, customer code,
+kind, goal, start date, close date, state, tags and technologies, ledger entries, main deliverables), codes only.
+The host writes it beside `projects.csv` by the same route (`awb report --codes`, work side to the shared side, the
+owner's hourly put to `reports/`). To link it in report.xlsx: Data > From Text/CSV, pick `projects-kpi.csv` in the
+report folder and load it as a new query on a sheet of its own; `projects.csv` and its query stay as they are.
+
 The report workbook never leaves the laptop (`rules/report-workbook.txt`): `awb clean`, `--put`, `awb clean put` and
 the page refuse a file in the report folder and any workbook with both sheets Names and Projects, `awb clean fetch
 --to` refuses the report folder; on the host `awb import` and its timer hold such a workbook, import nothing of

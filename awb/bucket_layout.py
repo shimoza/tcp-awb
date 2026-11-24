@@ -21,8 +21,10 @@ DATASET_PREFIX = "datasets/tcp-facts/"
 """Where `awb dataset put` writes in the owner bucket: <date>/<file> and LATEST."""
 REPORTS_PREFIX = "reports/"
 """Where `awb report --codes --put` writes in the owner bucket: owner calls only, a session's calls never reach it."""
-REPORT_KEYS = frozenset(REPORTS_PREFIX + n for n in ("projects.csv", "projects.meta.json"))
-"""The files of reports/ the owner's CLI may put: the codes file of his report workbook and its sidecar."""
+REPORT_KEYS = frozenset(REPORTS_PREFIX + n for n in ("projects.csv", "projects.meta.json", "projects-kpi.csv",
+                                                     "projects-kpi.meta.json"))
+"""The files of reports/ the owner's CLI may put: the codes file of his report workbook, the KPI file
+(awb/reportkpi.py) and their sidecars."""
 INVENTORY_PREFIX = REPORTS_PREFIX + "inventory/"
 """Where the coded inventories of the move plan lie (awb/inventory.py): the laptop's of `awb clean inventory --put`
 with his own key, the host's and the buckets' of `awb files inventory`."""

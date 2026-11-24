@@ -67,7 +67,7 @@ month with its in/ and out/ (awb/bucket_layout.py). On the host `awb import --au
 (awb/cleanfetch.py), through the same key and the same proxy as `--put`.
 
 `awb clean report [--dir DIR] [--save]` brings the codes file of the report workbook, `reports/projects.csv` of the
-bucket, into the report folder (awb/cleanreport.py), through the same key and the same proxy; it never uploads. The
+bucket, and the KPI file `reports/projects-kpi.csv` into the report folder (awb/cleanreport.py), through the same key and the same proxy; it never uploads. The
 report workbook never leaves the laptop (rules/report-workbook.txt): a run, `--put`, `awb clean put`, the page and
 `awb clean fetch --to` refuse a path in the report folder; a run and the puts refuse a workbook with both sheets
 Names and Projects, with the one line of `reportbook.REFUSED`.
@@ -914,9 +914,9 @@ def _report_main(argv: list[str]) -> int:
     from awb.cli import SafeParser
 
     ap = SafeParser(prog="awb clean report", description="The codes file of the report workbook (reports/projects.csv "
-                    "of the bucket) into the report folder, with the key of AWB_OBS_AK and AWB_OBS_SK; the sha256 "
-                    "of projects.meta.json is checked, the file before is kept as projects.previous.csv. It never "
-                    "uploads.")
+                    "of the bucket) and the KPI file (reports/projects-kpi.csv) into the report folder, with the key "
+                    "of AWB_OBS_AK and AWB_OBS_SK; the sha256 of each sidecar is checked, the file before is kept as "
+                    "projects.previous.csv and projects-kpi.previous.csv. It never uploads.")
     ap.add_argument("--dir", default=None, metavar="DIR", help="the report folder (default: the one saved with "
                     "--save), for example \"C:\\Users\\<you>\\awb-report\"")
     ap.add_argument("--save", action="store_true", help="keep --dir as the report folder")
@@ -928,7 +928,9 @@ def _report_main(argv: list[str]) -> int:
         print("awb clean report: --save goes with --dir DIR", file=sys.stderr)
         return EXIT_ERROR
     try:
-        cleanreport.fetch(Path(windows_path(args.dir)) if args.dir else None, save=args.save)
+        folder = Path(windows_path(args.dir)) if args.dir else None
+        cleanreport.fetch(folder, save=args.save)
+        cleanreport.fetch_kpi(folder)
     except cleanreport.Held as err:
         print("awb clean report: %s" % err, file=sys.stderr)
         return EXIT_HELD

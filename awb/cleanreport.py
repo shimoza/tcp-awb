@@ -8,7 +8,12 @@ and AWB_OBS_SK), through HTTPS_PROXY, the path `awb clean fetch` uses; no new cr
 the sidecar, keeps the file before as `projects.previous.csv` and replaces `projects.csv` in one step: the new file
 is written as `projects.csv.part` and moved over the old one, three tries two seconds apart while Excel holds it,
 else "Excel holds the file, run it again". The sidecar is read in memory and never written: projects.csv and
-projects.previous.csv are the only files the Workbench writes into the report folder. It never uploads.
+projects.previous.csv are the only files the Workbench writes into the report folder, with the KPI file below. It
+never uploads.
+
+The same command then brings `reports/projects-kpi.csv` (task 7, ten columns, every project since 2026-09-01) the
+same way, checked against `projects-kpi.meta.json` and kept before as `projects-kpi.previous.csv` (`fetch_kpi`).
+While the host has put none yet it says so in one line and the command still succeeds.
 
 The folder is `--dir DIR`, else the one saved before with `--dir DIR --save` (the file `report-dir` of the laptop
 folder), for example `C:\\Users\\<you>\\awb-report`, read as /mnt/c/Users/<you>/awb-report.
@@ -38,6 +43,12 @@ CSV_NAME = "projects.csv"
 META_NAME = "projects.meta.json"
 PREVIOUS_NAME = "projects.previous.csv"
 HEADER = ("project code", "customer code", "task description", "next step", "whose move", "date of last change")
+KPI_CSV_NAME = "projects-kpi.csv"
+KPI_META_NAME = "projects-kpi.meta.json"
+KPI_PREVIOUS_NAME = "projects-kpi.previous.csv"
+KPI_HEADER = ("project code", "customer code", "kind", "goal", "start date", "close date", "state",
+              "tags and technologies", "ledger entries", "main deliverables")
+"""The ten names of the KPI file of the host (awb/reportkpi.py HEADERS; a test holds the two equal)."""
 WITHHELD = "(withheld by the name check)"
 TRIES, PAUSE = 3, 2.0
 MAX_BYTES = 16 * 1024 * 1024
@@ -50,6 +61,10 @@ class ReportError(Exception):
 
 class Held(ReportError):
     """The new file could not replace the old one: Excel holds it."""
+
+
+class Missing(ReportError):
+    """The bucket has no such file yet."""
 
 
 # --------------------------------------------------------------------------- the folder and the refusals
@@ -133,7 +148,7 @@ def _get(c, key: str, to: Path) -> None:
     except obs.OBSError as err:
         to.unlink(missing_ok=True)
         if getattr(err, "status", None) == 404:
-            raise ReportError("%s is not in the bucket yet: the host puts it with awb report --codes --put" % key) \
+            raise Missing("%s is not in the bucket yet: the host puts it with awb report --codes --put" % key) \
                 from None
         raise ReportError("the bucket: %s" % err) from None
     if to.stat().st_size > MAX_BYTES:
@@ -153,24 +168,54 @@ def _replace(part: Path, target: Path, tries: int, pause: float, sleep) -> None:
     raise Held(HELD_BY_EXCEL)
 
 
+def _folder(folder: Path | None) -> Path:
+    folder = folder if folder is not None else saved_dir()
+    if folder is None:
+        raise ReportError("give the report folder once with --dir DIR --save (for example "
+                          "\"C:\\Users\\<you>\\awb-report\")")
+    return Path(os.path.abspath(Path(folder).expanduser()))
+
+
 def fetch(folder: Path | None, *, client=None, save: bool = False, now: datetime | None = None, sleep=time.sleep,
           tries: int = TRIES, pause: float = PAUSE, say=print) -> int:
     """projects.csv into the report folder. Returns the number of rows. See the module text."""
     from awb import clean
 
-    folder = folder if folder is not None else saved_dir()
-    if folder is None:
-        raise ReportError("give the report folder once with --dir DIR --save (for example "
-                          "\"C:\\Users\\<you>\\awb-report\")")
-    folder = Path(os.path.abspath(Path(folder).expanduser()))
+    folder = _folder(folder)
     c = client or clean._client("awb clean report")
     folder.mkdir(parents=True, exist_ok=True)
     if save:
         save_dir(folder)
-    target, part = folder / CSV_NAME, folder / (CSV_NAME + ".part")
-    meta_tmp = laptop.tmp_dir() / (".%s.%d" % (META_NAME, os.getpid()))
+    return _bring(c, folder, CSV_NAME, META_NAME, PREVIOUS_NAME, HEADER, now=now, sleep=sleep, tries=tries,
+                  pause=pause, say=say)
+
+
+def fetch_kpi(folder: Path | None, *, client=None, now: datetime | None = None, sleep=time.sleep,
+              tries: int = TRIES, pause: float = PAUSE, say=print) -> int | None:
+    """projects-kpi.csv into the report folder the same way (task 7); None and one line when the host has put none
+    yet, so that `awb clean report` keeps working before the host has the KPI file."""
+    from awb import clean
+
+    folder = _folder(folder)
+    c = client or clean._client("awb clean report")
+    folder.mkdir(parents=True, exist_ok=True)
     try:
-        _get(c, PREFIX + META_NAME, meta_tmp)
+        return _bring(c, folder, KPI_CSV_NAME, KPI_META_NAME, KPI_PREVIOUS_NAME, KPI_HEADER, now=now, sleep=sleep,
+                      tries=tries, pause=pause, say=say, line_end="load it as its own query (see the README)")
+    except Missing:
+        say("%s is not in the bucket yet: the host puts it with awb report --codes --put" % KPI_CSV_NAME)
+        return None
+
+
+def _bring(c, folder: Path, csv_name: str, meta_name: str, previous_name: str, header: tuple[str, ...], *,
+           now: datetime | None, sleep, tries: int, pause: float, say,
+           line_end: str = "Data > Refresh All or open report.xlsx") -> int:
+    """One codes file and its sidecar of reports/: the sidecar read in memory, the sha256 checked, the file before
+    kept as `previous_name`, the new one moved over the old one in one step. Returns the number of rows."""
+    target, part = folder / csv_name, folder / (csv_name + ".part")
+    meta_tmp = laptop.tmp_dir() / (".%s.%d" % (meta_name, os.getpid()))
+    try:
+        _get(c, PREFIX + meta_name, meta_tmp)
         try:
             meta = json.loads(meta_tmp.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -179,18 +224,18 @@ def fetch(folder: Path | None, *, client=None, save: bool = False, now: datetime
         meta_tmp.unlink(missing_ok=True)
     want = meta.get("sha256") if isinstance(meta, dict) else None
     if not isinstance(want, str) or len(want.strip()) != 64:
-        raise ReportError("%s carries no sha256: nothing was replaced" % META_NAME)
-    _get(c, PREFIX + CSV_NAME, part)
+        raise ReportError("%s carries no sha256: nothing was replaced" % meta_name)
+    _get(c, PREFIX + csv_name, part)
     data = part.read_bytes()
     if hashlib.sha256(data).hexdigest() != want.strip().lower():
         part.unlink(missing_ok=True)
         raise ReportError("the sha256 of %s does not match %s (the host may be writing it: run it again in a "
-                          "minute); nothing was replaced" % (CSV_NAME, META_NAME))
+                          "minute); nothing was replaced" % (csv_name, meta_name))
     try:
         os.chmod(part, 0o600)
     except OSError:
         pass                                             # a Windows folder keeps no mode
-    header, rows, withheld = _rows(data)
+    head, rows, withheld = _rows(data)
     try:
         old = target.read_bytes() if target.is_file() else None
     except OSError:
@@ -199,7 +244,7 @@ def fetch(folder: Path | None, *, client=None, save: bool = False, now: datetime
         part.unlink(missing_ok=True)
         state = "unchanged"
     else:
-        prev_part = folder / (PREVIOUS_NAME + ".part")
+        prev_part = folder / (previous_name + ".part")
         if old is not None:
             prev_part.write_bytes(old)
         try:
@@ -209,17 +254,17 @@ def fetch(folder: Path | None, *, client=None, save: bool = False, now: datetime
             raise
         if old is not None:
             try:
-                _replace(prev_part, folder / PREVIOUS_NAME, tries, pause, sleep)
+                _replace(prev_part, folder / previous_name, tries, pause, sleep)
             except Held:
-                say("%s is held open: the version before was not kept this time" % PREVIOUS_NAME)
+                say("%s is held open: the version before was not kept this time" % previous_name)
         state = "replaced"
     when = _written(meta)
     now = now or datetime.now(timezone.utc)
     stamp = (", written %s UTC (%s)" % (when.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M"), _age(when, now))
              if when else "")
-    say("%s: %d row%s, %d text%s withheld%s, %s. In Excel: Data > Refresh All or open report.xlsx."
-        % (CSV_NAME, rows, "" if rows == 1 else "s", withheld, "" if withheld == 1 else "s", stamp, state))
-    if tuple(h.strip() for h in header) != HEADER:
-        say("the header of %s is not the six names of the design: the refresh in Excel stops until the query is "
-            "edited" % CSV_NAME)
+    say("%s: %d row%s, %d text%s withheld%s, %s. In Excel: %s."
+        % (csv_name, rows, "" if rows == 1 else "s", withheld, "" if withheld == 1 else "s", stamp, state, line_end))
+    if tuple(h.strip() for h in head) != header:
+        say("the header of %s is not the %s names of the design: the refresh in Excel stops until the query is "
+            "edited" % (csv_name, "six" if len(header) == 6 else "ten"))
     return rows

@@ -425,13 +425,14 @@ def make(p: config.Paths, out: Path, *, if_changed: bool = False, want_put: bool
 
 def main(argv: list[str]) -> int:
     """`awb report --codes ...`. Exit 0 written or unchanged (or a put skipped while the key service is locked),
-    1 the put failed, 2 refused or an error."""
-    from awb import bucket, obs
+    1 the put failed, 2 refused or an error. The KPI file follows the six-column file by the same route
+    (awb/reportkpi.py): made once projects.csv was written or found unchanged, its exit code counts as well."""
     from awb.cli import SafeParser
 
     prog = "awb report --codes"
     ap = SafeParser(prog="awb report", description="The codes file of the report workbook: one row per project, "
-                    "six columns, codes only (projects.csv and projects.meta.json).")
+                    "six columns, codes only (projects.csv and projects.meta.json), and beside it the KPI file "
+                    "of every project since 2026-09-01 (projects-kpi.csv and projects-kpi.meta.json).")
     ap.add_argument("--codes", action="store_true", required=True)
     ap.add_argument("--out", type=Path, default=None, metavar="FILE",
                     help="where projects.csv goes, the sidecar beside it; default the state folder of the timer, "
@@ -456,6 +457,22 @@ def main(argv: list[str]) -> int:
         print("%s: --to-shared writes the file of the shared side every time and puts nothing; leave out --out, "
               "--put and --if-changed" % prog, file=sys.stderr)
         return EXIT_ERROR
+    p_out: list = []
+    code = _codes(args, prog, p_out)
+    if code == EXIT_ERROR or not p_out:
+        return code
+    from awb import reportkpi
+
+    kpi = reportkpi.run(p_out[0], p_out[1], from_shared=args.from_shared, if_changed=args.if_changed,
+                        want_put=args.put, prog=prog)
+    return max(code, kpi)
+
+
+def _codes(args, prog: str, p_out: list) -> int:
+    """The six-column file of one run of `awb report --codes`. `p_out` gets the paths and the file once that was
+    written or found unchanged, so that the KPI file is made beside it."""
+    from awb import bucket, obs
+
     try:
         p = config.paths()
         out = shared_out(p) if args.to_shared else (args.out if args.out is not None else default_out())
@@ -463,6 +480,7 @@ def main(argv: list[str]) -> int:
             raise CodesError("--out names a folder; give the path of the file")
         word, rows, withheld, data = make(p, out, if_changed=args.if_changed, want_put=args.put,
                                           shared=args.from_shared)
+        p_out[:] = [p, out]
     except (CodesError, ledger.LedgerError, projects.ProjectError) as err:
         if args.put:
             write_state({"state": "failed", "reason": str(err)})
