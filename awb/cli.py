@@ -562,9 +562,17 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
         elif given not in (None, "", projects.NO_CUSTOMER):
             print("awb projects: %s has no customer in its row; nothing was written" % args.code, file=sys.stderr)
             return EXIT_FINDINGS
+        if args.kind == projects.ASK_KIND and row.kind != projects.ASK_KIND:
+            try:
+                projects.ask_refusal(row)
+            except projects.ProjectError as err:
+                print("awb projects: %s" % err, file=sys.stderr)
+                return EXIT_FINDINGS
         customer_before = grants.customer(p, args.code)
-        # K4: the key token of the project's folder; a session presents it with each call to the key service
-        token = projects.read_key_token(Path(row.path)) if projects.tenant_access(args.kind) else None
+        # K4: the key token of the project's folder; a session presents it with each call to the key service, and
+        # the hooks of an ask project ask the key service whether their folder's token is granted ask
+        token = (projects.read_key_token(Path(row.path))
+                 if projects.tenant_access(args.kind) or args.kind == projects.ASK_KIND else None)
         try:
             granted_before = grants.grant(p, args.code, args.kind, customer=row.customer)
             if token is not None:
@@ -574,7 +582,12 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
             return EXIT_ERROR
         print("%s: the owner's grant is %s (was %s)%s" % (args.code, args.kind, granted_before or "none",
                                                           ": it reaches the test tenants"
-                                                          if projects.tenant_access(args.kind) else ": no test tenant"))
+                                                          if projects.tenant_access(args.kind) else
+                                                          ": the owner's question session, read calls only"
+                                                          if args.kind == projects.ASK_KIND else ": no test tenant"))
+        if args.kind == projects.ASK_KIND and token is None:
+            print("%s: the folder holds no key token, so its checks stay those of a query until it has one and you "
+                  "run awb projects kind %s ask once more" % (args.code, args.code))
         if projects.tenant_access(args.kind) and grants.token(p, args.code) is None:
             print("%s: the folder holds no key token yet, so a session of it is refused at the key service; it "
                   "writes one with its first awb cloud call, then run awb projects kind %s project once more"
@@ -593,11 +606,12 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
         if projects.tenant_access(pr.kind):
             print("%s reaches a test tenant once the owner grants it in his own terminal" % pr.code)
     if before == pr.kind:
-        print("%s is a %s already" % (pr.code, pr.kind))
+        print("%s is %s %s already" % (pr.code, "an" if pr.kind == projects.ASK_KIND else "a", pr.kind))
         return EXIT_OK
-    print("%s is now a %s (was %s)%s" % (pr.code, pr.kind, before,
+    print("%s is now %s %s (was %s)%s" % (pr.code, "an" if pr.kind == projects.ASK_KIND else "a", pr.kind, before,
                                        ": it reaches the test tenants" if projects.tenant_access(pr.kind)
-                                       else ": no test tenant"))
+                                       else ": read calls only, his question session"
+                                       if pr.kind == projects.ASK_KIND else ": no test tenant"))
     try:
         projects.record(p, pr, "Switched %s from %s to %s" % (pr.code, before, pr.kind))
     except Exception:
@@ -813,7 +827,8 @@ def _build() -> argparse.ArgumentParser:
         sub.add_parser(name, help=text, add_help=False)
 
     s = sub.add_parser("spawn", help="create a sealed tcp- project: a query or a project")
-    s.add_argument("kind", help="query (knowledge base, prices, no tenant) or project (also the test tenants)")
+    s.add_argument("kind", help="query (knowledge base, prices, no tenant), project (also the test tenants) or ask "
+                                "(the owner's question session: no customer, no material, read calls only)")
     s.add_argument("--goal", required=True)
     s.add_argument("--customer", default=None, metavar="new",
                    help="new issues the customer code with the project's four characters (CUST-XXXX for "
@@ -847,9 +862,10 @@ def _build() -> argparse.ArgumentParser:
     s = psub.add_parser("preflight", help="read-only access checks: ok, missing or unknown; exit 1 unless all ok")
     s.add_argument("code")
     s.set_defaults(func=_cmd_projects_preflight)
-    s = psub.add_parser("kind", help="switch a project between query (knowledge only) and project (test tenants)")
+    s = psub.add_parser("kind", help="switch a project between query (knowledge only), project (test tenants) and "
+                                     "ask (the owner's question session; refused with a customer or material)")
     s.add_argument("code")
-    s.add_argument("kind", choices=("query", "project"))
+    s.add_argument("kind", choices=("query", "project", "ask"))
     s.add_argument("--customer", metavar="CODE",
                    help="the customer the row names; the grant is written only when it matches (needed for a "
                         "customer project)")

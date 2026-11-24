@@ -893,6 +893,20 @@ def _transport_error(err: Exception) -> str:
     return "the key service request failed"
 
 
+def _ask_refusal(what: str, command: str | None) -> int | None:
+    """Exit 1 with one line when this folder is an ask project (awb/askkind.py): no material enters it and nothing
+    leaves it through the exchange; None otherwise. `awb inbox list` still runs."""
+    from awb import askkind, hooks
+
+    if command in (None, "list") and what == "inbox":
+        return None
+    root = hooks.project_root(os.getcwd())
+    if root is not None and askkind.folder_refuses(root):
+        print("awb %s: %s" % (what, askkind.MATERIAL_LINE % root.name), file=sys.stderr)
+        return 1
+    return None
+
+
 def main_inbox(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
@@ -914,6 +928,9 @@ def main_inbox(argv: list[str] | None = None) -> int:
     if not args.command:
         ap.print_help()
         return 2
+    refused = _ask_refusal("inbox", args.command)
+    if refused is not None:
+        return refused
     try:
         if args.command == "take":
             text, ok = take(" ".join(args.words), args.project, args.customer, args.ids, args.take_all)
@@ -963,6 +980,9 @@ def main_xchg(argv: list[str] | None = None) -> int:
     if not args.command:
         ap.print_help()
         return 2
+    refused = _ask_refusal("xchg", args.command)
+    if refused is not None:
+        return refused
     try:
         if args.command == "put":
             print(put(Path(args.file), args.as_name, args.image, args.reason, args.kind_word, args.lang, args.mirror_image))

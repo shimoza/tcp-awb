@@ -30617,8 +30617,162 @@
    "name": "doc fetch: a control character is named with its line",
    "run": ".venv/bin/pytest tests/test_bytg_doc_withheld_reason.py::test_bytg_a_control_character_is_named_with_its_line",
    "status": "passing"
+  },
+  {
+   "id": "ASK-1",
+   "phase": "T",
+   "name": "ask kind: spawn of kind ask has no customer and its own rules",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_spawn_of_kind_ask_has_no_customer_and_its_own_rules",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-2",
+   "phase": "T",
+   "name": "ask kind: spawn of kind ask refuses a customer and a tenant",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_spawn_of_kind_ask_refuses_a_customer_and_a_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-3",
+   "phase": "T",
+   "name": "ask kind: awb spawn ask works",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_awb_spawn_ask_works",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-4",
+   "phase": "T",
+   "name": "ask kind: start ask spawns and grants",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_start_ask_spawns_and_grants",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-5",
+   "phase": "T",
+   "name": "ask kind: start ask refuses a customer and a folder",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_start_ask_refuses_a_customer_and_a_folder",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-6",
+   "phase": "T",
+   "name": "ask kind: the switch to ask refuses a customer and material",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_switch_to_ask_refuses_a_customer_and_material",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-7",
+   "phase": "T",
+   "name": "ask kind: the kind is not switchable from inside the project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_kind_is_not_switchable_from_inside_the_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-8",
+   "phase": "T",
+   "name": "ask kind: the owner grant counts when the session switched its row back",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_owner_grant_counts_when_the_session_switched_its_row_back",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-9",
+   "phase": "T",
+   "name": "ask kind: awb import and the paste door refuse an ask project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_awb_import_and_the_paste_door_refuse_an_ask_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-10",
+   "phase": "T",
+   "name": "ask kind: paste material inbox and xchg refuse in an ask folder",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_paste_material_inbox_and_xchg_refuse_in_an_ask_folder",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-11",
+   "phase": "T",
+   "name": "ask kind: bucket pull and fetch refuse an ask project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_bucket_pull_and_fetch_refuse_an_ask_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-12",
+   "phase": "T",
+   "name": "ask kind: the prompt hook lets a name pass and refuses a secret in an ask project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_prompt_hook_lets_a_name_pass_and_refuses_a_secret_in_an_ask_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-13",
+   "phase": "T",
+   "name": "ask kind: the prompt hook still refuses the name in a project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_prompt_hook_still_refuses_the_name_in_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-14",
+   "phase": "T",
+   "name": "ask kind: the write hook checks secrets only in an ask project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_write_hook_checks_secrets_only_in_an_ask_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-15",
+   "phase": "T",
+   "name": "ask kind: the start withholds nothing but a secret in an ask project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_start_withholds_nothing_but_a_secret_in_an_ask_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-16",
+   "phase": "T",
+   "name": "ask kind: the tool guard lets an unreadable path pass but no refused place",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_tool_guard_lets_an_unreadable_path_pass_but_no_refused_place",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-17",
+   "phase": "T",
+   "name": "ask kind: the commit gate of an ask project checks secrets only",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_commit_gate_of_an_ask_project_checks_secrets_only",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-18",
+   "phase": "T",
+   "name": "ask kind: kb add from an ask project runs every check",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_kb_add_from_an_ask_project_runs_every_check",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-19",
+   "phase": "T",
+   "name": "ask kind: lab runs and lab calls are refused in an ask folder",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_lab_runs_and_lab_calls_are_refused_in_an_ask_folder",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-20",
+   "phase": "T",
+   "name": "ask kind: the key service answers the kind for the folder token",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_key_service_answers_the_kind_for_the_folder_token",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-21",
+   "phase": "T",
+   "name": "ask kind: the key service refuses lab writes and customer tenants for an ask project",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_key_service_refuses_lab_writes_and_customer_tenants_for_an_ask_project",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-22",
+   "phase": "T",
+   "name": "ask kind: the work user asks the key service for the kind",
+   "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_work_user_asks_the_key_service_for_the_kind",
+   "status": "passing"
   }
  ],
- "total_tests": 4374,
+ "total_tests": 4396,
  "checked": "2026-11-22"
 }

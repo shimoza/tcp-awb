@@ -99,6 +99,11 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        Never blocks a compaction; silent for the owner and outside a project.
                                        `pre-compact` is the owner's hand-over (awb/handover.py)
 
+In an ask project (awb/askkind.py: the owner granted the kind ask for the key token of the folder) the name check
+steps back: the prompt, the written file and the start's files are checked for secrets only, the stop hook holds no
+draft and gives no state reminder, and the tool guard lets a shell path it cannot read pass. The kind is read from the
+owner's grant or the key service, never from SCOPE.md or projects.tsv; any doubt runs every check.
+
 The platform of a project (tcp or hcs, which decides whether vendor names block in a deliverable) comes from
 the prefix of its project code, the name of its folder. A line in SCOPE.md cannot change it.
 
@@ -552,6 +557,30 @@ def _session_folder(data: dict) -> str | None:
     return os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 
 
+def _ask_project(root: Path | None) -> bool:
+    """True when the owner granted the project of `root` the kind ask (awb/askkind.py): its hooks check secrets
+    only. Read from the owner's grant or the key service, never from a file of the project; any doubt is False."""
+    if root is None:
+        return False
+    try:
+        from awb import askkind
+
+        return askkind.is_ask(root)
+    except Exception:
+        return False
+
+
+def _secrets_only_prompt(data: dict, text: str) -> int:
+    """The prompt hook of an ask project: only a secret of the gate's classes blocks."""
+    secrets = _secret_hits(text)
+    if secrets:
+        print("the prompt carries a secret (%s). A session never holds a live secret: keep it in the vault or the "
+              "password store and refer to it by name." % _counts(secrets), file=sys.stderr)
+        return BLOCK
+    _rules_notice(data)
+    return OK
+
+
 def _platform(root: Path | None) -> str:
     """hcs only for a project whose folder is an hcs- project code; every other folder is tcp. SCOPE.md is
     written by the session and cannot switch the vendor-name rule off."""
@@ -780,6 +809,8 @@ def hook_prompt(data: dict) -> int:
         if refused:
             print(refused, file=sys.stderr)
             return BLOCK
+    if _ask_project(project_root(_session_folder(data))):
+        return _secrets_only_prompt(data, text)
     try:
         hits = name_hits(text)
     except Unavailable as exc:
@@ -1004,6 +1035,8 @@ def hook_post_write(data: dict, names: bool = True) -> int:
     if not path.is_file() or Path(os.path.realpath(path)) not in files:
         path = next(iter(files))
     root = project_root(path.parent)
+    if names and _ask_project(root):
+        names = False                   # an ask project: secrets and overrides only (awb/askkind.py)
     deliverable = _is_deliverable(path, root)
     try:
         size = path.stat().st_size
@@ -1609,8 +1642,12 @@ def hook_stop(data: dict) -> int:
         late_msg = None if notified or sidetree else _status.reminder(root)
     except Exception:
         late_msg = None
+    ask = _ask_project(root)
+    if ask:
+        # an ask project (awb/askkind.py): short answers in the chat, no drafts and no state upkeep to hold for
+        late_msg = None
     try:
-        draft_lines = draft_gate(data, root)
+        draft_lines = [] if ask else draft_gate(data, root)
     except Exception as exc:
         # fail closed: a gate that breaks holds the reply once (stop_hook_active lets the next stop through)
         draft_lines = ["the draft check of the stop hook failed (%s): run awb write check on every draft you show"
@@ -1619,7 +1656,7 @@ def hook_stop(data: dict) -> int:
     open_msg = None
     try:
         from awb import opensweep
-        open_msg = None if notified or sidetree else opensweep.reminder(root)
+        open_msg = None if notified or sidetree or ask else opensweep.reminder(root)
     except (OSError, UnicodeError, opensweep.OpenError):
         pass
     # task GT: the stop hook never asks for a review, a tier or a request check
@@ -1736,7 +1773,8 @@ def _project_text(root: Path, name: str) -> str | None:
             os.close(fd)
 
 
-def _section(root: Path, name: str, max_lines: int | None, notes: list[str], down: list[str] | None = None) -> str:
+def _section(root: Path, name: str, max_lines: int | None, notes: list[str], down: list[str] | None = None,
+             names: bool = True) -> str:
     """One file as a section of the session context. Withheld when it carries any hit of the name check and when
     the check cannot run (`down` carries the reason once the check failed, so the next sections do not wait for
     it again)."""
@@ -1760,6 +1798,13 @@ def _section(root: Path, name: str, max_lines: int | None, notes: list[str], dow
         text = text[:end]
         notes.append("%s is longer than %d characters: only its start was loaded, read the rest in the file"
                      % (name, SECTION_CHARS))
+    if not names:
+        # an ask project (awb/askkind.py): a secret withholds the file, nothing else does
+        secrets = _secret_hits(checked)
+        if secrets:
+            return ("## %s\n\n(withheld: it carries a secret (%s). Take it out of the file.)\n"
+                    % (title, _counts(secrets)))
+        return "## %s\n\n%s\n" % (title, text.strip())
     try:
         if down:
             raise Unavailable(down[0])
@@ -1789,7 +1834,7 @@ COMPACT_LEAD = ("Keep the following standing facts of this Workbench project in 
                 "not ask the owner for them again.")
 
 
-def _pinned_section(root: Path, down: list[str] | None = None) -> str | None:
+def _pinned_section(root: Path, down: list[str] | None = None, names: bool = True) -> str | None:
     """The two status lines and the pinned block of STATE.md (awb/status.py pin_text) as a section, checked like
     STATE.md is at the start: withheld with one line when it carries a bidi override or any hit of the name check
     or when the check cannot run. None when STATE.md is missing or has neither the lines nor the block."""
@@ -1801,6 +1846,12 @@ def _pinned_section(root: Path, down: list[str] | None = None) -> str | None:
         return None
     if _has_override(block):
         return "%s\n\n(withheld: it carries a bidi override. Take it out of STATE.md.)\n" % PIN_TITLE
+    if not names:
+        secrets = _secret_hits(block)
+        if secrets:
+            return "%s\n\n(withheld: it carries a secret (%s). Take it out of STATE.md.)\n" % (PIN_TITLE,
+                                                                                               _counts(secrets))
+        return "%s\n\n%s\n" % (PIN_TITLE, block)
     try:
         if down:
             raise Unavailable(down[0])
@@ -1959,9 +2010,11 @@ def hook_session_start(data: dict) -> int:
     if root is None:
         parts.append("No Workbench project here (no SCOPE.md in this folder or above it).\n")
     else:
+        ask = _ask_project(root)
         try:
-            # the folder name is whatever a shell command chose (the red team of 2026-09-27): checked like a file
-            shown = "this project" if name_hits(root.name) else root.name
+            # the folder name is whatever a shell command chose (the red team of 2026-09-27): checked like a file;
+            # an ask project's folder is its project code (askkind.is_ask checks the name)
+            shown = root.name if ask else ("this project" if name_hits(root.name) else root.name)
             down: list[str] = []
         except Unavailable as exc:
             if not exc.rate:
@@ -1972,17 +2025,18 @@ def hook_session_start(data: dict) -> int:
             shown, down = "this project", [str(exc)]
         if data.get("source") == "compact":
             # Q-0006: after a compaction the standing facts come first, before every file
-            pin = _pinned_section(root, down)
+            pin = _pinned_section(root, down, names=not ask)
             if pin:
                 parts.append(pin)
-        parts.append("Workbench project %s. Codes only, never a name.\n" % shown)
+        parts.append(("Workbench ask project %s: the owner's own questions, the secret check only.\n" if ask else
+                      "Workbench project %s. Codes only, never a name.\n") % shown)
         parts.append(FOOTER_RULE + "\n")
         parked = _parked_line(p, root)
         if parked:
             parts.append(parked + "\n")
-        parts.append(_section(root, "SCOPE.md", None, notes, down))
-        parts.append(_section(root, "STATE.md", STATE_LINES, notes, down))
-        parts.append(_section(root, "OPEN.md", None, notes, down))
+        parts.append(_section(root, "SCOPE.md", None, notes, down, names=not ask))
+        parts.append(_section(root, "STATE.md", STATE_LINES, notes, down, names=not ask))
+        parts.append(_section(root, "OPEN.md", None, notes, down, names=not ask))
         notes += _project_notes(p, root, data.get("session_id"), shown)
         notes += _pin_notes(root)
         notes += _preflight_notes(p, root, data.get("session_id"))

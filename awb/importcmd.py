@@ -220,6 +220,7 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
     project = next((pr for pr in projects.load(p) if pr.code == code), None)
     if project is None or project.state not in projects.LIVE_STATES:
         raise ImportRefused("%s is not an active project" % code)
+    _refuse_ask(p, code)
     own = project.customer if project.customer != projects.NO_CUSTOMER else None
     if customer == "new":
         if own:
@@ -440,6 +441,14 @@ def read_stdin(stdin=None) -> bytes:
     return data if isinstance(data, bytes) else data.encode("utf-8", "surrogatepass")
 
 
+def _refuse_ask(p: config.Paths, code: str) -> None:
+    """No material ever enters an ask project (awb/askkind.py)."""
+    from awb import askkind
+
+    if askkind.refuses_material(p, code):
+        raise ImportRefused(askkind.MATERIAL_LINE % code)
+
+
 def run_paste(p: config.Paths, code: str, kind: str | None = None, *, stdin=None, today=None) -> int:
     """`awb import CODE --paste`: the text on standard input through the intake of the project's customer. The checks
     of who may run it and of the project come before the text is read."""
@@ -452,6 +461,7 @@ def run_paste(p: config.Paths, code: str, kind: str | None = None, *, stdin=None
     project = next((pr for pr in projects.load(p) if pr.code == code), None)
     if project is None or project.state not in projects.LIVE_STATES:
         raise ImportRefused("%s is not an active project" % code)
+    _refuse_ask(p, code)
     own = project.customer if project.customer != projects.NO_CUSTOMER else None
     cust = own or code
     if own and _active_forms(p, own) == 0:

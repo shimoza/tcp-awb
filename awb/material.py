@@ -125,6 +125,11 @@ def main(argv: list[str] | None = None) -> int:
     if root is None:
         print("awb material: run it in a project folder (one with a SCOPE.md)", file=sys.stderr)
         return 2
+    from awb import askkind
+
+    if askkind.folder_refuses(root):
+        print("awb material: %s" % (askkind.MATERIAL_LINE % root.name), file=sys.stderr)
+        return 2
     try:
         data = sys.stdin.buffer.read(pastein.MAX_BYTES + 1)
         text = pastein.read_text(data)

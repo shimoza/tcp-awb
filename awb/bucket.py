@@ -536,6 +536,10 @@ def fetch(p: config.Paths, c: obs.Client, code: str, *, again: bool = False) -> 
     downloaded files under "files"."""
     owner_terminal("awb bucket pull")
     _project(p, code)
+    from awb import askkind
+
+    if askkind.refuses_material(p, code):
+        raise BucketError(askkind.MATERIAL_LINE % code)
     folder = find_folder(c, code)
     if folder is None:
         raise BucketError("%s has no folder in the bucket; awb bucket folder %s creates it" % (code, code))

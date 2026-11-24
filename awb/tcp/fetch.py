@@ -118,6 +118,10 @@ def fetch(p: config.Paths, code: str, folder: Path | None = None, *, again: bool
     project = next((r for r in projects.load(p) if r.code == code), None)
     if project is None or project.state not in projects.LIVE_STATES:
         raise FetchError("%s is not an active project" % code)
+    from awb import askkind
+
+    if askkind.refuses_material(p, code):
+        raise FetchError(askkind.MATERIAL_LINE % code)
     result = download(p, code, folder, again=again)
     result["archive"] = archive(code) if archive_old else None
     return result

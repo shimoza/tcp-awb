@@ -1937,6 +1937,28 @@ ids (domains, projects, users, resources, request ids, 32-hex and UUIDs). Names,
 home paths and the blocklist still refuse."""
 
 
+ASK_CLASSES = ("secret", "private-key", "token")
+"""The classes a commit of an ask project refuses (awb/askkind.py): the secrets alone, and no register is needed."""
+
+
+def ask_repo(where: Path) -> bool:
+    """True when `where` lies in a project folder the owner granted the kind ask (askkind.is_ask, never a file of
+    the project)."""
+    from awb import askkind, codes
+
+    try:
+        d = Path(os.path.realpath(where))
+    except (OSError, ValueError):
+        return False
+    for c in (d, *d.parents):
+        try:
+            if codes.is_project_code(c.name) and (c / "SCOPE.md").is_file():
+                return askkind.is_ask(c)
+        except OSError:
+            return False
+    return False
+
+
 def in_project(where: Path) -> bool:
     """True when `where` lies in a Workbench project folder: a folder named by a project code with a SCOPE.md."""
     from awb import codes
@@ -2030,8 +2052,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     findings: list[Finding] = []
+    ask = (args.staged or args.message is not None) and not args.paths and not args.pushed \
+        and ask_repo(args.repo if args.repo is not None else Path.cwd())
     try:
-        if args.no_register:
+        if args.no_register or ask:
             register_path = None
         elif check.register_source(Path(register_path))[0] == check.MISSING:
             print("awb gate: no register found, names cannot be checked; give --register PATH or --no-register "
@@ -2055,6 +2079,8 @@ def main(argv: list[str] | None = None) -> int:
             findings.extend(_scan_paths(_expand(args.paths), matcher))
         if in_project(args.repo if args.repo is not None else Path.cwd()):
             findings = [f for f in findings if f.cls not in PROJECT_FREE]
+        if ask:
+            findings = [f for f in findings if f.cls in ASK_CLASSES]
         lines = ["%s  %s:%d" % (f.cls, withheld_path(masked_path(f.file, matcher)), f.line) for f in findings]
     except (GateError, register.RegisterError) as err:   # check.CheckUnavailable is a RegisterError
         print("awb gate: %s" % err, file=sys.stderr)

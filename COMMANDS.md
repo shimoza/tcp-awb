@@ -571,8 +571,11 @@ access, writes a project token or attempts a login.
 | `awb projects preflight CODE` | read-only access report; exit 1 for any missing or unknown check |
 | `awb spawn query --goal "..." [--customer new] --tag iam` | a query `tcp-<code>` with its files, hooks and git: the knowledge base, the docs mirror, live prices and calculations, no test tenant (the key service refuses it). It ends with the project's folder `<YYYY-MM>/tcp-<code>/` with `in/` and `out/` in the owner bucket, made by the key service; when the service cannot be reached it says so in one line and goes on (the first take or `awb bucket folder CODE` makes it). The console's creation runs the same spawn |
 | `awb spawn project --goal "..." [--customer new] --tag vpn` | a project: everything a query has plus the test tenants through the key service |
+| `awb spawn ask --goal "..."` | an ask project: the owner's standing question session on how TCP behaves. No customer, no outbox copies, no tenant line (each refused); its CLAUDE.md says to answer from `awb kb find`, then `awb doc fetch`, then one read call, to name the source and to write a verified new finding with `awb kb add`. Its checks step back only after your grant `awb projects kind CODE ask` |
 | `awb spawn project --goal "..." --tag vpn --tenant test-1` | a project whose SCOPE.md carries the line `- tenant: test-1`; `awb lab run` takes it as its default tenant. Refused for a query and for an alias that does not read like `test-1` |
 | `awb spawn query --goal "..." --customer CUST-XXXX --from-outbox` | the sanitised copies waiting in `~/tcp-shared/outbox/CUST-XXXX/` move into `input/` and the first commit |
+| `awb start ask --goal "..."` | the spawn and your grant of an ask project, then the open line; no import step. `--customer` and `--from` are refused. Runs in your own terminal or your assistant session |
+| `awb projects kind tcp-xxxx ask` | make a project an ask project: refused (exit 1, nothing written) for a project with a customer or with anything in `input/`. Run by you it writes the grant with kind ask and records the folder's key token; from then on the hooks of that folder check secrets only (the prompt, the written file, the start's files, the stop hook's draft gate), the tool guard lets a shell path it cannot read pass (a refused place still refuses), the commit gate of its repository looks for secrets only, material is refused at every door (`awb import`, the paste door, `awb paste`, `awb material`, `awb inbox take`, `awb xchg`, `awb bucket pull`, `awb fetch`) and the key service lets it read test tenants with the read role only (no lab role, no write, no lab run, no customer tenant). Run by a session it changes the row only, which adds those refusals and lifts no check |
 | `awb projects tier tcp-xxxx 2` | the review tier of a project (1, 2 or 3; 3 unless set at `awb start` or `awb spawn` with `--review-tier`), the `- review-tier:` line of its SCOPE.md. A review you ask for takes it unless you raise it for that file (`awb review init --tier`); a put never waits for it. Your own terminal only |
 | `awb projects kind tcp-xxxx project` | switch a query to a project (or back); a ledger line records it. The old kinds engagement, topic and code read as query, lab as project. Run by a session it changes the project's row only; run by you in your own terminal it also writes your grant (`<vault>/grants.json`) with the customer of the row at that moment, and the key service lets a session reach a test tenant only with that grant and an active row of the kind project. The key service takes a granted project's customer from the grant alone (owner-inbox take, project take, lease) and refuses a row that names another one. A project you never granted has no customer for the key service: its owner-inbox take holds and its project take runs under the project code. Run it once more for a project granted before 2026-10-10 so its grant records the customer; a change of the grant's customer is printed |
 | `awb projects list` | the project register (the service project of `recheck_project` is marked `[service project]`) with the goal of each project (checked for names again) and the session that holds each active project; `--paths` shows the folders instead of the goals |
@@ -944,7 +947,7 @@ sort the candidates of an intake stopped by --review in an editor: mark the real
 ### `awb spawn KIND --goal GOAL [--customer new] [--tag TAG] [--from-outbox] [--tenant ALIAS] [--review-tier 1|2|3]`
 
 create a sealed tcp- project: a query or a project
-- `KIND`: query (knowledge base, prices, no tenant) or project (also the test tenants)
+- `KIND`: query (knowledge base, prices, no tenant), project (also the test tenants) or ask (the owner's question session: no customer, no material, read calls only)
 - `--goal GOAL`
 - `--customer new`: new issues the customer code with the project's four characters (CUST-XXXX for tcp-xxxx); without it the project has no customer. An existing customer is refused: every project gets its own code
 - `--tag TAG`
@@ -975,9 +978,9 @@ read-only access checks: ok, missing or unknown; exit 1 unless all ok
 
 ### `awb projects kind CODE KIND [--customer CODE]`
 
-switch a project between query (knowledge only) and project (test tenants)
+switch a project between query (knowledge only), project (test tenants) and ask (the owner's question session; refused with a customer or material)
 - `CODE`
-- `KIND`: (one of query, project)
+- `KIND`: (one of query, project, ask)
 - `--customer CODE`: the customer the row names; the grant is written only when it matches (needed for a customer project)
 
 ### `awb projects park CODE [--reason REASON]`
@@ -1868,7 +1871,7 @@ the hosts a page may come from (rules/allow-domains.txt and the owner-side file)
 ### `awb start KIND --goal GOAL [--customer new] [--tag TAG] [--review-tier 1|2|3] [--from DIR] [--trusted]`
 
 a piece of work in one command: register, spawn, grant, import, the open line (owner side)
-- `KIND`: query (no test tenant) or project (test tenants) (one of query, project)
+- `KIND`: query (no test tenant), project (test tenants) or ask (his question session: no customer, no material, read calls only) (one of query, project, ask)
 - `--goal GOAL`
 - `--customer new`: new issues CUST-XXXX with the four characters of the project code; its written forms are asked on the terminal, never given here; an existing customer is refused
 - `--tag TAG`: a tag of rules/tags.txt, as awb spawn takes it

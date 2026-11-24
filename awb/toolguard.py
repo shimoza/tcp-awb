@@ -1073,8 +1073,41 @@ def _workflow_class(tool_input: dict, home: Path, folder: Path | None = None) ->
         return FOREIGN_WORKFLOW
 
 
+def _is_ask(own: Path, p: config.Paths, ask: bool | None) -> bool:
+    """Whether the owner granted the project `own` the kind ask (awb/askkind.py); asked only when a path could not
+    be read, so a plain call never waits for the key service."""
+    if ask is not None:
+        return ask
+    try:
+        from awb import askkind
+
+        return askkind.is_ask(own, p)
+    except Exception:
+        return False
+
+
+def _ask_text_class(tool: str, tool_input: dict, own: Path, p: config.Paths, home: Path, cwd: Path) -> str | None:
+    """In an ask project a shell command the guard cannot read is not refused for that alone: every word of it that
+    reads as a path is taken as a place out of text, and only a place inside a refused one refuses. A file tool
+    whose path cannot be read stays refused."""
+    command = tool_input.get("command") if tool in SHELL_TOOLS else None
+    if not isinstance(command, str) or len(command) > _SHELL_LIMIT:
+        return UNREADABLE
+    for tok in _SPLIT_RE.split(command):
+        if not tok or not ("/" in tok or tok.startswith("~") or tok.startswith(".")):
+            continue
+        try:
+            path = _absolute(tok, cwd, home)
+        except (_Refused, ValueError):
+            continue
+        cls = place_class(path, own, p, home, True)
+        if cls:
+            return cls
+    return None
+
+
 def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
-          sealed: bool | None = None) -> str | None:
+          sealed: bool | None = None, ask: bool | None = None) -> str | None:
     """The class of the place a tool call reaches outside its project, or None when it may run. Fails closed:
     a call whose project or input cannot be read is refused as UNKNOWN_PROJECT, a shell path the guard cannot read
     as UNREADABLE. Only a host without a seal (the
@@ -1099,15 +1132,28 @@ def guard(data: dict, p: config.Paths | None = None, home: Path | None = None,
             if not (_sealed() if sealed is None else sealed):
                 return None             # the plugin on an architect's own machine: Workflow was never denied there
             return _workflow_class(tool_input, home)
-        for check in dict.fromkeys(_tool_paths(tool, tool_input, cwd, home)):
+        unreadable = False
+        try:
+            checks = list(dict.fromkeys(_tool_paths(tool, tool_input, cwd, home)))
+        except _Refused as exc:
+            if str(exc) == UNREADABLE and _is_ask(own, p, ask):
+                return _ask_text_class(tool, tool_input, own, p, home, cwd)
+            raise
+        for check in checks:
             if isinstance(check, str):
                 cls = check
             elif isinstance(check, _Text):
                 cls = place_class(check.path, own, p, home, True)
             else:
                 cls = place_class(check, own, p, home)
+            if cls == UNREADABLE and (ask := _is_ask(own, p, ask)):
+                # an ask project (awb/askkind.py): the heuristic alone refuses nothing, the text is read below
+                unreadable = True
+                continue
             if cls:
                 return cls
+        if unreadable:
+            return _ask_text_class(tool, tool_input, own, p, home, cwd)
     except _Refused as exc:
         return str(exc)
     except Exception:

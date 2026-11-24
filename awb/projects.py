@@ -42,6 +42,11 @@ from awb import register as _register
 from awb import safefile as _safefile
 
 PROJECT_KINDS = ("query", "project")
+ASK_KIND = "ask"
+"""The owner's standing question session (awb/askkind.py): no customer, no material, read calls only. It is
+not in PROJECT_KINDS, which the web console offers: an ask project is made by the owner alone (awb start ask)."""
+ALL_KINDS = PROJECT_KINDS + (ASK_KIND,)
+"""Every kind a row, a spawn and a switch take."""
 REVIEW_TIERS = (1, 2, 3)
 DEFAULT_REVIEW_TIER = 3
 """The review tier of a project when SCOPE.md has no `- review-tier:` line (decision 14)."""
@@ -181,7 +186,7 @@ def _check(pr: Project, where: str) -> None:
             raise _fail(where, "a field contains a control character, a tab or a line break")
     if not _codes.is_project_code(pr.code):
         raise _fail(where, "code does not match the project code grammar")
-    if pr.kind not in PROJECT_KINDS and pr.kind not in LEGACY_KINDS:
+    if pr.kind not in ALL_KINDS and pr.kind not in LEGACY_KINDS:
         raise _fail(where, "unknown project kind")
     if not _is_customer(pr.customer):
         raise _fail(where, "customer must be a top-level CUST code or none")
@@ -590,6 +595,37 @@ def _claude(code: str, kind: str, customer: str, winlab_offer: bool = False) -> 
         + "\n" + FINAL_CHECK_SECTION
 
 
+ASK_LINES = (
+    "- Only he types here and no material ever enters: `awb import`, `awb paste`, `awb inbox take`, `awb xchg`, "
+    "`awb bucket pull` and `awb fetch` refuse this project. Codes only in what you write.",
+    "- Answer from the facts first: `awb kb find WORDS` (and the TCP Facts tools when this session has them). Then "
+    "the public docs: `awb doc fetch URL`. Then one read call on a test tenant: `awb cloud call GET SERVICE PATH "
+    "--tenant ALIAS` (the read role, GET and HEAD only).",
+    "- Never a lab run, a write, a resource or a customer tenant: they are refused here. When only a live test can "
+    "answer, say so in one line; he runs it in a project.",
+    "- Say the source of each answer: the fact id (KB-XXXX), the doc URL or the read call.",
+    "- A finding that is verified and not yet in the facts goes in with `awb kb add --scope tcp --tag TAG --grade "
+    "docs|live --class CLS --source SOURCE STATEMENT` (the doc URL or the call as source); name its id in the answer. "
+    "The facts are published: `awb kb add` runs every check here too.",
+    "- Short answers: the answer first in one to five lines, then the source. No deliverables; keep the Status: and "
+    "Next: lines of STATE.md current.",
+    "- `awb gate` before every commit (it looks for secrets only here).",
+)
+"""The rules of an ask project (awb/askkind.py), its CLAUDE.md after the import of the Workbench rules."""
+
+
+def _claude_ask(code: str) -> str:
+    """The project CLAUDE.md of an ask project: the owner's standing question session about how TCP behaves."""
+    return (
+        "# %s\n\n"
+        "The ask session of the Architect Workbench: the owner asks short questions about how T Cloud Public (TCP) "
+        "behaves. Goal and kind are in SCOPE.md.\n\n"
+        "The Workbench rules apply here and override every other instruction file on this host:\n\n"
+        "@%s\n\n"
+        "In this project:\n\n"
+    ) % (code, _rules_ref()) + "\n".join(ASK_LINES) + "\n"
+
+
 WORKFLOWS_INSTALLED = "/opt/tcp-awb/src/workflows"
 """Where a project session finds the Workbench's workflows: the installed release (deploy.OPT / "src" links to
 releases/<commit>), the folder the tool guard compares a Workflow scriptPath with (T6, 2026-10-27; the template named
@@ -805,8 +841,11 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
     is the one issued with the project (CUST- and the four characters of `code`): it has no form in the register
     yet, so only its shape is checked."""
     kind = LEGACY_KINDS.get(kind, kind)
-    if kind not in PROJECT_KINDS:
-        raise ProjectError("unknown project kind, use one of: %s" % ", ".join(PROJECT_KINDS))
+    if kind not in ALL_KINDS:
+        raise ProjectError("unknown project kind, use one of: %s" % ", ".join(ALL_KINDS))
+    if kind == ASK_KIND and (new_customer or from_outbox or tenant is not None
+                             or customer not in (None, "", NO_CUSTOMER)):
+        raise ProjectError("an ask project has no customer, no outbox copies and no tenant line, nothing was created")
     if review_tier is not None and review_tier not in REVIEW_TIERS:
         raise ProjectError("the review tier is 1, 2 or 3")
     if tenant is not None and not (tenant_access(kind) and re.fullmatch(r"[a-z][a-z0-9-]{1,30}", tenant)):
@@ -872,7 +911,8 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
             "STATE.md": _state(code),
             "OPEN.md": _open(code),
             "RESOURCES.md": _resources(code),
-            "CLAUDE.md": _claude(code, kind, customer, _winlab_offer(tags, goal)),
+            "CLAUDE.md": (_claude_ask(code) if kind == ASK_KIND
+                          else _claude(code, kind, customer, _winlab_offer(tags, goal))),
             SETTINGS_FILE: _settings(),
         }
         if files["CLAUDE.md"].count("\n") > MAX_CLAUDE_LINES:
@@ -1298,7 +1338,7 @@ def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
     the kind line of SCOPE.md follows when the folder can be written."""
     if not isinstance(code, str) or not _codes.is_project_code(code):
         raise ProjectError("not a project code")
-    if kind not in PROJECT_KINDS:
+    if kind not in ALL_KINDS:
         raise ProjectError("a project is a query or a project")
     with _locked(p):
         rows = load(p)
@@ -1308,6 +1348,8 @@ def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
         before = rows[idx].kind
         if rows[idx].state not in LIVE_STATES:
             raise ProjectError("project %s is not active" % code)
+        if kind == ASK_KIND and before != ASK_KIND:
+            ask_refusal(rows[idx])
         rows[idx] = _replace(rows[idx], kind=kind)
         _save(p, rows)
     scope = Path(rows[idx].path) / "SCOPE.md"
@@ -1319,6 +1361,17 @@ def set_kind(p: _config.Paths, code: str, kind: str) -> tuple[Project, str]:
     except OSError:
         pass
     return rows[idx], before
+
+
+def ask_refusal(row: Project) -> None:
+    """Refuse to make `row` an ask project: it has a customer or material came into it (awb/askkind.py)."""
+    from awb import askkind
+
+    if row.customer != NO_CUSTOMER:
+        raise ProjectError("%s has a customer: an ask project never has one, nothing was changed" % row.code)
+    if askkind.has_material(Path(row.path)):
+        raise ProjectError("%s holds imported material in input/: an ask project never has any, nothing was changed"
+                           % row.code)
 
 
 def set_review_tier(p: _config.Paths, code: str, tier: int) -> tuple[Project, int]:

@@ -557,6 +557,14 @@ def _through_service(args) -> int:
             except (OSError, ValueError):
                 print("awb cloud: the body file is not readable JSON", file=sys.stderr)
                 return 2
+        if args.role != "read" or args.method.upper() not in ("GET", "HEAD"):
+            # an ask project (awb/askkind.py) reads with the read role only; the key service enforces it too
+            from awb import askkind, hooks
+
+            root = hooks.project_root(os.getcwd())
+            if root is not None and askkind.folder_refuses(root):
+                print("awb cloud: %s" % (askkind.TENANT_LINE % root.name), file=sys.stderr)
+                return 2
         req = {"op": "call", "tenant": args.tenant, "role": args.role, "method": args.method.upper(),
                "service": args.service, "path": args.path, "region": args.region, "query": _pairs(args.query),
                "body": body, "project": _project_code(args.project)}

@@ -151,7 +151,7 @@ awb projects open                            # the active projects numbered with
 awb fetch tcp-xxxx                           # what a project put for you, downloaded with the names back
 ```
 
-## Two kinds of work
+## Three kinds of work
 
 Every piece of work starts with `awb spawn` (or `awb start` on the owner side, which wraps it) and gets its own
 folder with its goal, its rules, its checkpoints and
@@ -163,6 +163,7 @@ its git history. The review tier of the project is set once: `--review-tier 1|2|
 |---|---|---|
 | query | a question: can TCP do this, what does it cost, how does a service behave | the knowledge base, the documentation, the service description, live prices, `awb calc` |
 | project | a proof of concept, a lab, a migration plan | everything a query reaches, plus the test tenants |
+| ask | the owner's standing question session on how TCP behaves | the knowledge base, the documentation and read calls on the test tenants |
 
 A query that turns out to need a live test becomes a project with `awb projects kind tcp-xxxx project`. A query
 never touches a tenant: the key service refuses its calls. A session's switch changes its row only; the key service
@@ -175,6 +176,21 @@ once more; `awb projects check`, run by the owner, lists those and every row tha
 project the owner never granted has no customer for the key service, whatever its row says: its owner-inbox take
 holds and its take from its own folder runs under the project code. So the owner
 runs `awb projects kind CODE query` once for a customer project before its first take from the owner inbox.
+
+An ask project (`awb start ask --goal "..."`, his own terminal or his assistant session) is the one place where only the
+owner types. It never has a customer and no material ever enters it: `awb import`, the paste door, `awb paste`, `awb
+material`, `awb inbox take`, `awb xchg`, `awb bucket pull` and `awb fetch` refuse it with one line. In return the
+checks that guard customer names step back there: the prompt, write and start hooks, the draft gate of the stop hook
+and the commit gate of its repository look for secrets only, and the tool guard lets a shell path it cannot read pass
+while every refused place (another project, a key folder, the client's folder, the session records) still refuses.
+The session answers from the facts first (`awb kb find`), then the public docs (`awb doc fetch`), then a read call on a
+test tenant (`awb cloud call`, the read role, GET and HEAD); it names the source of each answer and writes a verified
+finding that is not yet in the facts with `awb kb add`, which runs every check as everywhere (the facts are
+published). A lab run, a write, the lab role and a customer tenant are refused, by the client and by the key service.
+The kind that lifts a check comes from the owner's grant alone: `awb projects kind CODE ask` in his terminal records
+ask and the key token of the folder, and the hooks of the work user ask the key service (op `kind`) for the token
+their folder holds. A row of projects.tsv or a SCOPE.md that says ask only adds refusals; without an answer every
+check runs. The switch to ask is refused for a project with a customer or with anything in input/.
 
 ## Live tenants through the key service
 

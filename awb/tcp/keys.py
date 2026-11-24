@@ -978,6 +978,9 @@ class Service:
 
     # the call socket
     def _call_socket(self, req: dict, uid: int, upload: Path | None = None, caller=_NOT_ASKED, fds=()):
+        if req.get("op") == "kind":
+            # the hooks of a session ask before every check (awb/askkind.py): a read of the grants, never rated
+            return self._kind(req)
         now = time.monotonic()
         with self.lock:
             q = self._rate.setdefault(uid, deque())
@@ -1045,6 +1048,11 @@ class Service:
         if op == "obs" and str(req.get("method") or "").upper() == "ARCHIVE" and uid != os.getuid():
             # the archive of the puts fetched long ago is awb fetch's too (task BK4): it moves and deletes
             return {"ok": False, "error": "awb fetch archives what was fetched long ago, in the owner's own terminal"}
+        if op in ("obs", "take_owner", "take_lab", "inbox_find") and self._ask_project(req.get("project")):
+            # no material enters an ask project and nothing leaves it through the exchange (awb/askkind.py)
+            from awb import askkind
+
+            return {"ok": False, "error": askkind.MATERIAL_LINE % req.get("project")}
         if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find", "owner_folder"):
             # owner_folder: spawn (the work user, the console's creation) asks for the project's folder in the
             # owner bucket; the service makes it with the bucket key, which the caller never holds
@@ -1174,6 +1182,40 @@ class Service:
         except Exception:
             return {}
 
+    def _ask_tokens(self) -> dict[str, str]:
+        from awb import grants
+
+        try:
+            return grants.ask_tokens(self.paths_fn())
+        except Exception:
+            return {}
+
+    def _ask_project(self, code) -> bool:
+        """True when the owner granted the project `code` the kind ask."""
+        from awb import grants
+
+        try:
+            return isinstance(code, str) and grants.kind(self.paths_fn(), code) == "ask"
+        except Exception:
+            return False
+
+    def _ask_caller(self, req: dict) -> str | None:
+        """The active project the owner granted the kind ask whose key token the request presents; None for none."""
+        token = req.get("token")
+        if not (isinstance(token, str) and len(token) == 64):
+            return None
+        found = None
+        for code, recorded in self._ask_tokens().items():
+            if hmac.compare_digest(recorded.encode("ascii"), token.encode("ascii", "replace")):
+                found = code
+        return found if found is not None and self._active_project(found) else None
+
+    def _kind(self, req: dict) -> dict:
+        """The op `kind` (awb/askkind.py): ask and the code for the key token of an active project the owner granted
+        the kind ask, else no kind. The hooks of that folder then check secrets only."""
+        code = self._ask_caller(req)
+        return {"ok": True, "kind": "ask", "code": code} if code else {"ok": True, "kind": None}
+
     def _caller_project(self, req: dict, uid: int):
         """K4: the project of a session (the work user) is the granted project whose key token the request
         presents, never the code it names: `_NOT_ASKED` for the owner and the console, None for no such token. It
@@ -1210,6 +1252,15 @@ class Service:
             tenant = self.tenants.get(alias) if isinstance(alias, str) else None
         if tenant is None:
             raise Refused("the key service holds no tenant of that alias")
+        ask_code = self._ask_caller(req) if caller is None and self._session_read(uid) else None
+        if ask_code is not None:
+            # an ask project (awb/askkind.py): the read role on a test tenant, GET and HEAD, its own code only
+            from awb import askkind
+
+            if self._readonly(alias) is not None or "login" in tenant:
+                raise Refused(askkind.TENANT_LINE % ask_code)
+            if role != "read" or method not in ("GET", "HEAD") or req.get("project") not in (None, "", ask_code):
+                raise Refused(askkind.TENANT_LINE % ask_code)
         entry = self._readonly(alias)
         if entry is not None:
             return self._call_readonly(req, uid, caller, alias, tenant, entry)
@@ -1228,8 +1279,10 @@ class Service:
         region = req.get("region") or regions[0]
         if region not in regions:
             raise Refused("the region is not one of the tenant's")
-        project = req.get("project") or ""
-        if uid != os.getuid() and uid == self._console_uid():
+        project = req.get("project") or ask_code or ""
+        if ask_code is not None:
+            pass                    # checked above: the read role on a test tenant, from its own folder
+        elif uid != os.getuid() and uid == self._console_uid():
             # the console's tenant inventory: the read key and no project, nothing else (F2)
             if role != "read":
                 raise Refused("the console reads with the read key only")

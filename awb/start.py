@@ -1,6 +1,7 @@
 """`awb start`: a piece of work in one owner command (P1 of F3).
 
     awb start project|query --goal "..." [--customer new] [--tag TAG]...
+    awb start ask --goal "..."            his standing question session (awb/askkind.py): steps 2 and 3 only
 
 It runs, in his own terminal, the four steps that stood in three places of the docs, each through the command that
 does it today. It ends with the one line that opens the session:
@@ -162,8 +163,10 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
                                          or (from_dir and not trusted)):
         raise StartError("awb start runs on the owner side, in your own terminal: inside an assistant session only "
                          "without --customer and --review-tier, and --from only with --trusted")
-    if kind not in projects.PROJECT_KINDS:
+    if kind not in projects.ALL_KINDS:
         raise StartError("a piece of work is a query or a project")
+    if kind == projects.ASK_KIND and (customer is not None or from_dir):
+        raise StartError("an ask project takes no --customer and no --from: no material ever enters it")
     if trusted and not from_dir:
         raise StartError("--trusted goes with --from DIR")
     taken: list[Path] = []
@@ -177,6 +180,11 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
         raise StartError("%s is spawned but not under the reserved code %s" % (code, reserved))
     try:
         grant_step(p, code, kind, cust)
+        if kind == projects.ASK_KIND:
+            # no material ever enters an ask project: nothing is imported, not even an empty bucket folder
+            cli._print_preflight(p, code)
+            _say("open: awb projects open %s" % code)
+            return EXIT_OK
         if from_dir:
             _say("%s: %d file(s) from the folder given with --from" % (code, len(taken)))
             result = importcmd.run(p, code, taken, read=read, tty=tty, trusted=trusted)
@@ -200,7 +208,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = SafeParser(prog="awb start", description="A piece of work in one command: register, spawn, grant, import "
                                                   "(owner side).")
-    ap.add_argument("kind", choices=projects.PROJECT_KINDS, help="query (no test tenant) or project (test tenants)")
+    ap.add_argument("kind", choices=projects.ALL_KINDS, help="query (no test tenant), project (test tenants) or "
+                                                                 "ask (his question session: no customer, no "
+                                                                 "material, read calls only)")
     ap.add_argument("--goal", required=True)
     ap.add_argument("--customer", default=None, metavar="new",
                     help="new issues CUST-XXXX with the four characters of the project code; its written forms are "

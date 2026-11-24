@@ -23,7 +23,8 @@ from awb import codes, config
 
 NAME = "grants.json"
 CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
-KINDS = ("query", "project")
+KINDS = ("query", "project", "ask")
+"""ask (awb/askkind.py): the owner's standing question session; its grant also records the folder's key token."""
 CUST_RE = re.compile("^%s$" % codes.CUST)
 NO_CUSTOMER = "none"
 TOKENS_NAME = "key-tokens.json"
@@ -56,6 +57,12 @@ def granted(p: config.Paths, code: str) -> bool:
     return isinstance(code, str) and load(p).get(code, {}).get("kind") == "project"
 
 
+def kind(p: config.Paths, code: str) -> str | None:
+    """The kind the owner granted `code` (query, project or ask); None without a grant."""
+    value = load(p).get(code, {}).get("kind") if isinstance(code, str) else None
+    return value if value in KINDS else None
+
+
 def customer(p: config.Paths, code: str) -> str | None:
     """The customer the owner's grant recorded for `code`: a CUST code or none; None when there is no grant or the
     grant was written before the customer was recorded."""
@@ -80,7 +87,7 @@ def grant(p: config.Paths, code: str, kind: str, when: float | None = None,
     if config.is_work_user():
         raise GrantError("the grant is the owner's: he runs awb projects kind in his own terminal")
     if not CODE_RE.match(code or "") or kind not in KINDS:
-        raise GrantError("a grant names a project code and query or project")
+        raise GrantError("a grant names a project code and query, project or ask")
     customer = NO_CUSTOMER if customer in (None, "", NO_CUSTOMER) else customer
     if customer != NO_CUSTOMER and not CUST_RE.match(customer):
         raise GrantError("the customer of a grant reads CUST-XXXX or none")
@@ -118,6 +125,12 @@ def tokens(p: config.Paths) -> dict[str, str]:
     """The key tokens of the projects the owner granted the kind project, by project code (K4)."""
     recorded = load(p)
     return {c: t for c, t in _load_tokens(p).items() if recorded.get(c, {}).get("kind") == "project"}
+
+
+def ask_tokens(p: config.Paths) -> dict[str, str]:
+    """The key tokens of the projects the owner granted the kind ask, by project code (awb/askkind.py)."""
+    recorded = load(p)
+    return {c: t for c, t in _load_tokens(p).items() if recorded.get(c, {}).get("kind") == "ask"}
 
 
 def token(p: config.Paths, code: str) -> str | None:

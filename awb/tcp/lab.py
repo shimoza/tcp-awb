@@ -1793,6 +1793,14 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
     argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] in (["run"], ["obs"]):
+        # an ask project (awb/askkind.py) reads only: no lab run, no recipe run, no object moved
+        from awb import askkind, hooks
+
+        root = hooks.project_root(os.getcwd())
+        if root is not None and askkind.folder_refuses(root):
+            print("awb lab: %s" % (askkind.TENANT_LINE % root.name), file=sys.stderr)
+            return EXIT_STOPPED
     if argv[:1] == ["run"] and argv[1:2] in (["start"], ["keep"], ["end"], ["status"]):
         # LR: a lab run of a session's own scripts with the admin login of a lab tenant (no recipe has these names)
         from awb import labclient

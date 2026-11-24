@@ -398,6 +398,11 @@ def main(argv: list[str] | None = None) -> int:
     if root is None:
         print("awb paste: run it in a project folder (one with a SCOPE.md)", file=sys.stderr)
         return 2
+    from awb import askkind
+
+    if askkind.folder_refuses(root):
+        print("awb paste: %s" % (askkind.MATERIAL_LINE % root.name), file=sys.stderr)
+        return 2
     clean_kept()
     source: Path | None = None
     name = args.name
