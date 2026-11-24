@@ -183,10 +183,11 @@ material`, `awb inbox take`, `awb xchg`, `awb bucket pull` and `awb fetch` refus
 checks that guard customer names step back there: the prompt, write and start hooks, the draft gate of the stop hook
 and the commit gate of its repository look for secrets only, and the tool guard lets a shell path it cannot read pass
 while every refused place (another project, a key folder, the client's folder, the session records) still refuses.
-The session answers from the facts first (`awb kb find`), then the public docs (`awb doc fetch`), then a read call on a
-test tenant (`awb cloud call`, the read role, GET and HEAD); it names the source of each answer and writes a verified
+The session answers from the facts first (`awb kb find`), then the public docs (`awb doc fetch`), then a call on a
+test tenant (`awb cloud call`); it names the source of each answer and writes a verified
 finding that is not yet in the facts with `awb kb add`, which runs every check as everywhere (the facts are
-published). A lab run, a write, the lab role and a customer tenant are refused, by the client and by the key service.
+published). It reaches the test tenants directly, read and lab role, writes and lab runs (owner's word of
+2026-11-24); a customer tenant, a read-only tenant and another project's code are refused by the key service.
 The kind that lifts a check comes from the owner's grant alone: `awb projects kind CODE ask` in his terminal records
 ask and the key token of the folder, and the hooks of the work user ask the key service (op `kind`) for the token
 their folder holds. A row of projects.tsv or a SCOPE.md that says ask only adds refusals; without an answer every
