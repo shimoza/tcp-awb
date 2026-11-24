@@ -43,6 +43,9 @@ again. A run open for more than OLD_AFTER seconds or ended with failed deletes s
 A large file goes to or from OBS in a run through the op `lab_obs` (task LO, awb/tcp/labobs.py), a job of the key
 service under the same rules: a lab call keeps MAX_BODY. `end` first stops those jobs and in each pass aborts the open
 multipart uploads of the run's buckets, which a bucket delete would otherwise meet as 409 BucketNotEmpty.
+A call that would open a bucket or an object to everyone (a canned ACL public-*, a grant header or an ACL body that
+names everyone) is refused with PUBLIC_ACL_LINE (the owner's decision of 2026-11-24); a reader without a key gets a
+time-limited link of `awb lab obs link` instead (labobs, a temporary credential of its own: link_credential).
 
 The runs are kept owner side in <vault>/lab-runs/<run>.json (mode 600). The call log of the run is the session's:
 awb/labclient.py appends every request and answer to notes/lab-runs/<run>.log of the project, shortened the same way.
@@ -84,6 +87,8 @@ DEFAULT_REGIONS = ("eu-de", "eu-nl")
 RENEW_MARGIN = 600.0
 FALLBACK_LIFE = 3600.0
 CRED_SECONDS = 3600
+LINK_SLACK = 300
+"""The seconds a link's own temporary credential lives beyond the link (awb lab obs link)."""
 END_PAUSE = 15.0
 END_BUDGET = 150.0
 END_PASSES = 6
@@ -125,6 +130,10 @@ KEEP_ITEM_LINE = "refused: run %s records no live create %s: awb lab run status 
 LISTED_DELETE_LINE = ("refused: the delete names %s, listed live in RESOURCES.md of %s: give delete_listed=True "
                       "(labclient.call) and mark its row deleted after")
 REASON_MAX = 200
+PUBLIC_ACL_LINE = ("refused: a public ACL opens the object or bucket to everyone and the key service never sends one "
+                   "(the owner's decision of 2026-11-24): give a reader a time-limited link with `awb lab obs link "
+                   "BUCKET KEY [--minutes N]` (labclient.obs_link)")
+_PUBLIC_WORDS = ("allusers", "everyone", "authenticatedusers")
 
 
 STALE_LOGIN_LINE = "HTTP 401; the stored login may be stale: awb keys status"
@@ -244,6 +253,12 @@ class State:
     def drop(self, key: tuple[str, str]) -> None:
         with self.lock:
             self.tokens.pop(key, None)
+
+    def left(self, key: tuple[str, str]) -> float:
+        """The seconds a held token or credential has left, 0 when none is held."""
+        with self.lock:
+            got = self.tokens.get(key)
+            return max(0.0, got[2] - self.clock()) if got else 0.0
 
     def hold(self, run: str, kind: str, full, shown: str) -> None:
         with self.lock:
@@ -653,26 +668,41 @@ class _Auth:
     def drop(self, scope: str) -> None:
         self.svc.lab.drop((self.alias, "%s@%s" % (scope, self.region) if scope == "domain" else scope))
 
+    def _security_token(self, seconds: int) -> tuple[tuple[str, str, str], float]:
+        """A new temporary AK/SK and security token of the domain token, valid `seconds`, and its life."""
+        token, _ = self.token("domain")
+        body = {"auth": {"identity": {"methods": ["token"], "token": {"id": token, "duration_seconds": seconds}}}}
+        status, _h, raw = _http("POST", self._iam() + "/v3.0/OS-CREDENTIAL/securitytokens",
+                                {"Content-Type": "application/json;charset=utf8", "X-Auth-Token": token},
+                                json.dumps(body).encode("utf-8"), timeout=30.0)
+        if status == 401:
+            raise LabAdminError(STALE_LOGIN_LINE)
+        try:
+            cred = (json.loads(raw) or {}).get("credential")
+        except (ValueError, AttributeError):
+            cred = None
+        if status != 201 or not isinstance(cred, dict) or not all(isinstance(cred.get(k), str) and cred.get(k)
+                                                                  for k in ("access", "secret", "securitytoken")):
+            raise LabAdminError("the temporary key for OBS failed: IAM answered HTTP %d" % status)
+        return (cred["access"], cred["secret"], cred["securitytoken"]), _expiry(cred.get("expires_at"))
+
     def credential(self) -> tuple[str, str, str]:
         def make():
-            token, _ = self.token("domain")
-            body = {"auth": {"identity": {"methods": ["token"], "token": {"id": token,
-                                                                          "duration_seconds": CRED_SECONDS}}}}
-            status, _h, raw = _http("POST", self._iam() + "/v3.0/OS-CREDENTIAL/securitytokens",
-                                    {"Content-Type": "application/json;charset=utf8", "X-Auth-Token": token},
-                                    json.dumps(body).encode("utf-8"), timeout=30.0)
-            if status == 401:
-                raise LabAdminError(STALE_LOGIN_LINE)
-            try:
-                cred = (json.loads(raw) or {}).get("credential")
-            except (ValueError, AttributeError):
-                cred = None
-            if status != 201 or not isinstance(cred, dict) or not all(isinstance(cred.get(k), str) and cred.get(k)
-                                                                      for k in ("access", "secret", "securitytoken")):
-                raise LabAdminError("the temporary key for OBS failed: IAM answered HTTP %d" % status)
-            return (cred["access"], cred["secret"], cred["securitytoken"]), {}, _expiry(cred.get("expires_at"))
+            value, life = self._security_token(CRED_SECONDS)
+            return value, {}, life
 
         value, _ = self.svc.lab.get((self.alias, "obs@%s" % self.region), make)
+        return value
+
+    def link_credential(self, seconds: int) -> tuple[str, str, str]:
+        """A temporary credential of its own for a signed link (awb lab obs link): never held, valid at least
+        `seconds` (IAM takes 15 minutes to 24 hours), from a domain token that outlives it."""
+        key = (self.alias, "domain@%s" % self.region)
+        if self.svc.lab.left(key) < seconds + RENEW_MARGIN:
+            self.svc.lab.drop(key)
+        value, life = self._security_token(min(86400, max(900, seconds + LINK_SLACK)))
+        if life < seconds:
+            raise LabAdminError("the temporary key for the link lives %d seconds, shorter than the link" % life)
         return value
 
     def _iam(self) -> str:
@@ -798,6 +828,24 @@ def _parse(service: str, status: int, raw: bytes) -> tuple[object, str, bool]:
             if code or msg:
                 return {"code": code, "message": msg}, raw[:MAX_TEXT].decode("utf-8", "replace"), len(raw) > MAX_TEXT
     return None, raw[:MAX_TEXT].decode("utf-8", "replace"), len(raw) > MAX_TEXT
+
+
+def public_acl(method: str, service: str, query: dict, body, headers: dict) -> bool:
+    """True for an OBS call that would open a bucket or an object to everyone: a canned ACL public-* (x-obs-acl or
+    x-amz-acl) on a PUT or POST, a grant header that names everyone, or an ACL body (?acl) with a grant to everyone
+    (Everyone or the AllUsers group)."""
+    if service != "obs" or method not in ("PUT", "POST"):
+        return False
+    for k, v in headers.items():
+        low, value = k.lower(), str(v).lower()
+        if low in ("x-obs-acl", "x-amz-acl") and value.strip().startswith("public"):
+            return True
+        if low.startswith(("x-obs-grant-", "x-amz-grant-")) and any(w in value for w in _PUBLIC_WORDS):
+            return True
+    if "acl" in (query or {}) and body is not None:
+        text = (body if isinstance(body, str) else json.dumps(body)).lower()
+        return any(w in text for w in _PUBLIC_WORDS)
+    return False
 
 
 def _check_call(req: dict) -> tuple[str, str, str, dict, object, dict]:
@@ -991,6 +1039,8 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     tenant, login = _tenant(svc, alias, project)
     customer = _is_customer(svc, alias)
     method, service, path, query, body, headers = _check_call(req)
+    if public_acl(method, service, query, body, headers):
+        raise _refused(PUBLIC_ACL_LINE)
     p = svc.paths_fn()
     with svc.lab.lock:
         run = open_run(p, project, alias)

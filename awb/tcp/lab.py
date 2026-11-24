@@ -1814,7 +1814,8 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--tenant", default="ALIAS")
     rn = sub.add_parser("run", help="raise, check, write the evidence and always tear down; awb lab run "
                                     "start|end|status is a lab run of the session's own scripts and awb lab obs "
-                                    "put|get|status|abort moves a large object to or from OBS in it")
+                                    "put|get|status|abort moves a large object to or from OBS in it, "
+                                    "awb lab obs link signs a time-limited GET link to one object")
     rn.add_argument("recipe")
     rn.add_argument("--project", default=None, help="default: the code of this folder's project")
     rn.add_argument("--tenant", default=None, help="default: the tenant: line of this folder's SCOPE.md")

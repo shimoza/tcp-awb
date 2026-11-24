@@ -6,6 +6,7 @@
     awb lab obs hosts                                      the vendor download hosts and the portal hosts
     awb lab obs status [JOB]                               bytes done, total, rate and state of the project's jobs
     awb lab obs abort JOB                                  stops a job; a put also aborts its multipart upload
+    awb lab obs link BUCKET KEY [--minutes N]              a time-limited GET link to one object of a run's bucket
 
 A lab call (awb/tcp/labadmin.py) carries at most MAX_BODY bytes of JSON or text and its client waits 200 seconds; the
 egress filter keeps the work user away from OBS; the temporary keys of an answer come shortened. So the op
@@ -59,6 +60,16 @@ are refused. The job hashes what it writes with SHA-256 and SHA-1, resumes a bro
 and checks the hash the session names (--sha256 or --sha1, the one the vendor publishes); without one it records
 the hashes it computed. The run log gets the URL, the file name, the size, both hashes and whether the vendor hash
 matched. The work user's egress filter stays as it is: the bytes come through the service, which runs as the owner.
+
+A link (tcp-bytg ask 16, the owner's decision of 2026-11-24: never a public ACL) lets a reader such as an ECS of the
+run fetch one object without a key: the service signs a GET of obs://BUCKET/KEY in the query string (the V2 form of
+OBS: AccessKeyId, Expires, Signature and x-obs-security-token, the token inside the signed resource) with a temporary
+credential of its own, made for this link and never held, that lives LINK_SLACK seconds longer than the link. The
+link lasts --minutes (LINK_DEFAULT, at most LINK_MAX), reads that one object and nothing else, and only for a
+bucket that the open run of the calling project made and still records (live, kept or failed to delete), never an
+exchange or owner bucket and never on a customer tenant. The secret key stays in the service. The URL goes to the
+session once in the answer; the call log and the run record keep the bucket, the first 16 hex digits of the key's
+SHA-256, the minutes and the expiry, never the URL.
 """
 from __future__ import annotations
 
@@ -115,6 +126,16 @@ VENDOR_AGENT = "Architect-Workbench-vendor-fetch/1 (+https://github.com/shimoza/
 _HASH_RE = re.compile(r"^(?:sha256:[0-9a-f]{64}|sha1:[0-9a-f]{40})\Z")
 PORTAL_LINE = ("refused: %s sits behind a vendor portal login (%s): hand this download to the owner, do not try "
                "again; a direct file link on a host of awb lab obs hosts works")
+TOKEN_PARAM = "x-obs-security-token"
+"""The query parameter of the security token of a temporary credential, also a sub-resource of the signed string."""
+LINK_DEFAULT = 60
+LINK_MAX = 12 * 60
+LINK_KEEP = 200
+"""The links a run record keeps (bucket, key hash, minutes, expiry), the newest."""
+LINK_BUCKET_LINE = ("refused: a link reads only an object of a bucket that the open run %s made: obs://%s is not one "
+                    "(awb lab run status lists what the run made)")
+LINK_CUSTOMER_LINE = "refused: a link is signed on the lab tenants %s only, never on a customer tenant"
+LINK_MINUTES_LINE = "refused: --minutes is a whole number from 1 to %d (12 hours)" % LINK_MAX
 READONLY_LINE = ("aborted: the owner switched %s back to read-only; after awb tenant mode %s write a new put or get "
                  "starts it again")
 
@@ -1395,15 +1416,104 @@ def _fetch_job(req: dict, base: dict, old: list[dict], fd: int, st: os.stat_resu
                 _resumed=False)
 
 
+def key_hash(key: str) -> str:
+    """The first 16 hex digits of the SHA-256 of an object key: what a log keeps of the key of a link."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def presign(bucket: str, key: str, ak: str, sk: str, token: str | None, expires: int, region: str = "eu-de",
+            endpoint: str | None = None) -> str:
+    """The GET URL of obs://bucket/key signed in its query string (the V2 form of OBS, "Authentication of Signature
+    in a URL"): StringToSign is GET, an empty Content-MD5 and Content-Type, Expires (Unix seconds) and the resource
+    /bucket/<key URL-encoded>, with ?x-obs-security-token=<token> for a temporary credential; the signature is the
+    Base64 HMAC-SHA1 under the secret key, URL-encoded in the query."""
+    import base64
+    import hmac
+    import urllib.parse
+
+    from awb import obs
+
+    client = obs.Client(bucket, obs.Keys(ak, sk), region, endpoint=endpoint)
+    resource = "/%s%s" % (bucket, client._path(key))
+    if token:
+        resource += "?%s=%s" % (TOKEN_PARAM, token)
+    text = "GET\n\n\n%d\n%s" % (expires, resource)
+    sig = base64.b64encode(hmac.new(sk.encode("utf-8"), text.encode("utf-8"), hashlib.sha1).digest()).decode("ascii")
+    query = "AccessKeyId=%s&Expires=%d&Signature=%s" % (urllib.parse.quote(ak, safe=""), expires,
+                                                        urllib.parse.quote(sig, safe=""))
+    if token:
+        query += "&%s=%s" % (TOKEN_PARAM, urllib.parse.quote(token, safe=""))
+    return client.url(key, query)
+
+
+def _minutes(value) -> int:
+    if value is None:
+        return LINK_DEFAULT
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= LINK_MAX:
+        raise _refused(LINK_MINUTES_LINE)
+    return value
+
+
+def _link(svc, req: dict, uid: int, project: str) -> dict:
+    """A signed GET link to one object of a bucket the open run made (the action link)."""
+    from awb.tcp import labadmin
+
+    alias = req.get("tenant")
+    if labadmin._is_customer(svc, alias):
+        raise _refused(LINK_CUSTOMER_LINE % " and ".join(labadmin.ALLOWED))
+    _tenant, login = labadmin._tenant(svc, alias, project)
+    minutes = _minutes(req.get("minutes"))
+    bucket, key = _target(svc, req, project)
+    p = svc.paths_fn()
+    run = _run_of(svc, req, project, alias, p)
+    made = next((c for c in run.get("created", []) if c.get("label") == "obs bucket"
+                 and c.get("state") in ("live", "kept", "failed")
+                 and (c.get("delete") or {}).get("service") == "obs"
+                 and (c.get("delete") or {}).get("path") == "/" + bucket), None)
+    if made is None:
+        raise _refused(LINK_BUCKET_LINE % (run["id"], bucket))
+    region = (made.get("delete") or {}).get("region") or _region(svc, req, alias)
+    if region not in labadmin._regions(svc, alias):
+        raise _refused("the region is not one of the tenant's")
+    o = _Obs(svc, {"tenant": alias, "project": project, "region": region})
+    try:
+        status, _rh, _raw = o.small("HEAD", "/%s/%s" % (bucket, key))
+        if status == 404:
+            raise _refused("refused: obs://%s/%s is not there" % (bucket, key))
+        if status != 200:
+            raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
+        seconds = minutes * 60
+        ak, sk, token = labadmin.auth(svc, alias, login, region).link_credential(seconds)
+    except labadmin.LabAdminError as err:
+        svc._log(uid, alias, "admin", "GET", "obs-link", region, "failed", project)
+        raise _refused(str(err)) from None
+    expires = int(time.time()) + seconds
+    url = presign(bucket, key, ak, sk, token, expires, region, svc.endpoint)
+    until = datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entry = {"at": _now(), "bucket": bucket, "key_sha256": key_hash(key), "minutes": minutes, "expires": until}
+    with svc.lab.lock:
+        current = labruns.open_run(p, project, alias)
+        if current is None or current["id"] != run["id"]:
+            raise _refused("refused: the lab run is ending")
+        current["links"] = (current.get("links") or [])[-(LINK_KEEP - 1):] + [entry]
+        labruns.save(p, current)
+    svc._log(uid, alias, "admin", "GET", "obs-link", region, "signed %s %s %dmin" % (bucket, entry["key_sha256"],
+                                                                                    minutes), project)
+    return {"ok": True, "run": run["id"], "bucket": bucket, "key": key, "key_sha256": entry["key_sha256"],
+            "minutes": minutes, "expires": until, "url": url}
+
+
 def serve(svc, req: dict, uid: int, caller, fds: list[int]) -> dict:
-    """The op lab_obs: put, get, status and abort of the jobs of the calling project."""
+    """The op lab_obs: put, get, status and abort of the jobs of the calling project, and link."""
     from awb.tcp import labadmin
 
     action = req.get("action")
-    if action not in ("put", "get", "fetch", "status", "abort"):
-        raise _refused("a lab obs action is put, get, fetch, status or abort")
+    if action not in ("put", "get", "fetch", "status", "abort", "link"):
+        raise _refused("a lab obs action is put, get, fetch, status, abort or link")
     project = labadmin._project(svc, req, uid, caller)
     p = svc.paths_fn()
+    if action == "link":
+        return _link(svc, req, uid, project)
     if action in ("put", "get", "fetch"):
         return _transfer(svc, req, uid, project, action, list(fds))
     named = req.get("job")

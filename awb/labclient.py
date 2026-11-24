@@ -37,10 +37,15 @@ A large file goes to or from OBS as a job of the key service (task LO, awb/tcp/l
     awb lab obs get obs://BUCKET/KEY FILE [--tenant T]    labclient.obs_get(url, file)
     awb lab obs status [JOB]                              labclient.obs_status(job=None) -> [job, ...]
     awb lab obs abort JOB                                 labclient.obs_abort(job); obs_wait(job) waits for its end
+    awb lab obs link BUCKET KEY [--minutes N]             labclient.obs_link(bucket, key) -> {"url": ..., ...}
 
 The file goes to the service as an open descriptor (SCM_RIGHTS) with one of the run log, never as a path; a get
 writes only inside the project folder or the session scratch folder (SCRATCH). The same put or get once more resumes
 an interrupted job.
+
+A reader without a key (an ECS of the run, a public ACL is refused) gets a link: `obs_link` asks the key service to
+sign a GET of one object of a bucket the open run made, for --minutes (default 60, at most 720). The URL comes back
+once and is printed once; the run log gets the bucket, the key's hash, the minutes and the expiry, never the URL.
 """
 from __future__ import annotations
 
@@ -700,6 +705,38 @@ def obs_hosts() -> tuple[list[str], list[str]]:
     return vendorhosts.read()
 
 
+LINK_RE = re.compile(r"https?://[A-Za-z0-9.:-]+/[A-Za-z0-9%._~/@:=+-]+\?AccessKeyId=[A-Za-z0-9]{8,128}"
+                     r"&Expires=[0-9]{9,11}&Signature=[A-Za-z0-9%._~-]{20,200}"
+                     r"(?:&x-obs-security-token=[A-Za-z0-9%._~-]{16,16384})?")
+"""The form of a link the key service signs; any other answer is withheld."""
+
+
+@_boundary
+def obs_link(bucket: str, key: str, *, minutes: int | None = None, tenant: str | None = None, run: str | None = None,
+             start: Path | None = None) -> dict:
+    """A time-limited GET link to obs://BUCKET/KEY in a bucket the open run made, signed by the key service:
+    {"url", "expires", "minutes", "bucket", "key", "key_sha256", "run"}. The URL is in this answer only: the run
+    log gets the bucket, the key hash, the minutes and the expiry."""
+    root = _root(start)
+    tenant, run = _pick(root, tenant, run)
+    if minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int)):
+        raise LabClientError("refused: minutes is a whole number")
+    req = {"op": "lab_obs", "action": "link", "tenant": tenant, "run": run, "project": _code(root),
+           "bucket": bucket, "key": key, "minutes": minutes}
+    answer = _request(req, root)
+    if not answer.get("ok"):
+        log(root, run, ["## %s obs link refused" % _stamp(), "refused: %s" % _service_error(answer)])
+        raise LabClientError(_service_error(answer))
+    url = answer.get("url")
+    shown = "obs://%s/%s" % (answer.get("bucket"), answer.get("key"))
+    if not isinstance(url, str) or not LINK_RE.fullmatch(url) or answer.get("bucket") != bucket \
+            or answer.get("key") != key or _safe_text(shown) != shown:
+        raise LabClientError("the key service gave no usable link")
+    log(root, run, ["## %s obs link obs://%s/<key sha256 %s> GET, %s min, until %s (the URL is not logged)" % (
+        _stamp(), bucket, answer.get("key_sha256"), answer.get("minutes"), answer.get("expires"))])
+    return {k: answer.get(k) for k in ("url", "expires", "minutes", "bucket", "key", "key_sha256", "run")}
+
+
 @_boundary
 def obs_status(job: str | None = None, *, start: Path | None = None) -> list[dict]:
     """The lab obs jobs of the project (or the one named): id, action, bucket, key, size, done, rate (bytes per
@@ -744,7 +781,9 @@ def _obs_parser(action: str) -> argparse.ArgumentParser:
              "hosts": "the vendor download hosts of a fetch and the portal hosts it refuses",
              "get": "get an object into the project folder or the session scratch folder, a job of the key service",
              "status": "bytes done, total, rate and state of this project's lab obs jobs",
-             "abort": "stop a job; a put also aborts its multipart upload"}
+             "abort": "stop a job; a put also aborts its multipart upload",
+             "link": "a time-limited GET link to one object of a bucket the open lab run made, signed by the key "
+                     "service (never a public ACL); printed once, never logged"}
     ap = SafeParser(prog="awb lab obs %s" % action, description=helps[action])
     if action == "put":
         ap.add_argument("file", metavar="FILE")
@@ -759,11 +798,15 @@ def _obs_parser(action: str) -> argparse.ArgumentParser:
         ap.add_argument("--sha1", default=None, help="the SHA-1 the vendor publishes")
     elif action == "hosts":
         pass
+    elif action == "link":
+        ap.add_argument("bucket", metavar="BUCKET")
+        ap.add_argument("key", metavar="KEY")
+        ap.add_argument("--minutes", type=int, default=None, help="how long the link works: 1 to 720 (default 60)")
     elif action == "status":
         ap.add_argument("job", metavar="JOB", nargs="?", default=None)
     else:
         ap.add_argument("job", metavar="JOB")
-    if action in ("put", "get", "fetch"):
+    if action in ("put", "get", "fetch", "link"):
         ap.add_argument("--tenant", default=None, help="test-10491, test-10497, test-10503 or a granted customer "
                                                        "tenant in write mode (default: the one open run)")
     return ap
@@ -775,8 +818,8 @@ def _size(n) -> str:
 
 def obs_main(argv: list[str]) -> int:
     action = argv[0] if argv else ""
-    if action not in ("put", "get", "fetch", "hosts", "status", "abort"):
-        _print("awb lab obs: put, get, fetch, hosts, status or abort", file=sys.stderr)
+    if action not in ("put", "get", "fetch", "hosts", "status", "abort", "link"):
+        _print("awb lab obs: put, get, fetch, hosts, status, abort or link", file=sys.stderr)
         return EXIT_REFUSED
     try:
         args = _obs_parser(action).parse_args(argv[1:])
@@ -800,6 +843,12 @@ def obs_main(argv: list[str]) -> int:
             _print("job %s %s: %s of %s%s; awb lab obs status %s" % (
                 a["job"], "resumed" if a.get("resumed") else "started", action, _size(a.get("size")),
                 " in %d parts" % a["parts"] if a.get("parts") else "", a["job"]))
+            return EXIT_OK
+        if action == "link":
+            a = obs_link(args.bucket, args.key, minutes=args.minutes, tenant=args.tenant)
+            _print("GET link to obs://%s/%s, %s min, until %s; shown once, not logged:" % (
+                a["bucket"], a["key"], a["minutes"], a["expires"]), file=sys.stderr)
+            print(a["url"])         # whole: the screen of _print would shorten its signature and token
             return EXIT_OK
         if action == "abort":
             j = obs_abort(args.job)

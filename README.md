@@ -272,6 +272,7 @@ background job:
     awb lab obs hosts                                      labclient.obs_hosts()
     awb lab obs status [JOB]                               labclient.obs_status(job), obs_wait(job)
     awb lab obs abort JOB                                  labclient.obs_abort(job)
+    awb lab obs link BUCKET KEY [--minutes N]              labclient.obs_link(bucket, key, minutes=60)
 
 put and get answer a job id at once; status shows bytes done, total, rate and state. The rules are those of a lab
 call: the open run of the project on test-10491, test-10497, test-10503 or a customer tenant in write mode (never a read-only
@@ -285,7 +286,12 @@ service interrupted. At the end the object's size equals the file's and it carri
 `x-obs-meta-sha256`; the job result has the hash and the run log gets bucket, key, size, hash, duration and state. A
 file or object over `lab_obs_max_gb` of keys.conf (default 200) is refused with the limit named. `awb lab run end`
 stops the run's jobs and aborts the open multipart uploads of its buckets before it deletes the object and the
-bucket. The module doc is in `awb/tcp/labobs.py`.
+bucket. A reader without a key, such as an ECS of the run, gets a link instead of a public ACL, which the key
+service refuses (the owner's decision of 2026-11-24): `awb lab obs link` prints a GET URL of one object, signed in its
+query string with a temporary credential made for that link, valid 60 minutes by default and 12 hours at most, for a
+bucket the open run made only and never on a customer tenant. The secret key stays in the service; the URL is
+printed once and the logs keep only the bucket, the key's hash and the minutes. The module doc is in
+`awb/tcp/labobs.py`.
 
 ## Public documentation through the key service
 

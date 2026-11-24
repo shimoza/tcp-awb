@@ -30540,8 +30540,57 @@
    "name": "awb docx: a control character is written as a question mark and counted",
    "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_a_control_character_is_written_as_a_question_mark_and_counted",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-OL-1",
+   "phase": "T",
+   "name": "lab obs link: the signer matches a fixed vector and the documented V2 URL form",
+   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_presign_matches_a_fixed_vector_and_the_documented_form",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-OL-2",
+   "phase": "T",
+   "name": "lab obs link: a GET link of a run's bucket verifies, its own credential, no URL or secret in a log or record",
+   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_link_reads_one_object_of_a_bucket_the_run_made",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-OL-3",
+   "phase": "T",
+   "name": "lab obs link: minutes from 1 to 720, the credential outlives the link",
+   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_minutes_go_from_1_to_720",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-OL-4",
+   "phase": "T",
+   "name": "lab obs link: refused for a bucket the run did not make, another project, an exchange bucket, a missing object",
+   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_link_is_refused_outside_the_run_s_own_buckets",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-OL-5",
+   "phase": "T",
+   "name": "lab obs link: refused on a customer tenant",
+   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_link_is_refused_on_a_customer_tenant",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-OL-6",
+   "phase": "T",
+   "name": "lab call: a public ACL is refused with a line that names awb lab obs link",
+   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_a_public_acl_stays_refused_and_names_the_link",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-OL-7",
+   "phase": "T",
+   "name": "labclient: awb lab obs link prints the URL once, the run log keeps no URL",
+   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_labclient_prints_the_link_once_and_logs_no_url",
+   "status": "passing"
   }
  ],
- "total_tests": 4363,
+ "total_tests": 4370,
  "checked": "2026-11-22"
 }
