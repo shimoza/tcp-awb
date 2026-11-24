@@ -21,9 +21,23 @@ run on as before.
 
 Input: the Markdown the Workbench writes (headings, paragraphs, lists, fenced code, pipe tables, `code`, **bold**,
 *italic*, [text](url)) or HTML such as `awb howto render` writes (h1 to h6, p, ul, ol, li, pre, code, a, table,
-strong, em, br; any other element as its text). The PDF goes next to FILE unless --out names another file; either
-way it must lie inside the project folder of the current folder (its SCOPE.md) or the session scratch folder
-(/tmp/claude-UID), as must the input. Linked path components and special files are refused. Output files are
+strong, em, br; any other element as its text).
+
+Figures of an HTML page (tcp-ui5o ask 2026-11-24-2; awb/pdffig.py): an img of a PNG or JPEG file (its src relative
+to the page, inside the project or scratch folder, no linked path component and no special file; a missing, linked,
+outside or interlaced image refuses) or of a `data:image/png` or `data:image/jpeg` URI is embedded as an image object,
+an alpha channel as a soft mask, a palette or 16-bit PNG converted; an inline svg is drawn as vector paths with its
+text as text in the same fonts (shapes, paths with arcs, text and tspan, groups, transforms, fill, stroke, opacity,
+markers such as arrow heads, viewBox, simple CSS rules). A figure keeps its own size (1 px = 0.75 pt, the width and
+height attributes count), never wider than the text and never across a page break, centred; the alt text (or the
+figcaption of its figure element) is an italic caption line below it. What a figure cannot show (an image from the
+web or of another kind, a foreignObject, a filter) is left out and counted in one stderr line, never printed as
+loose text. A colour of h1 to h6 (a style attribute or a simple rule of a style element, hex, rgb() or a name) is
+used for that heading. A link `href="#id"` is a link to the page of the element with that id (a GoTo with its
+place), without the "#id" after its text; one to an id the page lacks stays text.
+
+The PDF goes next to FILE unless --out names another file; either way it must lie inside the project folder of the
+current folder (its SCOPE.md) or the session scratch folder (/tmp/claude-UID), as must the input. Linked path components and special files are refused. Output files are
 private (0600), published atomically; concurrent conversions may replace each other with complete PDFs.
 Names and secrets in source, parsed text, links, paths and metadata refuse publication. Input lines and joined
 Markdown paragraphs are limited to 16384 characters, tables to 100000 rectangular cells and output to 1000 pages.
@@ -41,9 +55,12 @@ Used by `awb howto render --pdf` and by `awb dataset build` for its HOW-TO.pdf (
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import contextvars
 import html
 import io
+import math
 import os
 import re
 import secrets
@@ -52,22 +69,25 @@ import sys
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
-from awb import pdffont
+from awb import pdffig, pdffont
 from awb.labclient import SCRATCH
 
 AUTHOR = "Architect Workbench"
 PAGE_W, PAGE_H, MARGIN = 595, 842, 56          # A4 in points
 TEXT_W = PAGE_W - 2 * MARGIN
 MAX_INPUT = 16 * 1024 * 1024
+MAX_IMAGES = 64 * 1024 * 1024                    # the bytes of all image files of one document
 MAX_LINE = 16384
 SUFFIXES = {".md": "md", ".markdown": "md", ".html": "html", ".htm": "html"}
 FONTS = {"r": ("F1", "Helvetica"), "b": ("F2", "Helvetica-Bold"), "i": ("F3", "Helvetica-Oblique"),
          "c": ("F4", "Courier")}
 # kind: (size, leading, space before in leadings)
 STYLES = {"h1": (17, 24, 0.5), "h2": (12, 17, 1.0), "h3": (11, 15, 0.6), "p": (10, 14, 0.0), "li": (10, 14, 0.0),
-          "code": (9, 12, 0.2), "table": (9, 12, 0.2), "grid": (9, 11, 0.4), "toc": (10, 15, 0.3)}
+          "code": (9, 12, 0.2), "table": (9, 12, 0.2), "grid": (9, 11, 0.4), "toc": (10, 15, 0.3),
+          "caption": (9, 12, 0.0)}
+FIGURE_GAP = 6
 GRID_PAD_X, GRID_PAD_Y, GRID_RULE, GRID_SHADE = 4, 3, 0.5, 0.9
 LIST_INDENT = 16
 CODE_FLOOR = 6.0                                # the smallest code font before a code line wraps
@@ -117,13 +137,26 @@ class PdfRefused(PdfError):
 class Block:
     """One block of the document. `runs` are (text, font, url) with font r, b, i or c; `lines` are the lines of a
     code block or the rows (lists of cells) of a table or grid; `marker` is the bullet or number of a list item;
-    `align` the l, c or r of each grid column."""
+    `align` the l, c or r of each grid column; `figure` the Picture or pdffig.Svg of a figure block; `color` the
+    (r, g, b) of a heading; `anchors` the ids of the page (href="#id") that point at this block."""
     kind: str
     runs: list = field(default_factory=list)
     lines: list = field(default_factory=list)
     marker: str = ""
     level: int = 0
     align: list = field(default_factory=list)
+    figure: object = None
+    color: tuple | None = None
+    anchors: list = field(default_factory=list)
+
+
+@dataclass
+class Picture:
+    """An image of a figure block: the image object and its size in points before it is fitted to the page."""
+    image: pdffig.Image
+    width: float
+    height: float
+    texts: list = field(default_factory=list)
 
 
 def plain(kind: str, text: str) -> Block:
@@ -208,6 +241,9 @@ class _Pages:
         self.annots: list[list[bytes]] = [[]]
         self.y = PAGE_H - MARGIN
         self.heads: dict[int, int] = {}      # block index of each h1 and h2: the page it starts on
+        self.marks: dict[str, tuple[int, float]] = {}    # id of the page: (page index, y) of its block
+        self.images: list[pdffig.Image] = []             # image XObjects, Im1 first
+        self.states: dict[tuple[float, float], str] = {}  # (fill alpha, stroke alpha): ExtGState name
 
     def new_page(self) -> None:
         if len(self.ops) >= 1000:
@@ -235,6 +271,20 @@ class _Pages:
         uri = quote(url, safe=":/?#[]@!$&'()*+,;=%~-._")
         self.annots[-1].append(b"<< /Type /Annot /Subtype /Link /Rect [%.2f %.2f %.2f %.2f] /Border [0 0 0] "
                                b"/A << /S /URI /URI %s >> >>" % (x1, y1, x2, y2, _string(uri.encode("ascii"))))
+
+    def goto(self, x1: float, y1: float, x2: float, y2: float, name: str) -> None:
+        """A link to the block with the id `name`, resolved when the pages are written."""
+        self.annots[-1].append(("goto", name, (x1, y1, x2, y2)))
+
+    def image(self, img: pdffig.Image) -> bytes:
+        self.images.append(img)
+        return b"Im%d" % len(self.images)
+
+    def state(self, fill: float, stroke: float) -> bytes:
+        key = (round(fill, 3), round(stroke, 3))
+        if key not in self.states:
+            self.states[key] = "GS%d" % (len(self.states) + 1)
+        return self.states[key].encode()
 
     def wrap_mark(self, x: float, y: float, size: float) -> None:
         """A drawn hooked arrow after a code line that goes on below: seen, never copied."""
@@ -332,7 +382,10 @@ def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> int:
     """Draw the block; the number of the page its first line is on."""
     size, lead, before = STYLES[block.kind]
     heading = block.kind in ("h1", "h2", "h3")
-    lines = _lines(block.runs, width, size, heading)
+    runs = block.runs
+    if block.kind == "caption":
+        runs = [(t, "i" if f == "r" else f, u) for t, f, u in runs]
+    lines = _lines(runs, width, size, heading)
     if heading:
         pages.need(lead * (1 + before) + 3 * STYLES["p"][1])      # a heading stays with what follows it
     if before and pages.ops[-1]:
@@ -344,10 +397,20 @@ def _draw_runs(pages: _Pages, block: Block, x0: float, width: float) -> int:
         if i == 0 and block.marker:
             mw = _width(block.marker, "r", size)
             pages.text(x0 - mw - 4, y, "r", size, block.marker)
+        if block.color is not None and pieces:
+            pages.ops[-1].append(b"%.3f %.3f %.3f rg" % block.color)
+        shift = 0.0
+        if block.kind == "caption" and pieces:          # a caption stands centred under its figure
+            shift = max(0.0, (width - max(x + _width(t, f, size) for x, t, f, _ in pieces)) / 2)
         for x, text, font, url in _merge(pieces, size):
+            x += shift
             pages.text(x0 + x, y, font, size, text)
             if url and url.startswith(_LINK_SCHEMES):
                 pages.link(x0 + x, y - 2, x0 + x + _width(text, font, size), y + size, url)
+            elif url and url.startswith("#") and len(url) > 1:
+                pages.goto(x0 + x, y - 2, x0 + x + _width(text, font, size), y + size, unquote(url[1:]))
+        if block.color is not None and pieces:
+            pages.ops[-1].append(b"0 g")
     pages.y -= lead * (0.5 if block.kind in ("p", "h1", "h2", "h3") else 0.15)
     return first or len(pages.ops)
 
@@ -556,6 +619,121 @@ def _draw_grid(pages: _Pages, block: Block) -> None:
     pages.y -= lead * 0.8
 
 
+def _f(v: float) -> bytes:
+    """A number of a content stream: three decimals at most, no trailing zeros."""
+    if not math.isfinite(v):
+        v = 0.0
+    out = ("%.3f" % v).rstrip("0").rstrip(".")
+    return (out if out not in ("-0", "") else "0").encode()
+
+
+def _path_ops(segs: list) -> list[bytes]:
+    ops = []
+    for seg in segs:
+        op = seg[0]
+        if op == "M":
+            ops.append(b"%s %s m" % (_f(seg[1]), _f(seg[2])))
+        elif op == "L":
+            ops.append(b"%s %s l" % (_f(seg[1]), _f(seg[2])))
+        elif op == "C":
+            ops.append(b" ".join(_f(v) for v in seg[1:]) + b" c")
+        elif op == "Z":
+            ops.append(b"h")
+    return ops
+
+
+def _svg_path(pages: _Pages, segs: list, paint: pdffig.Paint) -> None:
+    fill = paint.fill
+    stroke = paint.stroke if paint.width > 0 else None
+    if fill is None and stroke is None:
+        return
+    ops = [b"q"]
+    if paint.fill_alpha < 1 or paint.stroke_alpha < 1:
+        ops.append(b"/%s gs" % pages.state(paint.fill_alpha, paint.stroke_alpha))
+    if fill is not None:
+        ops.append(b"%.3f %.3f %.3f rg" % fill)
+    if stroke is not None:
+        ops.append(b"%.3f %.3f %.3f RG %s w %d J %d j" % (stroke + (_f(paint.width), paint.cap, paint.join)))
+        if paint.dash:
+            ops.append(b"[%s] 0 d" % b" ".join(_f(d) for d in paint.dash))
+    ops += _path_ops(segs)
+    star = b"*" if paint.evenodd else b""
+    ops.append((b"B" + star) if fill is not None and stroke is not None else (b"f" + star) if fill is not None
+               else b"S")
+    ops.append(b"Q")
+    pages.ops[-1].append(b"\n".join(ops))
+
+
+def _svg_text(pages: _Pages, chunks: list) -> None:
+    cur = 0.0
+    for chunk in chunks:
+        placed = []
+        start = None
+        for x, dx, y, text, font, size, col, alpha, anchor in chunk:
+            if x is not None:
+                cur = x
+            cur += dx
+            start = cur if start is None else start
+            w = _width(text, font, size) if size > 0 else 0.0
+            placed.append((cur, y, text, font, size, col, alpha))
+            cur += w
+        anchor = chunk[0][8]
+        shift = -(cur - start) / 2 if anchor == "middle" else -(cur - start) if anchor == "end" else 0.0
+        for x, y, text, font, size, col, alpha in placed:
+            if col is None or size <= 0 or not text.strip():
+                continue
+            gs = b"/%s gs " % pages.state(alpha, 1.0) if alpha < 1 else b""
+            pages.ops[-1].append(b"q %s%.3f %.3f %.3f rg BT /%s %s Tf 1 0 0 -1 %s %s Tm %s Tj ET Q"
+                                 % ((gs,) + col + (FONTS[font][0].encode(), _f(size), _f(x + shift), _f(y),
+                                                   _show(font, text))))
+        cur += shift
+
+
+def _draw_figure(pages: _Pages, block: Block) -> None:
+    """An image or SVG at its own size, never wider than the text or taller than a page, centred, kept on one page
+    with room for a caption line below it."""
+    fig = block.figure
+    w, h = fig.width, fig.height
+    if w <= 0 or h <= 0:
+        return
+    room = PAGE_H - 2 * MARGIN - 2 * FIGURE_GAP - STYLES["caption"][1]
+    s = min(1.0, TEXT_W / w, room / h)
+    w, h = w * s, h * s
+    pages.need(h + 2 * FIGURE_GAP + STYLES["caption"][1])
+    top = pages.y - (FIGURE_GAP if pages.ops[-1] else 0)
+    x, y = MARGIN + (TEXT_W - w) / 2, top - h
+    if isinstance(fig, Picture):
+        name = pages.image(fig.image)
+        pages.ops[-1].append(b"q %s 0 0 %s %s %s cm /%s Do Q" % (_f(w), _f(h), _f(x), _f(y), name))
+    else:
+        bx, by, bw, bh = fig.box
+        sx, sy = w / bw, h / bh
+        ox, oy = x, top
+        if fig.keep_ratio:
+            sx = sy = min(sx, sy)
+            ox, oy = x + (w - bw * sx) / 2, top - (h - bh * sy) / 2
+        ops = pages.ops[-1]
+        ops.append(b"q %s %s %s %s re W n" % (_f(x), _f(y), _f(w), _f(h)))
+        ops.append(b"%s 0 0 %s %s %s cm" % (_f(sx), _f(-sy), _f(ox - bx * sx), _f(oy + by * sy)))
+        depth = 0
+        for item in fig.items:
+            kind = item[0]
+            if kind == "q":
+                depth += 1
+                pages.ops[-1].append(b"q")
+            elif kind == "Q":
+                depth -= 1
+                pages.ops[-1].append(b"Q")
+            elif kind == "cm":
+                pages.ops[-1].append(b" ".join(_f(v) for v in item[1]) + b" cm")
+            elif kind == "path":
+                _svg_path(pages, item[1], item[2])
+            elif kind == "text":
+                _svg_text(pages, item[1])
+        pages.ops[-1].append(b" ".join([b"Q"] * (max(depth, 0) + 1)))
+    pages.y = y - FIGURE_GAP
+
+
 def layout(blocks: list[Block], h1_page: bool = False) -> _Pages:
     """The pages of the blocks; with `h1_page` each level-1 heading starts a new page (not one at the top of a page
     already). A contents block (kind toc) takes the page of each heading after it: the blocks are laid out again
@@ -585,29 +763,44 @@ def _contents(blocks: list[Block], at: int, heads: dict | None) -> list[tuple[st
 def _layout(blocks: list[Block], h1_page: bool, heads: dict | None) -> _Pages:
     pages = _Pages()
     for i, b in enumerate(blocks):
-        if b.kind == "code":
-            _draw_fixed(pages, b.lines, "code")
-        elif b.kind == "table":
-            _draw_fixed(pages, _table_lines(b.lines), "table")
-        elif b.kind == "grid":
-            _draw_grid(pages, b)
-        elif b.kind == "toc":
-            _draw_contents(pages, _contents(blocks, i, heads))
-        elif b.kind == "li":
-            if not 0 <= b.level <= 20:
-                raise PdfError("list nesting is too deep")
-            indent = LIST_INDENT * (b.level + 1)
-            _draw_runs(pages, b, MARGIN + indent, TEXT_W - indent)
-        elif b.kind in STYLES:
-            if any(t.strip() for t, _, _ in b.runs):
-                if b.kind == "h1" and h1_page and pages.ops[-1]:
-                    pages.new_page()
-                page = _draw_runs(pages, b, MARGIN, TEXT_W)
-                if b.kind in ("h1", "h2"):
-                    pages.heads[i] = page
-        else:
-            raise PdfError("unknown block kind")
+        before = (len(pages.ops) - 1, len(pages.ops[-1]), pages.y)
+        _block(pages, blocks, i, b, h1_page, heads)
+        if b.anchors:
+            page = before[0]
+            if len(pages.ops[page]) == before[1] and page + 1 < len(pages.ops):
+                page += 1
+            y = before[2] if page == before[0] else PAGE_H - MARGIN
+            for name in b.anchors:
+                pages.marks.setdefault(name, (page, y))
     return pages
+
+
+def _block(pages: _Pages, blocks: list[Block], i: int, b: Block, h1_page: bool, heads: dict | None) -> None:
+    """Draw one block."""
+    if b.kind == "code":
+        _draw_fixed(pages, b.lines, "code")
+    elif b.kind == "table":
+        _draw_fixed(pages, _table_lines(b.lines), "table")
+    elif b.kind == "grid":
+        _draw_grid(pages, b)
+    elif b.kind == "figure":
+        _draw_figure(pages, b)
+    elif b.kind == "toc":
+        _draw_contents(pages, _contents(blocks, i, heads))
+    elif b.kind == "li":
+        if not 0 <= b.level <= 20:
+            raise PdfError("list nesting is too deep")
+        indent = LIST_INDENT * (b.level + 1)
+        _draw_runs(pages, b, MARGIN + indent, TEXT_W - indent)
+    elif b.kind in STYLES:
+        if any(t.strip() for t, _, _ in b.runs):
+            if b.kind == "h1" and h1_page and pages.ops[-1]:
+                pages.new_page()
+            page = _draw_runs(pages, b, MARGIN, TEXT_W)
+            if b.kind in ("h1", "h2"):
+                pages.heads[i] = page
+    else:
+        raise PdfError("unknown block kind")
 
 
 def render(blocks: list[Block], title: str, author: str = AUTHOR, unicode: bool = False, fonts=None,
@@ -622,6 +815,18 @@ def render(blocks: list[Block], title: str, author: str = AUTHOR, unicode: bool 
         _EMBEDDED.reset(token)
 
 
+def _image_object(add, img: pdffig.Image, extra: bytes) -> int:
+    return add(b"<< /Type /XObject /Subtype /Image /Width %d /Height %d %s%s /Length %d >>\nstream\n"
+               % (img.width, img.height, img.entries, extra, len(img.data)) + img.data + b"\nendstream")
+
+
+def _goto(annot: tuple, page_ids: list[int], marks: dict) -> bytes:
+    _, name, rect = annot
+    page, y = marks[name]
+    return (b"<< /Type /Annot /Subtype /Link /Rect [%.2f %.2f %.2f %.2f] /Border [0 0 0] "
+            b"/A << /S /GoTo /D [%d 0 R /XYZ null %.2f null] >> >>" % (rect + (page_ids[page], y)))
+
+
 def _render(blocks: list[Block], title: str, author: str, h1_page: bool = False) -> bytes:
     # Check the text after parsing too: formatting and entities can join a private value.
     values = [title, author]
@@ -629,6 +834,8 @@ def _render(blocks: list[Block], title: str, author: str, h1_page: bool = False)
         values.extend([_plain_text(block.runs), block.marker])
         values.extend(url for _, _, url in block.runs if url)
         values.extend(" ".join(row) if isinstance(row, list) else row for row in block.lines)
+        values.extend(getattr(block.figure, "texts", None) or [])
+        values.extend(block.anchors)
     _screen("\n".join(values))
     pages = layout(blocks, h1_page)
     total = len(pages.ops)
@@ -649,16 +856,36 @@ def _render(blocks: list[Block], title: str, author: str, h1_page: bool = False)
     else:
         font_ids = {key: add(b"<< /Type /Font /Subtype /Type1 /BaseFont /%s /Encoding /WinAnsiEncoding >>"
                              % name.encode()) for key, name in FONTS.values()}
-    res = b"<< /Font << " + b" ".join(b"/%s %d 0 R" % (k.encode(), v) for k, v in font_ids.items()) + b" >> >>"
-    pages_id = len(objs) + 1 + sum(2 + len(a) for a in pages.annots)
+    res = b"<< /Font << " + b" ".join(b"/%s %d 0 R" % (k.encode(), v) for k, v in font_ids.items()) + b" >>"
+    if pages.images:
+        image_ids = []
+        for img in pages.images:
+            mask = b""
+            if img.smask is not None:
+                mask = b" /SMask %d 0 R" % _image_object(add, img.smask, b"")
+            image_ids.append(_image_object(add, img, mask))
+        res += b" /XObject << " + b" ".join(b"/Im%d %d 0 R" % (n, i) for n, i in enumerate(image_ids, 1)) + b" >>"
+    if pages.states:
+        res += b" /ExtGState << " + b" ".join(b"/%s << /ca %s /CA %s >>" % (name.encode(), _f(k[0]), _f(k[1]))
+                                              for k, name in pages.states.items()) + b" >>"
+    res += b" >>"
+    # a link to an id of the page that names no block is left out (its text stays)
+    annots_of = [[a for a in annots if not isinstance(a, tuple) or a[1] in pages.marks] for annots in pages.annots]
     page_ids = []
-    for ops, annots in zip(pages.ops, pages.annots):
+    nxt = len(objs) + 1
+    for annots in annots_of:
+        nxt += 1 + len(annots)
+        page_ids.append(nxt)
+        nxt += 1
+    pages_id = nxt
+    for n, (ops, annots) in enumerate(zip(pages.ops, annots_of)):
         stream = b"\n".join(ops)
         cid = add(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
-        annot_ids = [add(a) for a in annots]
+        annot_ids = [add(_goto(a, page_ids, pages.marks) if isinstance(a, tuple) else a) for a in annots]
         extra = b" /Annots [%s]" % b" ".join(b"%d 0 R" % i for i in annot_ids) if annot_ids else b""
-        page_ids.append(add(b"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources %s /Contents %d 0 R%s >>"
-                            % (pages_id, PAGE_W, PAGE_H, res, cid, extra)))
+        if add(b"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %d %d] /Resources %s /Contents %d 0 R%s >>"
+               % (pages_id, PAGE_W, PAGE_H, res, cid, extra)) != page_ids[n]:
+            raise PdfError("page objects out of order")
     assert add(b"<< /Type /Pages /Kids [" + b" ".join(b"%d 0 R" % i for i in page_ids) + b"] /Count %d >>"
                % len(page_ids)) == pages_id
     catalog = add(b"<< /Type /Catalog /Pages %d 0 R >>" % pages_id)
@@ -850,7 +1077,7 @@ class _Html(HTMLParser):
     SKIP = {"script", "style", "head"}
     HEADINGS = {"h1": "h1", "h2": "h2", "h3": "h3", "h4": "h3", "h5": "h3", "h6": "h3"}
 
-    def __init__(self) -> None:
+    def __init__(self, base: Path | None = None, start: Path | None = None) -> None:
         super().__init__(convert_charrefs=True)
         self.blocks: list[Block] = []
         self.current: Block | None = None
@@ -864,13 +1091,29 @@ class _Html(HTMLParser):
         self.pre: list[str] | None = None
         self.rows: list[list[str]] | None = None
         self.cell: list[str] | None = None
+        self.base, self.start = base, start
+        self.css: list = []                  # the simple rules of the style elements of the page
+        self.css_text: list[str] = []
+        self.pending: list[str] = []         # ids that wait for the next block
+        self.svg: list[pdffig.Node] | None = None
+        self.figures: list[dict] = []        # open figure elements: their alt text and whether a figcaption came
+        self.skipped: dict[str, int] = {}
+        self.image_bytes = 0
 
     def font(self) -> str:
         return self.fonts[-1] if self.fonts else "r"
 
+    def push(self, block: Block) -> None:
+        block.anchors += self.pending
+        self.pending = []
+        self.blocks.append(block)
+
+    def count(self, what: str, n: int = 1) -> None:
+        self.skipped[what] = self.skipped.get(what, 0) + n
+
     def end_block(self) -> None:
         if self.current is not None and _plain_text(self.current.runs):
-            self.blocks.append(self.current)
+            self.push(self.current)
         self.current = None
 
     def block(self) -> Block:
@@ -881,18 +1124,46 @@ class _Html(HTMLParser):
                 self.current = Block("p")
         return self.current
 
+    def caption(self, text: str) -> None:
+        text = " ".join(text.split())
+        if text:
+            self.push(Block("caption", runs=[(text, "r", None)]))
+
     def handle_starttag(self, tag: str, attrs: list) -> None:
-        a = dict(attrs)
+        a = {k: (v if v is not None else "") for k, v in attrs}
+        if self.svg is not None:
+            node = pdffig.Node(tag, a)
+            self.svg[-1].children.append(node)
+            self.svg.append(node)
+            return
         if tag in self.SKIP:
             self.skip.append(tag)
             return
         if self.skip and not (self.skip == ["head"] and tag == "title"):
             return
+        figure = None
         if tag == "title":
             self.in_title, self.title = True, ""
         elif tag in self.HEADINGS:
             self.end_block()
             self.current = Block(self.HEADINGS[tag])
+            decls = pdffig.matched(self.css, tag, a)
+            decls.update(pdffig.declarations(a.get("style") or ""))
+            self.current.color = pdffig.color(decls.get("color"))
+        elif tag == "svg":
+            self.end_block()
+            self.svg = [pdffig.Node(tag, a)]
+        elif tag == "img":
+            self.end_block()
+            figure = self.image(a)
+        elif tag == "figure":
+            self.end_block()
+            self.figures.append({"alt": "", "caption": False})
+        elif tag == "figcaption":
+            self.end_block()
+            self.current = Block("caption")
+            if self.figures:
+                self.figures[-1]["caption"] = True
         elif tag in ("p", "div"):
             if self.current is not None and self.current.kind == "li":
                 if _plain_text(self.current.runs):
@@ -938,18 +1209,111 @@ class _Html(HTMLParser):
             if not self.rows:
                 self.rows.append([])
             self.cell = []
+        # an id (or the name of an a) belongs to the next block: the one this element starts or is part of
+        for key in ("id", "name") if tag == "a" else ("id",):
+            if a.get(key):
+                self.pending.append(a[key])
+        if figure is not None:
+            alt = a.get("alt") or ""
+            if figure is not False:
+                self.push(figure)
+            if self.figures:
+                self.figures[-1]["alt"] = self.figures[-1]["alt"] or alt
+            else:
+                self.caption(alt)
+
+    def image(self, a: dict):
+        """The figure block of an img, False when it is left out (counted)."""
+        src = (a.get("src") or "").strip()
+        try:
+            if src[:5].lower() == "data:":
+                m = re.match(r"data:image/(png|jpeg|jpg);base64,(.*)$", src, re.I | re.S)
+                if not m:
+                    self.count("image of another kind")
+                    return False
+                try:
+                    data = base64.b64decode(re.sub(r"\s+", "", m.group(2)), validate=True)
+                except (binascii.Error, ValueError):
+                    raise PdfError("an image data URI that is not valid base64") from None
+            elif re.match(r"^[a-z][a-z0-9+.-]*:", src, re.I) or src.startswith("//"):
+                self.count("image from the web")
+                return False
+            elif not src:
+                self.count("image without a source")
+                return False
+            else:
+                rel = unquote(src.split("#")[0].split("?")[0])
+                if self.base is None:
+                    self.count("image file")
+                    return False
+                if not rel.lower().endswith((".png", ".jpg", ".jpeg")):
+                    self.count("image of another kind")
+                    return False
+                path = Path(os.path.abspath(self.base / rel))
+                if not allowed(path, self.start):
+                    raise PdfError("refused: the image %s is not inside the project folder or the session scratch "
+                                   "folder" % src)
+                try:
+                    data = _read_bytes(path, "image")
+                except FileNotFoundError:
+                    raise PdfError("the image %s does not exist" % src) from None
+                except OSError:
+                    raise PdfError("the image %s cannot be read: a link, a folder or no access" % src) from None
+            self.image_bytes += len(data)
+            if self.image_bytes > MAX_IMAGES:
+                raise PdfError("the images are larger than %d bytes in all" % MAX_IMAGES)
+            img = pdffig.image(data)
+        except pdffig.FigureError as err:
+            raise PdfError("image %s: %s" % (src[:60] if not src.startswith("data:") else "data URI", err)) from None
+        w = img.width * pdffig.PX
+        h = img.height * pdffig.PX
+        aw = pdffig.length(a.get("width"), 0.0, TEXT_W / pdffig.PX) * pdffig.PX if a.get("width") else 0.0
+        ah = pdffig.length(a.get("height"), 0.0) * pdffig.PX if a.get("height") and "%" not in a["height"] else 0.0
+        if aw > 0 and ah > 0:
+            w, h = aw, ah
+        elif aw > 0:
+            w, h = aw, aw * img.height / img.width
+        elif ah > 0:
+            w, h = ah * img.width / img.height, ah
+        return Block("figure", figure=Picture(img, w, h))
+
+    def end_svg(self) -> None:
+        root = self.svg[0]
+        self.svg = None
+        fig = pdffig.svg(root, self.css, TEXT_W)
+        for what, n in fig.skipped.items():
+            self.count(what, n)
+        self.push(Block("figure", figure=fig))
 
     def handle_endtag(self, tag: str) -> None:
+        if self.svg is not None:
+            for k in range(len(self.svg) - 1, -1, -1):
+                if self.svg[k].tag == tag:
+                    if k == 0:
+                        self.end_svg()
+                    else:
+                        del self.svg[k:]
+                    break
+            return
         if self.skip:
             if tag == self.skip[-1]:
                 self.skip.pop()
+                if tag == "style":
+                    self.css += pdffig.rules("".join(self.css_text))
+                    self.css_text = []
             elif self.skip == ["head"] and tag == "title":
                 self.in_title = False
             return
         if tag == "title":
             self.in_title = False
-        elif tag in self.HEADINGS or tag == "li":
+        elif tag in self.HEADINGS or tag == "li" or tag == "figcaption":
             self.end_block()
+        elif tag == "figure":
+            self.end_block()
+            if self.figures:
+                f = self.figures.pop()
+                if f["alt"] and not f["caption"]:
+                    self.caption(f["alt"])
         elif tag == "p" and (self.current is None or self.current.kind != "li"):
             self.end_block()
         elif tag in ("ul", "ol"):
@@ -959,14 +1323,15 @@ class _Html(HTMLParser):
         elif tag == "pre" and self.pre is not None:
             body = "".join(self.pre)
             body = body[1:] if body.startswith("\n") else body
-            self.blocks.append(Block("code", lines=body.rstrip("\n").split("\n")))
+            self.push(Block("code", lines=body.rstrip("\n").split("\n")))
             self.pre = None
         elif tag == "code" and self.pre is None and self.fonts:
             self.fonts.pop()
         elif tag in ("strong", "b", "em", "i") and self.fonts:
             self.fonts.pop()
         elif tag == "a" and self.url:
-            if self.cell is None and self.pre is None and self.link_text.strip() != self.url:
+            if (self.cell is None and self.pre is None and self.link_text.strip() != self.url
+                    and not self.url.startswith("#")):
                 self.block().runs.append((" (%s)" % self.url, self.font(), self.url))
             self.url = None
         elif tag in ("td", "th") and self.cell is not None and self.rows is not None:
@@ -975,15 +1340,22 @@ class _Html(HTMLParser):
             self.rows[-1].append(" ".join("".join(self.cell).split()))
             self.cell = None
         elif tag == "table" and self.rows is not None:
-            self.blocks.append(Block("table", lines=[r for r in self.rows if r]))
+            self.push(Block("table", lines=[r for r in self.rows if r]))
             self.rows = None
 
     def handle_comment(self, data: str) -> None:
-        if data.strip().lower() == "toc" and not self.skip and self.pre is None and self.rows is None:
+        if (data.strip().lower() == "toc" and not self.skip and self.pre is None and self.rows is None
+                and self.svg is None):
             self.end_block()
-            self.blocks.append(Block("toc"))
+            self.push(Block("toc"))
 
     def handle_data(self, data: str) -> None:
+        if self.svg is not None:
+            self.svg[-1].children.append(data)
+            return
+        if self.skip and self.skip[-1] == "style":
+            self.css_text.append(data)
+            return
         if self.skip and not (self.skip == ["head"] and self.in_title):
             return
         if self.in_title:
@@ -1004,14 +1376,15 @@ class _Html(HTMLParser):
         self.block().runs.append((data, self.font(), self.url))
 
 
-def from_html(text: str) -> tuple[list[Block], str]:
-    """(blocks, the <title> or the first h1 or "") of an HTML page such as `awb howto render` writes."""
-    p = _Html()
+def _parse_html(text: str, base: Path | None = None, start: Path | None = None) -> _Html:
+    p = _Html(base, start)
     try:
         p.feed(text)
         p.close()
     except (AssertionError, ValueError, RecursionError):
         raise PdfError("malformed HTML") from None
+    if p.svg is not None:
+        p.end_svg()
     if p.pre is not None:
         p.handle_endtag("pre")
     if p.cell is not None:
@@ -1019,6 +1392,15 @@ def from_html(text: str) -> tuple[list[Block], str]:
     if p.rows is not None:
         p.handle_endtag("table")
     p.end_block()
+    if p.pending and p.blocks:
+        p.blocks[-1].anchors += p.pending
+    return p
+
+
+def from_html(text: str, base: Path | None = None, start: Path | None = None) -> tuple[list[Block], str]:
+    """(blocks, the <title> or the first h1 or "") of an HTML page such as `awb howto render` writes; `base` the
+    folder an img src is relative to (without it an image file is left out, a data URI is still embedded)."""
+    p = _parse_html(text, base, start)
     title = " ".join((p.title or "").split()) or next((_plain_text(b.runs) for b in p.blocks if b.kind == "h1"), "")
     return p.blocks, title
 
@@ -1087,13 +1469,22 @@ def allowed(target: Path, start: Path | None = None) -> bool:
 
 
 def _read(path: Path) -> str:
+    data = _read_bytes(path)
+    try:
+        return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    except UnicodeDecodeError:
+        raise PdfError("the file is not UTF-8") from None
+
+
+def _read_bytes(path: Path, what: str = "input file") -> bytes:
+    """The bytes of a regular file whose path holds no link, at most MAX_INPUT."""
     parent = _directory(path.parent)
     try:
         fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         with os.fdopen(fd, "rb") as stream:
             before = os.fstat(stream.fileno())
             if not stat.S_ISREG(before.st_mode):
-                raise PdfError("not a regular input file")
+                raise PdfError("not a regular %s" % what)
             if before.st_size > MAX_INPUT:
                 raise PdfError("larger than %d bytes" % MAX_INPUT)
             data = stream.read(MAX_INPUT + 1)
@@ -1105,10 +1496,7 @@ def _read(path: Path) -> str:
                 raise PdfError("input changed while reading")
     finally:
         os.close(parent)
-    try:
-        return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-    except UnicodeDecodeError:
-        raise PdfError("the file is not UTF-8") from None
+    return data
 
 
 def _target_regular(parent: int, name: str) -> None:
@@ -1199,9 +1587,20 @@ def convert(path: Path, out: Path | None = None, title: str | None = None, repla
             raise PdfRefused("line %d: %d character(s) the embedded fonts cannot show, %d in %d line(s) in all; "
                              "nothing written; give --replace to write ? for them" % (bad[0][0], bad[0][1],
                                                                                      count, len(bad)))
-        blocks, found = from_html(text) if kind == "html" else from_markdown(text)
+        skipped: dict[str, int] = {}
+        if kind == "html":
+            parsed = _parse_html(text, Path(os.path.abspath(path)).parent, start)
+            blocks = parsed.blocks
+            found = " ".join((parsed.title or "").split()) or next(
+                (_plain_text(b.runs) for b in blocks if b.kind == "h1"), "")
+            skipped = parsed.skipped
+        else:
+            blocks, found = from_markdown(text)
         data = render(blocks, title or found or path.stem, author, fonts=fonts, h1_page=h1_page)
         _publish(target, data)
+        if skipped:
+            print("awb pdf: left out of the figures: %s" % ", ".join(
+                "%d %s" % (n, what) for what, n in sorted(skipped.items())), file=sys.stderr)
         return target, len(re.findall(rb"(?m)^<< /Type /Page /Parent \d+ 0 R /MediaBox", data)), count
     except (OSError, ValueError, RecursionError):
         raise PdfError("cannot read, render or write the file") from None

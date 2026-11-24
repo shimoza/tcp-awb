@@ -21,7 +21,7 @@ render turns the draft into one self-contained HTML file next to it. It reads a 
 paragraphs, lists, bold, italic, code, images) and nothing else. A draft with images is refused unless --internal;
 an internal render carries "internal, never publish" at the top, the images inline as data URIs, and never goes out
 (`awb xchg put` refuses it). --pdf also writes FILE.pdf from that HTML with the shared writer of `awb pdf`
-(awb/pdf.py): standard fonts, selectable text, the images left out. A character the standard fonts cannot show
+(awb/pdf.py): standard fonts, selectable text, the images of an internal page embedded. A character the standard fonts cannot show
 refuses the PDF (the HTML stays written); `awb pdf FILE.html --replace` writes "?" for it.
 """
 from __future__ import annotations

@@ -30218,8 +30218,120 @@
    "name": "key service: a bad path without a query keeps the plain refusal",
    "run": ".venv/bin/pytest tests/test_bytg_path_query_hint.py::test_bytg_a_bad_path_without_a_query_keeps_the_plain_refusal",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-1",
+   "phase": "T",
+   "name": "awb pdf figures: a png file next to the page is embedded with its pixels",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_a_png_file_next_to_the_page_is_embedded_with_its_pixels",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-2",
+   "phase": "T",
+   "name": "awb pdf figures: an rgba png gets its alpha as a soft mask",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_an_rgba_png_gets_its_alpha_as_a_soft_mask",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-3",
+   "phase": "T",
+   "name": "awb pdf figures: a data uri png is embedded and its figcaption is the caption",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_a_data_uri_png_is_embedded_and_its_figcaption_is_the_caption",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-4",
+   "phase": "T",
+   "name": "awb pdf figures: a palette png with transparency and a 16 bit png are converted",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_a_palette_png_with_transparency_and_a_16_bit_png_are_converted",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-5",
+   "phase": "T",
+   "name": "awb pdf figures: an interlaced png is refused with a clear message",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_an_interlaced_png_is_refused_with_a_clear_message",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-6",
+   "phase": "T",
+   "name": "awb pdf figures: an image outside the project a linked one and a missing one are refused",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_an_image_outside_the_project_a_linked_one_and_a_missing_one_are_refused",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-7",
+   "phase": "T",
+   "name": "awb pdf figures: a web image is left out and counted in one line",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_a_web_image_is_left_out_and_counted_in_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-8",
+   "phase": "T",
+   "name": "awb pdf figures: a jpeg keeps its data",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_a_jpeg_keeps_its_data",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-9",
+   "phase": "T",
+   "name": "awb pdf figures: a wide image is scaled to the text width and never crosses a page",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_a_wide_image_is_scaled_to_the_text_width_and_never_crosses_a_page",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-10",
+   "phase": "T",
+   "name": "awb pdf figures: an inline svg is drawn its text reads back and no markup leaks",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_an_inline_svg_is_drawn_its_text_reads_back_and_no_markup_leaks",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-11",
+   "phase": "T",
+   "name": "awb pdf figures: svg text and image alt text go through the screen",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_svg_text_and_image_alt_text_go_through_the_screen",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-12",
+   "phase": "T",
+   "name": "awb pdf figures: path data absolute relative and arcs",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_path_data_absolute_relative_and_arcs",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-13",
+   "phase": "T",
+   "name": "awb pdf figures: transforms colours and units",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_transforms_colours_and_units",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-14",
+   "phase": "T",
+   "name": "awb pdf figures: heading colours of a style attribute and of a style rule",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_heading_colours_of_a_style_attribute_and_of_a_style_rule",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-15",
+   "phase": "T",
+   "name": "awb pdf figures: a link to an id of the page is a goto to the page of that element",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_a_link_to_an_id_of_the_page_is_a_goto_to_the_page_of_that_element",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-PF-16",
+   "phase": "T",
+   "name": "awb pdf figures: svg text outside winansi uses the embedded font",
+   "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_svg_text_outside_winansi_uses_the_embedded_font",
+   "status": "passing"
   }
  ],
- "total_tests": 4317,
+ "total_tests": 4333,
  "checked": "2026-11-22"
 }
