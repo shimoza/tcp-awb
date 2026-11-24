@@ -1657,7 +1657,9 @@ customer data out of the model as far as it can:
   line as the shell splits it and refuses a path it cannot read (a variable, a quote or an escape inside it, a cd it
   cannot follow), so a path a program builds at run time still gets past it; the guard keeps an honest session in its
   lane and is no fence against a hostile one. Text is no path: a / of a sed or awk program, of a quoted sentence or of
-  a here-document body passes, and text is refused only when it names a place inside a refused one. The Workflow tool
+  a here-document body passes, and text is refused only when it names a place inside a refused one. A loop
+  `for f in ch1/en.md ch2/de.md; do sed -n 1,5p "$f"; done` passes when its body passes for one path; a list item
+  that is a variable, a substitution, an absolute or home path or has a `..` is refused. The Workflow tool
   runs only the Workbench's own `review.js`, `request-check.js` and `final-check.js` of the installed code, by
   their scriptPath.
 - Knowledge base first (task KF): when a prompt starts a new task (the first prompt of a session, a prompt after

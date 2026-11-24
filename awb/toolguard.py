@@ -802,6 +802,24 @@ def _api_paths(words: list) -> set[int]:
     return out
 
 
+def _loop_lists(words: list) -> list:
+    """The checks of the lists of `for VAR in ITEM...; do ...; done` loops (ask 2026-11-21-tcp-bytg-17). An item the
+    shell computes (a variable, a substitution), an absolute or home path and a `..` are refused as unreadable, so
+    a loop that passes runs over plain relative paths of the project, each checked like a path of a single command.
+    A glob is left to the path checks (the tests of the honest session loop over deliverables/*.md)."""
+    out: list = []
+    for n, (w, _, cmd) in enumerate(words):
+        if not cmd or w.dynamic or w.value != "for" or n + 2 >= len(words) or words[n + 2][0].value != "in":
+            continue
+        for item, _, at_cmd in words[n + 3:]:
+            if at_cmd or (not item.dynamic and item.value == "do"):
+                break
+            parts = item.value.split("/")
+            if item.dynamic or item.mixed or item.value.startswith(("/", "~")) or ".." in parts:
+                out.append(UNREADABLE)
+    return out
+
+
 def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     """The checks of a shell command in their order: a Path to classify, or a class to refuse at once. A relative
     path is taken against the folder the command stands in at that point: the folder of the call, changed by each
@@ -859,7 +877,7 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
         for n in cds:
             visited += [p for p in move(n, visited) if p not in visited]
         here = visited
-    checks: list = []
+    checks: list = _loop_lists(words)
     for n, (w, _, _) in enumerate(words):
         if exact and n in cds:
             here = move(n, here)
