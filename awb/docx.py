@@ -6,7 +6,7 @@ The same inputs as `awb pdf` (the HTML of a guide, the Markdown the Workbench wr
 the same structure as its PDF, written as plain editable WordprocessingML (no text box, no frame, no content
 control), so a partner can switch on Track Changes and edit every line:
 
-- h1 to h3 as the built-in styles Heading 1 to Heading 3 (h4 to h6 as Heading 3, as in the PDF), bold, the sizes
+- h1 to h3 as the built-in styles Heading 1 to Heading 3 (h4 to h6 as Heading 4 to Heading 6 with their numbering; the PDF draws them as h3), bold, the sizes
   of the PDF, the colour of the HTML (a style attribute or a simple rule of a style element) in the style of that
   level (the first coloured heading of the level decides; a heading of another colour keeps its own on its text).
   When the headings carry numbers that count up without a gap ("1.", "1.1", "2." ...), the numbers become a real
@@ -88,7 +88,7 @@ _SVG_CASE = {n.lower(): n for n in (
     "filterUnits primitiveUnits pathLength").split()}
 _SVG_DROP = {"script", "foreignobject", "iframe", "object", "embed", "audio", "video", "animate", "set",
              "animatetransform", "animatemotion"}
-_NUMBER_RE = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){0,2})(\.?)\s+(?=\S)")
+_NUMBER_RE = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){0,5})(\.?)\s+(?=\S)")
 _BAD_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿\ud800-\udfff]")
 
 
@@ -296,12 +296,19 @@ class _Writer:
 
     # ---------------------------------------------------------------- numbering of the headings
 
+    @staticmethod
+    def _hlevel(b) -> int:
+        """The Word heading level of a heading block: its level in the source (h4 to h6 and #### to ######
+        keep their own level, the PDF draws them as h3), else the level of its kind."""
+        n = int(b.level) if isinstance(b.level, int) and 1 <= b.level <= 6 else int(b.kind[1])
+        return max(n, int(b.kind[1]))
+
     def _numbering(self) -> dict[int, tuple[int, str]]:
         """{block index: (level, text without its number)} when the heading numbers count up without a gap, else
         {}; the dot after the number of each level in self.dots."""
         self.dots: dict[int, str] = {}
         found: dict[int, tuple[int, int]] = {}
-        counters = [0, 0, 0]
+        counters = [0] * 6
         for i, b in enumerate(self.blocks):
             if b.kind not in ("h1", "h2", "h3"):
                 continue
@@ -311,12 +318,14 @@ class _Writer:
                 continue
             parts = [int(p) for p in m.group(1).split(".")]
             level = len(parts) - 1
+            if level > 5:
+                return {}
             if parts[:level] != counters[:level] or parts[level] != counters[level] + 1:
                 return {}
             if self.dots.setdefault(level, m.group(2)) != m.group(2):
                 return {}
             counters[level] += 1
-            counters[level + 1:] = [0] * (2 - level)
+            counters[level + 1:] = [0] * (5 - level)
             found[i] = (level, m.end())
         return found
 
@@ -411,7 +420,7 @@ class _Writer:
             if b.kind in ("h1", "h2", "h3") and pdf._plain_text(b.runs):
                 self.heading_marks[i] = "_Toc%08d" % (i + 1)
                 if b.color is not None:
-                    self.colors.setdefault(b.kind, _hex(b.color))
+                    self.colors.setdefault("h%d" % self._hlevel(b), _hex(b.color))
         out = []
         lists: dict[int, tuple[int, int]] = {}            # level: (numId, next number) of the open ordered lists
         first = True
@@ -455,10 +464,10 @@ class _Writer:
             runs = self._cut(runs, cut)
             ppr += '<w:numPr><w:ilvl w:val="%d"/><w:numId w:val="1"/></w:numPr>' % level
         color = ""
-        if b.color is not None and _hex(b.color) != self.colors.get(b.kind):
+        if b.color is not None and _hex(b.color) != self.colors.get("h%d" % self._hlevel(b)):
             color = _hex(b.color)
         marks = [self.heading_marks[i]] + names
-        return self.para("Heading%s" % b.kind[1], self.runs(runs, color), ppr, self.bookmarks(marks))
+        return self.para("Heading%d" % self._hlevel(b), self.runs(runs, color), ppr, self.bookmarks(marks))
 
     def item(self, b, names: list[str], lists: dict) -> str:
         level = max(0, min(int(b.level), 8))
@@ -663,7 +672,8 @@ class _Writer:
             '<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn '
             'w:val="TableNormal"/><w:uiPriority w:val="39"/><w:tblPr><w:tblBorders>%s</w:tblBorders></w:tblPr>'
             '</w:style></w:styles>'
-            % (NS_W, heading(1, 17, 360), heading(2, 12, 280), heading(3, 11, 200), mono, mono,
+            % (NS_W, heading(1, 17, 360), heading(2, 12, 280), heading(3, 11, 200) + heading(4, 10.5, 160)
+               + heading(5, 10, 120) + heading(6, 10, 120), mono, mono,
                TEXT_W * 20, TEXT_W * 20,
                "".join('<w:%s w:val="single" w:sz="4" w:space="0" w:color="808080"/>' % side
                        for side in ("top", "left", "bottom", "right", "insideH", "insideV"))))
@@ -671,7 +681,7 @@ class _Writer:
     def numbering(self) -> str:
         bullets = "•◦▪" * 3
         abstract = ['<w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="multilevel"/>']
-        for lvl in range(3):
+        for lvl in range(6):
             text = ".".join("%%%d" % (k + 1) for k in range(lvl + 1)) + self.dots.get(lvl, "")
             abstract.append('<w:lvl w:ilvl="%d"><w:start w:val="1"/><w:numFmt w:val="decimal"/>'
                             '<w:suff w:val="space"/><w:lvlText w:val="%s"/><w:lvlJc w:val="left"/>'

@@ -138,7 +138,8 @@ class Block:
     """One block of the document. `runs` are (text, font, url) with font r, b, i or c; `lines` are the lines of a
     code block or the rows (lists of cells) of a table or grid; `marker` is the bullet or number of a list item;
     `align` the l, c or r of each grid column; `figure` the Picture or pdffig.Svg of a figure block; `color` the
-    (r, g, b) of a heading; `anchors` the ids of the page (href="#id") that point at this block."""
+    (r, g, b) of a heading; `level` of a heading its level in the source (1 to 6, the PDF draws 4 to 6 as h3);
+    `anchors` the ids of the page (href="#id") that point at this block."""
     kind: str
     runs: list = field(default_factory=list)
     lines: list = field(default_factory=list)
@@ -1031,7 +1032,8 @@ def from_markdown(text: str) -> tuple[list[Block], str]:
         if head:
             flush()
             in_list = False
-            blocks.append(Block("h%d" % min(len(head.group(1)), 3), runs=_runs(head.group(2))))
+            blocks.append(Block("h%d" % min(len(head.group(1)), 3), runs=_runs(head.group(2)),
+                                level=len(head.group(1))))
         elif line.lstrip().startswith("|") and i + 1 < len(lines) and _TABLE_SEP_RE.match(lines[i + 1]):
             flush()
             in_list = False
@@ -1148,7 +1150,7 @@ class _Html(HTMLParser):
             self.in_title, self.title = True, ""
         elif tag in self.HEADINGS:
             self.end_block()
-            self.current = Block(self.HEADINGS[tag])
+            self.current = Block(self.HEADINGS[tag], level=int(tag[1]))
             decls = pdffig.matched(self.css, tag, a)
             decls.update(pdffig.declarations(a.get("style") or ""))
             self.current.color = pdffig.color(decls.get("color"))

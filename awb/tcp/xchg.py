@@ -503,16 +503,24 @@ def _directory(path: Path, create: bool = False):
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
             os.close(fd)
             fd = child
-        yield fd
     except (OSError, ValueError):
+        os.close(fd)
         raise XchgError("the exchange folder cannot be opened safely") from None
+    try:
+        yield fd
+    except OSError:
+        raise XchgError("a file in the exchange folder could not be read or written (its mode or owner)") from None
     finally:
         os.close(fd)
 
 
 @contextlib.contextmanager
 def _regular(directory: int, name: str, flags: int = os.O_RDONLY):
-    fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+    try:
+        fd = os.open(name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+    except PermissionError:
+        raise XchgError("%s cannot be read by this user: give the file group read (chmod g+r, as awb pdf and awb "
+                        "docx now write it)" % os.path.basename(name)) from None
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:

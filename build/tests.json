@@ -31002,8 +31002,29 @@
    "name": "gate xlsx and evidence home: a staged evidence script with the work home commits",
    "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_staged_evidence_script_with_the_work_home_commits",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-H4-1",
+   "phase": "T",
+   "name": "docx: h4 is Heading 4 with its number level",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx_h4.py::test_ui5o_h4_is_heading_4_in_word_with_its_number_level",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-H4-2",
+   "phase": "T",
+   "name": "pdf: h4 drawn as h3, the source level kept",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx_h4.py::test_ui5o_the_pdf_still_draws_h4_as_h3_and_keeps_the_source_level",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-H4-3",
+   "phase": "T",
+   "name": "xchg: a file it cannot read is named",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx_h4.py::test_ui5o_xchg_names_a_file_it_cannot_read",
+   "status": "passing"
   }
  ],
- "total_tests": 4429,
+ "total_tests": 4432,
  "checked": "2026-11-22"
 }
