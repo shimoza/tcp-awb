@@ -31,6 +31,9 @@ active, M parked project(s)", its OPEN.md items are in no count and no list, and
 active projects names code, customer, reason and the day it was parked. For an active project the items of OPEN.md
 under a heading with closed, done, erledigt or abgeschlossen in it (any case) are left out as well
 (projects.open_bullets).
+The column "Waits on you" is the oldest open owner wait of each project, in hours, from <shared>/owner-waits/waits.tsv,
+which the owner's hourly `awb owner status --record` writes (awb/ownerwaits.py); a summary older than 3 hours gives
+the line "waits on you: not measured since <time>" and no hours.
 While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
 unlock, because the data check cannot run.
 """
@@ -102,6 +105,24 @@ def _parked_since(r: dict) -> str:
     return r.get("since") or "unknown"
 
 
+def waits_cell(board: dict, code: str) -> str:
+    """The column "Waits on you": the hours of the oldest open owner wait of CODE (awb/ownerwaits.py), else -."""
+    from awb import ownerwaits
+
+    h = ((board.get("waits") or {}).get("hours") or {}).get(code)
+    return "-" if h is None else ownerwaits.hours_text(h)
+
+
+def waits_line(board: dict) -> str:
+    """One line when the owner's wait summary is missing or old; nothing while it is current."""
+    w = board.get("waits")
+    if not w or w.get("state") == "ok":
+        return ""
+    if w.get("state") == "stale":
+        return "waits on you: not measured since %s" % when(w["written"].replace("Z", "+00:00"))
+    return "waits on you: not measured yet (the owner's hourly timer writes it)"
+
+
 def markdown(board: dict) -> str:
     s = board["summary"]
     out = ["# Project status, %s" % when(board["generated_at"]), "",
@@ -113,18 +134,21 @@ def markdown(board: dict) -> str:
     for k in ("build", "recheck", "packages"):
         if board.get(k):
             out += [board[k], ""]
+    if waits_line(board):
+        out += [waits_line(board), ""]
     if board.get("platform"):
         lines = platform_lines(board["platform"])
         out += ["## TCP platform", ""] + ["- %s" % x for x in lines[:-1]] + ["", lines[-1], ""]
-    out += ["| Project | Customer | Status | Next | Status as of | Open | Live |", "|---|---|---|---|---|---|---|"]
+    out += ["| Project | Customer | Status | Next | Status as of | Open | Waits on you | Live |",
+            "|---|---|---|---|---|---|---|---|"]
 
     def cell(text) -> str:
         return str(text).replace("|", "\\|").replace("\n", " ")
     for p in board["projects"]:
         st = p["status"]
-        out.append("| %s (%s) | %s | %s | %s | %s | %s | %s |" % (
+        out.append("| %s (%s) | %s | %s | %s | %s | %s | %s | %s |" % (
             p["code"], p["kind"], _customer(p), cell(_line(st.get("summary")) or "-"), cell(_line(st.get("next")) or "-"),
-            cell(_as_of(p)), "-" if p["open_items"] is None else p["open_items"],
+            cell(_as_of(p)), "-" if p["open_items"] is None else p["open_items"], waits_cell(board, p["code"]),
             "-" if p["live_resources"] is None else p["live_resources"]))
     for p in board["projects"]:
         st = p["status"]
@@ -180,9 +204,10 @@ def page(board: dict) -> str:
 
     rows = "".join(
         "<tr><td>%s<br><span class=\"none\">%s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
-        "<td>%s</td><td>%s</td></tr>" % (
+        "<td>%s</td><td>%s</td><td>%s</td></tr>" % (
             e(p["code"]), e(p["kind"]), e(_customer(p)), e(_line(p["status"].get("summary")) or "-"),
             e(_line(p["status"].get("next")) or "-"), as_of(p), "-" if p["open_items"] is None else p["open_items"],
+            e(waits_cell(board, p["code"])),
             "-" if p["live_resources"] is None else p["live_resources"]) for p in board["projects"])
 
     def items(block: dict) -> str:
@@ -215,11 +240,12 @@ def page(board: dict) -> str:
             "<body><h1>Project status, %s</h1><p class=\"lead\">%d active, %d parked project(s): %d with a current "
             "status, %d lagging behind their work, %d without a status line yet.</p>%s%s<div class=\"wrap\"><table><thead><tr>"
             "<th>Project</th><th>Customer</th><th>Status</th><th>Next</th><th>Status as of</th><th>Open</th>"
-            "<th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s%s</body></html>\n" % (
+            "<th>Waits on you</th><th>Live</th></tr></thead><tbody>%s</tbody></table></div>%s%s</body></html>\n" % (
                 e(when(board["generated_at"])), STYLE, e(when(board["generated_at"])), s["projects"],
                 len(board.get("parked") or []), s["current"],
                 s["lagging"], s["without_status"],
-                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck", "packages") if board.get(k)), platform, rows,
+                "".join('<p class="lead">%s</p>' % e(board[k]) for k in ("wipe", "build", "recheck", "packages") if board.get(k))
+                + ('<p class="lead">%s</p>' % e(waits_line(board)) if waits_line(board) else ""), platform, rows,
                 "".join(sections), parked))
 
 
@@ -727,6 +753,9 @@ def main(argv: list[str] | None = None) -> int:
     board["build"] = build_line(p)
     board["recheck"] = recheck_line(p)
     board["packages"] = packages_line(p)
+    from awb import ownerwaits
+
+    board["waits"] = ownerwaits.read_summary(p)
     if args.command == "show":
         from awb import hooks
 

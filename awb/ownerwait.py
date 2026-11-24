@@ -29,6 +29,9 @@ Each item is one line: the project code or the label, a few words, where it is d
 steering session) and a ready command block where one exists. Codes only: every text passes the name check as
 `projects.waiting` does; a text with a hit is withheld, and when the check cannot run every text is withheld and the
 mail is not sent.
+
+`awb owner status` and `awb owner status --record` pass record=True to `collect`: the items go into the wait history
+(awb/ownerwaits.py) and each line ends with "waits N h".
 """
 from __future__ import annotations
 
@@ -68,6 +71,7 @@ REFRESH_ENV = "AWB_REFRESH_WEEKLY"                   # another folder for the te
 REPORT_DIR = Path("/var/lib/awb-report-codes")   # StateDirectory= of awb-report-codes.service, the owner's (700)
 REPORT_ENV = "AWB_REPORT_CODES"                  # another folder for the tests
 REPORT_STATE = "last.json"
+LAST_RECORD = ""              # the word of the last record of the wait history in this process (awb owner status --record)
 
 
 @dataclass
@@ -82,6 +86,7 @@ class Item:
     has_default: bool = False
     app: str = ""
     source: str = ""      # full owner item for the name check, never serialized
+    waited: float | None = None  # hours since the wait history first saw the item (awb/ownerwaits.py), when recorded
 
 
 @contextmanager
@@ -706,6 +711,8 @@ def decide(items: list[Item], view: str = "decisions", code: str | None = None) 
                 line = kept[it.label] = Item(it.label, "", WHERE_SESSION, None, "kept")
                 out.append(line)
             line.extra = (line.extra + "," if line.extra else "") + it.extra
+            if it.waited is not None:
+                line.waited = max(line.waited or 0.0, it.waited)
             line.block = str(int(line.block or 0) + 1)
             continue
         if it.kind == "owner":
@@ -725,8 +732,11 @@ def decide(items: list[Item], view: str = "decisions", code: str | None = None) 
 
 
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None,
-            view: str = "decisions", code: str | None = None) -> tuple[list[Item], int]:
-    """The items of VIEW (see `decide`) after the name check, and the count of parked projects."""
+            view: str = "decisions", code: str | None = None, record: bool = False,
+            now: datetime.datetime | None = None) -> tuple[list[Item], int]:
+    """The items of VIEW (see `decide`) after the name check, and the count of parked projects. With RECORD the
+    items of every view go into the wait history (awb/ownerwaits.py) first and each item carries its hours; a history
+    that cannot be written leaves the items without hours."""
     from awb import devask, ledger, projects
 
     p = p or config.paths()
@@ -744,7 +754,8 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += tenant_mode_items()
     items += winlab_items()
     items += winlab_ending_items()
-    items += winlab_online_items()
+    online = winlab_online_items()
+    items += online
     items += devask.status_items(p, view)
     for it in items:
         if it.kind != "done" and it.text.lower().startswith(_DEV_START):
@@ -752,10 +763,12 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     texts = []
     for it in items:
         texts += [it.text, it.block or "", it.label, it.app, it.source, it.extra, it.where]
+    checked = True
     try:
         hidden = ledger.hit_indexes(texts, ledger.register_path(p))
     except ledger.LedgerError:
         hidden = set(range(len(texts)))
+        checked = False
     for n, it in enumerate(items):
         if {7 * n, 7 * n + 1, 7 * n + 2, 7 * n + 4, 7 * n + 5, 7 * n + 6} & hidden:
             it.text, it.block = ledger.WITHHELD, None
@@ -769,7 +782,36 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
                 it.label = "?"
         if 7 * n + 3 in hidden:
             it.app = ledger.WITHHELD
+    if record:
+        # with no name check every label is "?" and every wait would close and open again: nothing is recorded
+        global LAST_RECORD
+        LAST_RECORD = record_waits(p, items, online, now) if checked else "not recorded: the name check cannot run"
     return decide(items, view, code), parked
+
+
+def waiting(items: list[Item], skip: list[Item] = ()) -> list[Item]:
+    """The items the wait history measures: no tooling or steering item, no task that ended and no line of a lab
+    machine that is online (a probe the hourly timer cannot make, so it would open and close every hour)."""
+    leave = {id(it) for it in skip}
+    return [it for it in items if it.kind not in ("done", "dev", "more") and id(it) not in leave and it.label]
+
+
+def record_waits(p: config.Paths, items: list[Item], skip: list[Item] = (),
+                 now: datetime.datetime | None = None) -> str:
+    """Record ITEMS in the wait history, give each its hours and write the summary of the shared side. Returns a
+    word for `awb owner status --record`."""
+    from awb import ownerwaits
+
+    measured = waiting(items, skip)
+    try:
+        entries = ownerwaits.record(measured, now)
+    except OSError as err:
+        return "not recorded: %s" % type(err).__name__
+    ownerwaits.annotate(measured, entries, now)
+    shared = ownerwaits.write_summary(p, entries, now)
+    open_n = sum(1 for e in entries if e["end"] is None)
+    return "%d open, %d closed in %d days; board summary %s" % (
+        open_n, len(entries) - open_n, ownerwaits.KEEP_DAYS, "written" if shared else "not written")
 
 
 def check_ran(p: config.Paths | None = None) -> bool:
@@ -801,9 +843,14 @@ def render(items: list[Item], parked: int, note_lines: list[str] | tuple = ()) -
             lines.append(it.text)
             continue
         if it.kind == "export":
-            lines.append("%s: %s  [%s]" % (it.label, it.text, it.where))
+            line = "%s: %s  [%s]" % (it.label, it.text, it.where)
         else:
-            lines.append("%s  %s  [%s]" % (it.label, it.text, it.where) if it.where else "%s: %s" % (it.label, it.text))
+            line = "%s  %s  [%s]" % (it.label, it.text, it.where) if it.where else "%s: %s" % (it.label, it.text)
+        if it.waited is not None:
+            from awb import ownerwaits
+
+            line += "  waits %s" % ownerwaits.hours_text(it.waited)
+        lines.append(line)
         for ln in (it.block or "").splitlines():
             lines.append("    %s" % ln)
     if parked:

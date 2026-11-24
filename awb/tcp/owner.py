@@ -429,6 +429,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dev", action="store_true", help="print the tooling and steering items the list leaves out")
     s.add_argument("--all", nargs="?", const="", metavar="CODE",
                    help="print every item as it is, or every item of project CODE")
+    s.add_argument("--history", metavar="CODE",
+                   help="the closed and open waits of project CODE from the wait history: start, end, hours, where")
+    s.add_argument("--record", action="store_true",
+                   help="record the items in the wait history and print one line (the owner's hourly timer)")
     s.add_argument("--out", help=argparse.SUPPRESS)
     try:
         a = ap.parse_args(sys.argv[1:] if argv is None else argv)
@@ -438,6 +442,17 @@ def main(argv: list[str] | None = None) -> int:
         print("awb owner: the work user has no owner status", file=sys.stderr)
         return 2
     try:
+        if a.history is not None:
+            from awb import ownerwaits
+
+            print("\n".join(ownerwaits.history_lines(a.history, ownerwaits.load())))
+            return 0
+        if a.record:
+            from awb import ownerwait
+
+            ownerwait.collect(view="all", record=True)
+            print("awb owner: waits %s" % ownerwait.LAST_RECORD)
+            return 0 if ownerwait.LAST_RECORD.startswith(tuple("0123456789")) else 1
         if not a.write and not a.json:
             from awb import ownerwait
             from awb.tcp import keys
@@ -447,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("awb owner: mail %s" % word)
                 return 0 if word in ("sent", "empty") else 1
             view = "all" if a.all is not None else "dev" if a.dev else "decisions"
-            items, parked = ownerwait.collect(view=view, code=a.all or None)
+            items, parked = ownerwait.collect(view=view, code=a.all or None, record=True)
             from awb import buildbudget
 
             print("\n".join(events.status_lines(events.folder()) + [buildbudget.host_line(), ""]

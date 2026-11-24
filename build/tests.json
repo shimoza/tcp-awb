@@ -30330,8 +30330,106 @@
    "name": "awb pdf figures: svg text outside winansi uses the embedded font",
    "run": ".venv/bin/pytest tests/test_ui5o_pdf_figures.py::test_svg_text_outside_winansi_uses_the_embedded_font",
    "status": "passing"
+  },
+  {
+   "id": "OWT-1",
+   "phase": "T",
+   "name": "owner wait times: an item is opened kept and closed with its times and no text",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_an_item_is_opened_kept_and_closed_with_its_times_and_no_text",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-2",
+   "phase": "T",
+   "name": "owner wait times: old entries go after sixty days and the size is capped",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_old_entries_go_after_sixty_days_and_the_size_is_capped",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-3",
+   "phase": "T",
+   "name": "owner wait times: a broken history is read as empty and a bad entry is dropped",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_a_broken_history_is_read_as_empty_and_a_bad_entry_is_dropped",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-4",
+   "phase": "T",
+   "name": "owner wait times: the list shows the hours after each item and a kept line takes the longest",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_the_list_shows_the_hours_after_each_item_and_a_kept_line_takes_the_longest",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-5",
+   "phase": "T",
+   "name": "owner wait times: the measure leaves out tooling ended and online lines",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_the_measure_leaves_out_tooling_ended_and_online_lines",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-6",
+   "phase": "T",
+   "name": "owner wait times: collect records every item whatever the view",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_collect_records_every_item_whatever_the_view",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-7",
+   "phase": "T",
+   "name": "owner wait times: a state folder that cannot be written leaves the items without hours",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_a_state_folder_that_cannot_be_written_leaves_the_items_without_hours",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-8",
+   "phase": "T",
+   "name": "owner wait times: the summary carries project codes counts and times only",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_the_summary_carries_project_codes_counts_and_times_only",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-9",
+   "phase": "T",
+   "name": "owner wait times: the reader drops a row out of form and refuses a link",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_the_reader_drops_a_row_out_of_form_and_refuses_a_link",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-10",
+   "phase": "T",
+   "name": "owner wait times: the board has a column waits on you",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_the_board_has_a_column_waits_on_you",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-11",
+   "phase": "T",
+   "name": "owner wait times: history lists closed and open waits of a project",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_history_lists_closed_and_open_waits_of_a_project",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-12",
+   "phase": "T",
+   "name": "owner wait times: record prints one line and fails when nothing could be written",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_record_prints_one_line_and_fails_when_nothing_could_be_written",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-13",
+   "phase": "T",
+   "name": "owner wait times: the hourly unit records after the put and may write only the summary folder",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_the_hourly_unit_records_after_the_put_and_may_write_only_the_summary_folder",
+   "status": "passing"
+  },
+  {
+   "id": "OWT-14",
+   "phase": "T",
+   "name": "owner wait times: nothing is recorded while the name check cannot run",
+   "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_nothing_is_recorded_while_the_name_check_cannot_run",
+   "status": "passing"
   }
  ],
- "total_tests": 4333,
+ "total_tests": 4347,
  "checked": "2026-11-22"
 }

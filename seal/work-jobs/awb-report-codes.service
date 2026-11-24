@@ -7,7 +7,9 @@
 # changed or its last put failed, under reports/ of the owner bucket through the admin socket of the key service.
 # The result of the put (or of a refusal) goes to last.json there, which awb owner status reads. Every call goes over
 # the sockets of the key service and the vault daemon, so no address family but unix. While the key service is
-# locked the run skips the put with one journal line.
+# locked the run skips the put with one journal line. After it, whatever its result, awb owner status --record
+# records the owner items in the wait history waits.json of the same folder and writes the codes-only summary
+# waits.tsv to owner-waits/ of the shared side (the work user's with the group, 2770), which awb board reads.
 [Unit]
 Description=Architect Workbench: the codes file of the report workbook, every hour, owner side
 After=awb-vaultd.service awb-keyd.service
@@ -22,6 +24,8 @@ Environment=AWB_REPORT_CODES=/var/lib/awb-report-codes
 StateDirectory=awb-report-codes
 StateDirectoryMode=0700
 ExecStart=/usr/local/bin/awb report --codes --from-shared --put --if-changed
+ExecStopPost=-/usr/local/bin/awb owner status --record
+ReadWritePaths=-@WORK_HOME@/tcp-shared/owner-waits
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only

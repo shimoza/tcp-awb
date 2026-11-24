@@ -417,7 +417,10 @@ days by start and the line "status of 07.11.2026 10:00 CET" or "status not pulle
 more than 2 hours old; "no open incident" when there is none. The data is `awb platform-status pull`, which reads the
 public T-Cloud Status Dashboard (`status.otc-service.com`, no key, GET only) into `tcp-shared/platform-status/state.tsv`
 and keeps the last good rows when a pull fails; `awb platform-status show` prints the section alone and `GET /api/board`
-carries it as the field `platform`. A project that waits on the customer or rests is
+carries it as the field `platform`. The column "Waits on you" gives the hours of the oldest owner item of each
+project that is still open, from the wait history of `awb owner status` (the owner's hourly timer writes a codes-only
+summary to `tcp-shared/owner-waits/waits.tsv`; "waits on you: not measured since ..." once it is older than 3 hours).
+A project that waits on the customer or rests is
 parked with `awb projects park tcp-xxxx --reason "waits on the customer"` and comes back with `awb projects unpark`: the
 board counts it apart ("N active, M parked") in its own short Parked section and leaves its OPEN.md items out of every
 count and list. The items under a heading of OPEN.md that has closed, done, erledigt or abgeschlossen in it are out of
@@ -976,6 +979,15 @@ The owner page lists these items under **Decisions** through `GET /api/owner/ite
 `{code, item}` to the UX20 endpoint once per click, disables the button during the request and after success, and
 shows `sent to the session`. A refusal shows its reason and allows retry. Items without a default show the checked
 UX18 app line without a button. The owner-actions service reads only the timer status file; its access is unchanged.
+
+Each item of `awb owner status` ends with `waits N h` (`<1 h` below an hour): the time since the wait history first
+saw it. The history is `/var/lib/awb-report-codes/waits.json`, the owner's: every run of `awb owner status` and the
+hourly `awb owner status --record` (after the put of `awb-report-codes.service`) note per item a key (a hash of the
+project code and the item text, never the text), where it is done, first seen and last seen; an item gone from the
+list is closed with the time of the run that missed it. Entries older than 60 days go. `awb owner status --history
+CODE` lists the waits of one project, closed and open: start, end, hours, where. The record also writes the
+codes-only summary `tcp-shared/owner-waits/waits.tsv` (code, open count, first seen of the oldest) for the column
+"Waits on you" of `awb board show`.
 
 `awb owner status` also lists each `export-*` folder directly in the owner's home whose newest regular file is
 younger than 30 days and none of whose files matches an imported original by SHA-256. Files are counted

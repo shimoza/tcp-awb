@@ -1059,7 +1059,7 @@ render_job() {
     # snippets of the tests that render the work jobs alone carry no OWNER_JOBS)
     if [[ " ${OWNER_JOBS:-} " == *" $1 "* ]]; then
         sed -e "s|@OWNER@|$owner|g" -e "s|@WORK_GROUP@|$WORK_GROUP|g" -e "s|@CONF_FILE@|$CONF_FILE|g" \
-            "$seal_dir/work-jobs/$1.$2"
+            -e "s|@WORK_HOME@|$work_home|g" "$seal_dir/work-jobs/$1.$2"
     else
         sed -e "s|@WORK_HOME@|$work_home|g" -e "s|@KB_COMMIT@|$3|g" "$seal_dir/work-jobs/$1.$2"
     fi
@@ -1091,6 +1091,7 @@ step_work_jobs() {
     # the folder of awb-platform-status (B-042): the unit runs with RestrictSUIDSGID=yes and cannot give a new folder
     # of the shared side its setgid bit, so its first run failed until the folder was there (2026-11-07)
     run install -d -o "$WORK_USER" -g "$WORK_GROUP" -m 2750 "$work_home/tcp-shared/platform-status"
+    owner_waits_folder
     for name in $WORK_JOBS ${OWNER_JOBS:-}; do
         try_run systemctl enable --now "$name.timer"
     done
@@ -1112,6 +1113,12 @@ step_work_jobs() {
     fi
 }
 
+owner_waits_folder() {
+    # the folder where the owner's hourly awb owner status --record leaves the codes-only summary of his waits for
+    # awb board (internal mode step 1): the work user's with the group, setgid and group-writable (2770)
+    run install -d -o "$WORK_USER" -g "$WORK_GROUP" -m 2770 "$work_home/tcp-shared/owner-waits"
+}
+
 step_work_units() {
     # the update side of step_work_jobs (task SU): the unit files of WORK_JOBS rendered as in the seal and installed
     # only where their content differs; one daemon-reload when one changed, then each changed timer enabled (and
@@ -1127,6 +1134,7 @@ step_work_units() {
         run install -o root -g root -m 755 "$seal_dir/work-jobs/nightly-kb-commit" "$KB_COMMIT"
         kb_exec=$KB_COMMIT
     fi
+    owner_waits_folder
     for name in $WORK_JOBS ${OWNER_JOBS:-}; do
         for kind in service timer; do
             target="$UNITS_DIR/$name.$kind"
