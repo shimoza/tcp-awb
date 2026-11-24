@@ -686,11 +686,13 @@ The same for forms, derived, office, pdf, mail_archive and nontext. `tests/test_
 
 | command | what it does |
 |---|---|
-| `awb kb find [--scope tcp\|hcs] WORDS...` | entries ranked by how much of the query they carry, rare words weighing more, with grade, date and an EXPIRED flag. A service abbreviation and its plain words find each other (`rules/kb-synonyms.txt`); question words and the platform's name are not searched |
+| `awb kb find [--scope tcp\|hcs] [--top N \| --all] WORDS...` | entries ranked by how much of the query they carry, rare words weighing more, with grade, date and an EXPIRED flag; the first 20 (`--top N`, `--all` for every match) and a line that counts the rest. Only the printed entries go through the name check, so a broad query takes about 2 s on a base of 2,300 entries (it took 34 s and more when every match was checked). A service abbreviation and its plain words find each other (`rules/kb-synonyms.txt`); question words and the platform's name are not searched. An id among the words that was merged prints `KB-XXXX was merged into KB-YYYY` and the entry that stands |
 | `awb kb show KB-XXXX` | one entry, with its check block when it has one |
 | `awb kb how KB-XXXX - < block.txt` | write or replace the check block of an entry from standard input: `key: value` lines `tier` (read, write, decision, none), `event` (an ISO date, optional), `region` (read tier, optional: the region of the tenant the calls go to, such as `eu-nl`; without it the tenant's first), `calls` (read: `GET service path`, `;`-separated; write: `recipe NAME k=v ...`), `expect` (read tier, optional: 4xx statuses that count as an answer, `404` for call 1 or `2:403, 2:404`, so a missing or refused endpoint is proven by a `status is 404` test of that call), `confirms`, `refutes`, `control`, `needs` (`none` or what the host cannot give). A test path may hold spaces inside a selector (`roles[display_name=OBS Buckets Viewer].type is XA`). The values go through the text checks of `add`; in the calls and the test lines a path such as `subnets.0.id` does not count as a web address, every other hit of the name check does. Refused: a block without `control`, a write tier whose recipe is not in `recipes/`, a read or write tier whose `needs` is not `none`, a decision tier that names no need. Header, statement and check date stay |
 | `awb kb scope [--scope tcp\|hcs] TAG` | a briefing on one technology: facts by grade, negatives with what was tried, expired entries |
-| `awb kb expired` | entries past their re-check date |
+| `awb kb expired [--days N]` | entries past their re-check date; `--days N` adds the ones that expire in the next N days. Ends with the three ways to act on one: `renew`, `retire`, `merge` |
+| `awb kb renew KB-XXXX --source URL [--checked DATE]` | the fact still holds, read again at the web address URL: the check date becomes today (or DATE), the source becomes URL, grade, class, tags, tried texts and statement stay. The checks of `amend`: the entry stands, the source goes through the name, code, secret and price checks, a negative keeps its tried texts. Use `recheck` when the grade changes |
+| `awb kb merge KEEP DROP [--why "..."] [--source "..."]` | a duplicate: DROP is retired with the reason `merged into KEEP` (and the text of `--why`), KEEP takes the sources, tags and tried texts of both; its statement, grade and check date stay. `show DROP` and `find DROP` name KEEP; INDEX.md and the dataset build leave DROP out like every retired entry. When both sources joined are longer than 300 characters, `--source` gives the one line that replaces them. The checks of `amend`: both entries stand and share a scope, every new text goes through the name, code, secret and price checks |
 | `awb kb recheck-run [--tier read\|write] [--id KB-XXXX]... [--project CODE] [--tenant ALIAS] [--dry-run]` | the entries due checked again by their check block (fact-check design F4): expired or expiring within the next 8 days (the 7 days to the next weekly run plus 1 day of margin, task KS) or with a recheck the refresh requested in `~/tcp-shared/recheck/requested.tsv` and no check on or after the date of the request, in the service project (`--project`, else `recheck_project` of the host file; with neither the run stops with one line that names the key) on the tenant ALIAS (without `--tenant` the one `recheck_tenant` of the host file names; with neither the run stops with one line that names the setting), one entry at a time: pick (oldest expiry first; no block, another tier, a decision tier or a need go to lists for the owner and are not touched), inventory before (write tier only), check, the recipe's teardown, inventory after, write back. A read tier sends its `GET` calls with the read key and reads its confirms, refutes and control as tests `[N:]PATH is\|is not\|has\|lacks VALUE` over the answers (a prose line is undecided; a call that answers other than 2xx or a status its `expect` names is undecided); a write tier runs its recipe as a lab run capped at 30 minutes and follows the recipe's checks (a failed check `control` is undecided). Confirmed: `kb recheck` with grade live and the evidence path as source; an event: `kb amend` with a line `On DATE the state is: ...` (at most three); refuted or undecided: stays expired; a refuted entry also gets a line `ID<TAB>DATE` in `~/tcp-shared/recheck/refuted.tsv`, which `awb dataset build` reads. Evidence in `evidence/recheck-<date>-<n>/` of the project (RESULT.md, the two inventories, calls.log, one file per entry), one line in `~/tcp-shared/recheck/state.tsv`. `--dry-run` stops after the pick and prints the calls or recipes. Exit 0 done, 2 refused or stopped before a create, 4 a resource left live or the inventory differs (no write-back of a write tier). The read tier runs by itself every Saturday at 19:00 UTC (up to 15 minutes later) as the work user: `awb-kb-recheck.timer`, a root owned timer beside the nightly jobs of the work user, starts `awb-kb-recheck.service` with `--tier read` and no tenant (the owner sets `recheck_tenant` in `/etc/awb/paths.conf`; `seal/verify.sh` warns without it), never the write tier |
 | `awb kb recheck-run --try --id KB-XXXX... [--block FILE] [--out DIR] [--project CODE] [--tenant ALIAS]` | a try run: the read tier of the entries named, now, due or not, by the same code and the same verdict rules as the weekly run. It prints the verdict of each entry and its confirms, refutes and control lines with `holds`, `fails` or `not a test` and writes nothing back: no kb change, no line in `state.tsv` or `refuted.tsv`, no handle saved. The evidence (RESULT.md, calls.log, one file per entry) goes to `--out`, else `recheck-try/` of the session scratch folder. `--block FILE` (`-` for standard input, one `--id`) tries that block instead of the entry's own, through the form checks of `awb kb how`, so a session proves a block before it attaches it. An entry without a read block is listed and not called. Exit 0 the run went through, 2 refused |
 | `awb kb recheck-watch [--project CODE] [--tenant ALIAS]...` | the watchdog of the fact-check service (design F5), as the owner: the `ExecStart` of `awb-kb-recheck-watch.service`, which its root owned timer starts every 15 minutes. First one mail through the key service's notify for each new line of `<shared>/recheck/state.tsv` (a run end of `awb kb recheck-run`: counts, exit, inventory, where the evidence is). Then the sweep with the read key over every tenant of the key service with a read and a lab key (or the ones named), over the sources the key service can list, the named ones of FK3 included. Every resource of the service project (`--project`, else `recheck_project` of the host file) whose `awb-expiry` has passed is deleted with the lab key, servers first and networks last: by the recipe's teardown when its row in RESOURCES.md names the lab run that made it, else by the delete call of its kind; each is proven gone with a read. A server, disk or address counts only by its `awb-project` tag; a VPC, subnet, security group, WAF policy, SMN topic or subscription and RDS instance also by its lab name with the project code and a passed `awb-expiry` marker. A name match alone is never enough: a resource named like the project without the tag or the marker is left alone and listed by its handle. A resource of another project, one not expired and one without an expiry are never touched. Each is recorded in RESOURCES.md of the project by its id (deleted with the proof; LEFT LIVE with the call that deletes it), in `RESOURCES-watch.md` of the owner's state folder where he cannot write the project's folder. A resource it cannot delete goes into one mail, once, with its handle, kind, type and tenant alias, never an id. The marks live in `recheck-watch.tsv` of the owner's state folder (`XDG_STATE_HOME/awb`; the unit's is `/var/lib/awb-kb-recheck-watch`); a mail that was not sent is tried again. Exit 0 done, 2 refused or no tenant, 4 a resource left live |
@@ -1195,11 +1197,28 @@ withdraw an entry; the file stays and the id is never reused
 - `ID`
 - `--why WHY`: why it is withdrawn, one line
 
-### `awb kb find WORDS... [--scope SCOPE]`
+### `awb kb merge KEEP DROP [--why WHY] [--source SOURCE]`
+
+merge a duplicate: DROP is retired into KEEP, KEEP takes the sources of both
+- `KEEP`: the entry that stays
+- `DROP`: the duplicate, retired with the reason merged into KEEP
+- `--why WHY`: why they are one fact, one line (optional)
+- `--source SOURCE`: the source of KEEP when both sources joined are longer than one line allows
+
+### `awb kb renew ID --source SOURCE [--checked CHECKED]`
+
+an entry still holds, read again at a web address: checked today, grade kept
+- `ID`
+- `--source SOURCE`: the web address where the fact was read again
+- `--checked CHECKED`: ISO date it was read (default: today)
+
+### `awb kb find WORDS... [--scope SCOPE] [--top TOP] [--all]`
 
 entries ranked by word overlap
 - `WORDS...`
 - `--scope SCOPE`
+- `--top TOP`: how many entries to print (default 20)
+- `--all`: print every entry that matches
 
 ### `awb kb show ID`
 
@@ -1212,9 +1231,10 @@ a Markdown briefing of one tag
 - `TAG`
 - `--scope SCOPE`
 
-### `awb kb expired`
+### `awb kb expired [--days DAYS]`
 
 entries past their expiry date
+- `--days DAYS`: also the entries that expire in the next N days
 
 ### `awb kb export --out OUT [--scope SCOPE] [--grade GRADE] [--tag TAG] [--include-expired] [--force]`
 

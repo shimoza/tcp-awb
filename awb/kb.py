@@ -48,6 +48,16 @@ and the id stay, `find`, `scope`, `expired` and INDEX.md stop offering it, `show
 and the reason, so someone following an id from an old note learns why it went away. A retired entry is no
 longer compared for near duplicates, so the corrected fact can be added.
 
+`merge KEEP DROP` joins a duplicate into the entry that stays (tcp-bytg ask 19 of 2026-11-21): DROP is retired with
+the reason `merged into KEEP`, KEEP takes the sources, tags and tried texts of both. `show DROP` and `find DROP` name
+KEEP. `renew ID --source URL` records that a standing entry still holds where it was read again: today's check date,
+the new source, the grade kept. `expired --days N` adds the entries that expire in the next N days. All three run
+the checks of `amend`. The dataset build leaves a merged entry out like every retired one.
+
+`find` prints the first FIND_TOP entries (`--top N`, `--all`) and screens only those: a broad query matches nearly
+the whole base, and the screen of every match sent all of it to the name check on every search (over 120 s in a
+project on 2026-11-21).
+
 Nothing here prints, logs or raises with a refused value: messages carry field names, classes, counts, ids and
 dates. What `find`, `show`, `scope` and `expired` print passed these checks when it was added; it goes through
 the name check once more before it is printed, so an entry that carries a name registered later is withheld.
@@ -65,7 +75,9 @@ The intake, `awb gate` and every other path of customer material keep the plain 
     awb kb recheck --grade G --source TEXT [--tried TEXT]... [--checked D] ID
     awb kb bench [--top N] FILE
     awb kb retire --why TEXT ID
-    awb kb find [--scope S] WORDS...
+    awb kb merge [--why TEXT] [--source TEXT] KEEP DROP
+    awb kb renew --source URL [--checked D] ID
+    awb kb find [--scope S] [--top N | --all] WORDS...
     awb kb show ID
     awb kb how ID -                          the check block from standard input
     awb kb recheck-run [--tier read|write] [--id ID]... [--project CODE] [--tenant ALIAS] [--dry-run]
@@ -75,7 +87,7 @@ The intake, `awb gate` and every other path of customer material keep the plain 
     awb kb recheck-watch [--project CODE] [--tenant ALIAS]...
                                              awb/tcp/recheckwatch.py: the owner's reaper of expired resources
     awb kb scope [--scope S] TAG
-    awb kb expired
+    awb kb expired [--days N]
     awb kb index
     awb kb import [--update] [--release L] [--dry-run] FILE
     awb kb export --out FILE [--scope S] [--grade G]... [--tag T]... [--include-expired] [--force]
@@ -83,7 +95,7 @@ The intake, `awb gate` and every other path of customer material keep the plain 
                                                release, with source and grade; writes the mark `awb dataset put`
                                                needs (awb/kbreview.py, G6 of the threat model)
 
-Exit codes: 0 ok, 1 refused (add, amend, retire) or expired entries found (expired), 2 usage or error.
+Exit codes: 0 ok, 1 refused (add, amend, retire, merge, renew) or expired entries found (expired), 2 usage or error.
 """
 from __future__ import annotations
 
@@ -168,6 +180,12 @@ _PINNED: ContextVar[dict[str, int]] = ContextVar("kb_directories", default={})
 ID_RE = re.compile(codes.KB)
 _FILE_RE = re.compile(codes.KB + r"\.md")
 _DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_MERGED_RE = re.compile(r"merged into (%s)(?![A-Za-z0-9])" % codes.KB)
+"""The reason `merge` writes into the entry it retires: `merged into KB-XXXX`, then `: ` and the reason given."""
+FIND_TOP = 20
+"""How many entries `awb kb find` prints unless --top or --all says otherwise."""
+MERGE_CHAIN = 10
+"""How many merges `awb kb find` and `show` follow from an id to the entry that stands."""
 _TAG_RE = re.compile(r"[a-z0-9][a-z0-9.+_-]{0,47}")
 
 MIN_GERMAN = 2
@@ -214,6 +232,8 @@ _PRICE_RE = re.compile(
 _GATE_CLASSES = ("identifier", "homepath", "secret", "token", "private-key", "blocklist")
 
 _WORD_RE = re.compile(r"[a-z0-9]+(?:[.\-_/][a-z0-9]+)*")
+_JOINERS = frozenset(".-_/")
+_JOINER_RE = re.compile(r"[.\-_/]")
 _STOP = frozenset("""
     the a an of to in on for is are be been was were and or with by at as it its this that these those from per
     can via into than then there their has have had which when where also only all any each
@@ -256,6 +276,12 @@ class Entry:
     @property
     def is_retired(self) -> bool:
         return bool(self.retired)
+
+    @property
+    def merged_into(self) -> str:
+        """The id this entry was merged into (`merge`), empty when it was not."""
+        m = _MERGED_RE.match(self.why) if self.retired else None
+        return m.group(1) if m else ""
 
     @property
     def block(self) -> dict[str, str]:
@@ -614,8 +640,8 @@ def _words(text: str) -> frozenset[str]:
     out: set[str] = set()
     for tok in _WORD_RE.findall(normalize.normalize(text).text.lower()):
         parts = [tok]
-        if re.search(r"[.\-_/]", tok):
-            parts += re.split(r"[.\-_/]", tok)
+        if not _JOINERS.isdisjoint(tok):
+            parts += _JOINER_RE.split(tok)
         for w in parts:
             if len(w) > 3 and w.isalpha() and w.endswith("s") and not w.endswith("ss"):
                 w = w[:-1]
@@ -1312,6 +1338,138 @@ def retire(kb_id: str, why: str, *, where=None, register_path: Path | None = Non
         return _save(folder, entries, _replace(old, retired=today.isoformat(), why=why), today, reg)
 
 
+def _joined(first: Sequence[str], second: Sequence[str]) -> tuple[str, ...]:
+    """The items of both, each once (compared without case and extra spaces), the first ones first."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in [*first, *second]:
+        key = " ".join(item.lower().split())
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return tuple(out)
+
+
+def merge(keep_id: str, drop_id: str, *, why: str | None = None, source: str | None = None, where=None,
+          register_path: Path | None = None, today: date | None = None) -> tuple[Entry, Entry]:
+    """Merge a duplicate into the entry that stays: DROP is retired with the reason `merged into KEEP` (and `why`
+    when given), KEEP takes the sources, the tags and the tried texts of both, its statement, grade, class and
+    check date stay. The joined source is one line: when both sources do not fit in MAX_LINE, `source` gives the
+    line that replaces them. The checks of `amend`: both entries stand and are of one scope, every new text (the
+    reason, the joined source, a tried text taken over) goes through the text checks of `add`, the tags must be
+    known. Returns (KEEP, DROP) as written. Raises Refused or KBError. Nothing is written unless every check
+    passed; both files and INDEX.md are written under one lock and put back when one write fails."""
+    today = today or date.today()
+    folder = root(where)
+    if keep_id == drop_id:
+        raise KBError("an entry cannot be merged into itself")
+    get(keep_id, folder)
+    get(drop_id, folder)
+    if why is not None:
+        why = _one_line_field(why, "the reason")
+    if source is not None:
+        source = _one_line_field(source, "the source")
+    reg = register_of(register_path)
+    _require_register(reg)
+    problems = text_problems("the reason", why, reg) if why is not None else []
+    with _locked(folder):
+        entries = load(folder)
+        keep, drop = _pick(entries, keep_id), _pick(entries, drop_id)
+        reasons: list[str] = []
+        for e in (keep, drop):
+            if e.is_retired:
+                reasons.append("%s is retired (retired %s); merge only entries that stand" % (e.id, e.retired))
+        if keep.scope != drop.scope:
+            reasons.append("%s is of scope %s and %s of scope %s; merge only entries of one scope"
+                           % (keep.id, keep.scope, drop.id, drop.scope))
+        reasons += problems
+        joined = source
+        if joined is None:
+            joined = "; ".join(_joined([keep.source], [drop.source]))
+            if len(joined) > MAX_LINE:
+                reasons.append("the two sources joined are longer than %d characters; give --source with one line "
+                               "that names both" % MAX_LINE)
+        reasons += text_problems("the source", joined, reg, language=False)
+        tried = _joined(keep.tried, drop.tried)
+        for i, t in enumerate(tried[len(keep.tried):], start=1):
+            reasons += text_problems("tried %d of %s" % (i, drop.id), t, reg)
+        tags = _joined(keep.tags, drop.tags)
+        try:
+            reasons += _clean_tags(list(tags))[1]
+        except KBError as err:
+            reasons.append(str(err))
+        if reasons:
+            raise Refused(reasons)
+        reason = "merged into %s" % keep.id + (": %s" % why if why else "")
+        if len(reason) > MAX_LINE:
+            raise Refused(["the reason is longer than %d characters with the words merged into %s"
+                           % (MAX_LINE, keep.id)])
+        new_keep = _replace(keep, source=joined, tags=tags, tried=tried)
+        new_drop = _replace(drop, retired=today.isoformat(), why=reason)
+        paths = [folder / ENTRIES / (e.id + ".md") for e in (new_keep, new_drop)]
+        previous = [_read_text(p) for p in paths]
+        written: list[tuple[Path, str]] = []
+        try:
+            for path, e, old in zip(paths, (new_keep, new_drop), previous):
+                _write_atomic(path, render(e))
+                written.append((path, old))
+            write_index(folder, [new_keep if e.id == keep.id else new_drop if e.id == drop.id else e
+                                 for e in entries], today, register_path=reg)
+        except BaseException:
+            for path, old in written:
+                _write_atomic(path, old)
+            raise
+        return new_keep, new_drop
+
+
+def renew(kb_id: str, *, source: str, checked: str | date | None = None, where=None,
+          register_path: Path | None = None, today: date | None = None) -> Entry:
+    """Record that an expired (or any standing) entry still holds, seen again at `source`, a web address: the check
+    date becomes `checked` (today by default) and the source becomes `source`; the statement, grade, class, tags and
+    tried texts stay. A `recheck` without a new grade, for a project that read the fact again where it stands. The
+    checks of `amend`: the entry stands, the source goes through the text checks of `add`, a negative keeps the
+    tried texts it carries. Raises Refused or KBError. Nothing is written unless every check passed."""
+    today = today or date.today()
+    folder = root(where)
+    get(kb_id, folder)
+    if checked is not None and not str(checked).strip():
+        raise KBError("checked is empty; leave it out for today")
+    when = _checked(checked, today)
+    source = _one_line_field(source, "the source")
+    if not re.match(r"https?://\S", source):
+        raise KBError("the source of a renewal is the web address where the fact was read again (http or https)")
+    reg = register_of(register_path)
+    _require_register(reg)
+    problems = text_problems("the source", source, reg, language=False)
+    with _locked(folder):
+        entries = load(folder)
+        old = _pick(entries, kb_id)
+        reasons: list[str] = []
+        if old.is_retired:
+            reasons.append("%s is retired (retired %s); add the fact again as a new entry" % (kb_id, old.retired))
+        reasons += problems
+        reasons += _negative_problems(old.statement, old.tried, "tried texts of the entry")
+        if reasons:
+            raise Refused(reasons)
+        return _save(folder, entries, _replace(old, source=source, checked=when,
+                                               expires=expires_for(when, old.cls)), today, reg)
+
+
+def merged_target(kb_id: str, where=None) -> list[str]:
+    """The ids from `kb_id` along its merges to the entry that stands: [kb_id] when it was not merged, empty when
+    there is no such entry. Follows at most MERGE_CHAIN merges and stops at a loop."""
+    chain: list[str] = []
+    current = kb_id
+    while current and current not in chain and len(chain) <= MERGE_CHAIN:
+        try:
+            e = get(current, where)
+        except KBError:
+            return chain
+        chain.append(current)
+        current = e.merged_into
+    return chain
+
+
 # --------------------------------------------------------------------------- the check block
 
 
@@ -1497,8 +1655,8 @@ def concepts(text: str) -> list[frozenset[str]]:
     units: list[set[str]] = []
     for tok in _WORD_RE.findall(normalize.normalize(text).text.lower()):
         parts = [tok]
-        if re.search(r"[.\-_/]", tok):
-            parts += re.split(r"[.\-_/]", tok)
+        if not _JOINERS.isdisjoint(tok):
+            parts += _JOINER_RE.split(tok)
         for w in parts:
             if len(w) > 3 and w.isalpha() and w.endswith("s") and not w.endswith("ss"):
                 w = w[:-1]
@@ -1949,17 +2107,53 @@ def _cmd_retire(args, today: date) -> int:
     return 0
 
 
+def _merged_lines(words: Sequence[str], today: date) -> list[str]:
+    """For every id among the words of a find that was merged: where it went, and the entry that stands."""
+    out: list[str] = []
+    for word in dict.fromkeys(w.strip().upper() for w in words):
+        if not ID_RE.fullmatch(word):
+            continue
+        chain = merged_target(word)
+        if len(chain) < 2:
+            continue
+        out.append("%s was merged into %s" % (word, " then ".join(chain[1:])))
+        last = get(chain[-1])
+        if not last.is_retired and screen([last])[0]:
+            out.append(_list_line(last, today))
+    return out
+
+
 def _cmd_find(args, today: date) -> int:
+    _require_register(register_of())   # fails closed even when nothing matches and nothing is screened
     ranked = find(args.words, scope=args.scope)
-    shown, withheld = screen([e for _, e in ranked])
-    keep = {e.id for e in shown}
-    if not ranked:
+    lines = _merged_lines(args.words, today)
+    limit = len(ranked) if args.all else args.top
+    if limit < 1:
+        print("awb kb find: --top must be at least 1", file=sys.stderr)
+        return 2
+    # only what is printed goes through the screen, in slices until `limit` entries are shown: a broad query matches
+    # nearly the whole base, and screening every match sent the whole base to the name check on every search
+    shown: list[tuple[float, Entry]] = []
+    withheld = 0
+    at = 0
+    while len(shown) < limit and at < len(ranked):
+        part = ranked[at:at + (limit - len(shown))]
+        at += len(part)
+        clean, n = screen([e for _, e in part])
+        keep = {e.id for e in clean}
+        shown += [(score, e) for score, e in part if e.id in keep]
+        withheld += n
+    for line in lines:
+        print(line)
+    if not ranked and not lines:
         print("no entry matches")
-    for score, e in ranked:
-        if e.id in keep:
-            print(_list_line(e, today, score))
+    for score, e in shown:
+        print(_list_line(e, today, score))
     if withheld:
         print(_withheld_line(withheld))
+    if at < len(ranked):
+        print("%s more %s: --top N or --all prints them"
+              % (len(ranked) - at, "match" if len(ranked) - at == 1 else "matches"))
     return 0
 
 
@@ -1973,6 +2167,9 @@ def _cmd_show(args, today: date) -> int:
     if e.is_retired:
         # an id in an old note leads here, and the reason is the answer to why the fact went away
         print("RETIRED on %s: %s" % (e.retired, e.why))
+        chain = merged_target(e.id)
+        if len(chain) > 1:
+            print("MERGED into %s: awb kb show %s" % (" then ".join(chain[1:]), chain[-1]))
     elif e.is_expired(today):
         print("EXPIRED since %s: check the fact again" % e.expires)
     return 0
@@ -2025,18 +2222,46 @@ def _cmd_review(args, today: date) -> int:
 
 
 def _cmd_expired(args, today: date) -> int:
-    old = expired(today=today)
+    if args.days < 0:
+        print("awb kb expired: --days must be 0 or more", file=sys.stderr)
+        return 2
+    old = due(today=today, days=args.days) if args.days else expired(today=today)
     shown, withheld = screen(old)
     if not old:
-        print("no expired entries")
+        print("no expired entries" if not args.days else "no entry expires in the next %d days" % args.days)
         return 0
     for e in shown:
-        print("  ".join([e.id, "expired %s" % e.expires, e.scope, e.grade, "checked %s" % e.checked,
-                         _one_line(e.statement)]))
+        print("  ".join([e.id, "%s %s" % ("expired" if e.is_expired(today) else "expires", e.expires), e.scope,
+                         e.grade, "checked %s" % e.checked, _one_line(e.statement)]))
     if withheld:
         print(_withheld_line(withheld))
-    print("%s expired" % _n(len(old), "entry", "entries"))
+    print("%s %s" % (_n(len(old), "entry", "entries"),
+                     "expired" if not args.days else "expired or expiring in the next %d days" % args.days))
+    print("act on one: awb kb renew ID --source URL (it still holds), awb kb retire ID --why TEXT (it does not), "
+          "awb kb merge KEEP DROP (a duplicate)")
     return 1
+
+
+def _cmd_merge(args, today: date) -> int:
+    reg = register_of()
+    try:
+        keep, drop = merge(args.keep, args.drop, why=args.why, source=args.source, today=today)
+    except Refused as ref:
+        return _refused("merge", ref, reg, today)
+    print("merged %s into %s: %s is retired on %s, %s carries the sources, tags and tried texts of both"
+          % (drop.id, keep.id, drop.id, drop.retired, keep.id))
+    return 0
+
+
+def _cmd_renew(args, today: date) -> int:
+    reg = register_of()
+    try:
+        entry = renew(args.id, source=args.source, checked=args.checked, today=today)
+    except Refused as ref:
+        return _refused("renew", ref, reg, today)
+    print("renewed %s: checked %s, expires %s, grade %s kept" % (entry.id, entry.checked, entry.expires,
+                                                                  entry.grade))
+    return 0
 
 
 def _cmd_verify(args, today: date) -> int:
@@ -2113,8 +2338,24 @@ def _parser():
     s.add_argument("id")
     s.set_defaults(func=_cmd_retire)
 
+    s = sub.add_parser("merge", help="merge a duplicate: DROP is retired into KEEP, KEEP takes the sources of both")
+    s.add_argument("--why", default=None, help="why they are one fact, one line (optional)")
+    s.add_argument("--source", default=None,
+                   help="the source of KEEP when both sources joined are longer than one line allows")
+    s.add_argument("keep", help="the entry that stays")
+    s.add_argument("drop", help="the duplicate, retired with the reason merged into KEEP")
+    s.set_defaults(func=_cmd_merge)
+
+    s = sub.add_parser("renew", help="an entry still holds, read again at a web address: checked today, grade kept")
+    s.add_argument("--source", required=True, help="the web address where the fact was read again")
+    s.add_argument("--checked", default=None, help="ISO date it was read (default: today)")
+    s.add_argument("id")
+    s.set_defaults(func=_cmd_renew)
+
     s = sub.add_parser("find", help="entries ranked by word overlap")
     s.add_argument("--scope", default=None, choices=SCOPES)
+    s.add_argument("--top", type=int, default=FIND_TOP, help="how many entries to print (default %d)" % FIND_TOP)
+    s.add_argument("--all", action="store_true", help="print every entry that matches")
     s.add_argument("words", nargs="+")
     s.set_defaults(func=_cmd_find)
 
@@ -2128,6 +2369,7 @@ def _parser():
     s.set_defaults(func=_cmd_scope)
 
     s = sub.add_parser("expired", help="entries past their expiry date")
+    s.add_argument("--days", type=int, default=0, help="also the entries that expire in the next N days")
     s.set_defaults(func=_cmd_expired)
 
     s = sub.add_parser("export", help="the facts fit to leave as a dataset, one JSON object per line")

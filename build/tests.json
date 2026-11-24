@@ -30771,8 +30771,99 @@
    "name": "ask kind: the work user asks the key service for the kind",
    "run": ".venv/bin/pytest tests/test_ask_kind.py::test_the_work_user_asks_the_key_service_for_the_kind",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-1",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: merge retires the duplicate into the entry that stays",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_merge_retires_the_duplicate_into_the_entry_that_stays",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-2",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: merge without a reason and with one source twice",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_merge_without_a_reason_and_with_one_source_twice",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-3",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: merge follows a chain in show and find",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_merge_follows_a_chain_in_show_and_find",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-4",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: merge refusals write nothing",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_merge_refusals_write_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-5",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: merge of two long sources needs one source line",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_merge_of_two_long_sources_needs_one_source_line",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-6",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: merge keeps the tried texts of both",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_merge_keeps_the_tried_texts_of_both",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-7",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: renew moves the check date and keeps the grade",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_renew_moves_the_check_date_and_keeps_the_grade",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-8",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: renew refusals write nothing",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_renew_refusals_write_nothing",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-9",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: retire from the expired list",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_retire_from_the_expired_list",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-10",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: expired days adds the entries that expire soon",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_expired_days_adds_the_entries_that_expire_soon",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-11",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: find prints the top and screens only what it prints",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_find_prints_the_top_and_screens_only_what_it_prints",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-12",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: find fills the top past a withheld entry",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_find_fills_the_top_past_a_withheld_entry",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-KM-13",
+   "phase": "T",
+   "name": "kb merge, renew, expired, find: find fails closed when nothing matches",
+   "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_find_fails_closed_when_nothing_matches",
+   "status": "passing"
   }
  ],
- "total_tests": 4396,
+ "total_tests": 4409,
  "checked": "2026-11-22"
 }
