@@ -31030,8 +31030,15 @@
    "name": "pdf and docx: 0664 in a project, 0600 in scratch",
    "run": ".venv/bin/pytest tests/test_ui5o_docx_h4.py::test_ui5o_pdf_and_docx_are_group_readable_in_a_project_and_private_in_scratch",
    "status": "passing"
+  },
+  {
+   "id": "S2Z5-P-1",
+   "phase": "T",
+   "name": "ask kind: xchg put hands a result out, inbound refused",
+   "run": ".venv/bin/pytest tests/test_s2z5_ask_put.py::test_s2z5_an_ask_project_puts_a_result_out_and_still_refuses_inbound",
+   "status": "passing"
   }
  ],
- "total_tests": 4433,
+ "total_tests": 4434,
  "checked": "2026-11-22"
 }

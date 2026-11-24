@@ -902,11 +902,14 @@ def _transport_error(err: Exception) -> str:
 
 
 def _ask_refusal(what: str, command: str | None) -> int | None:
-    """Exit 1 with one line when this folder is an ask project (awb/askkind.py): no material enters it and nothing
-    leaves it through the exchange; None otherwise. `awb inbox list` still runs."""
+    """Exit 1 with one line when this folder is an ask project (awb/askkind.py): no material enters it; None
+    otherwise. `awb inbox list` still runs, and `awb xchg put` hands a result of the project out (owner's request
+    2026-11-24, ask 2026-11-24-tcp-s2z5-1: outbound only, the put checks the file as for every project)."""
     from awb import askkind, hooks
 
     if command in (None, "list") and what == "inbox":
+        return None
+    if what == "xchg" and command == "put":
         return None
     root = hooks.project_root(os.getcwd())
     if root is not None and askkind.folder_refuses(root):
