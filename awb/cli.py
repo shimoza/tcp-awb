@@ -924,8 +924,8 @@ DELEGATED = {
     "check": ("check", "check files for names and structured data"),
     "gate": ("gate", "the commit gate"),
     "vault": ("vault", "the vault: serve, unlock, lock, status, encrypt"),
-    "kb": ("kb", "the knowledge base: add, amend, how, bench, recheck, retire, find, show, scope, expired, export, "
-           "import, review, index, verify, recheck-run, recheck-watch, pattern"),
+    "kb": ("kb", "the knowledge base: add, amend, merge, how, bench, recheck, renew, retire, find, show, scope, "
+           "expired, export, import, review, index, verify, recheck-run, recheck-watch, pattern"),
     "ledger": ("ledger", "the activity ledger: add, list"),
     "report": ("ledger", "reports from the ledger by customer, technology, kind or project"),
     "career": ("career", "the career log: add, update, due"),
