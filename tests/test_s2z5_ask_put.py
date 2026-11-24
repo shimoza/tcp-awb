@@ -23,3 +23,16 @@ def test_s2z5_an_ask_project_puts_a_result_out_and_still_refuses_inbound(home, m
     assert xchg.main_inbox(["take", "the", "offer"]) == 1
     assert "ask project" in capsys.readouterr().err
     assert xchg.main_xchg(["list"]) == 1
+
+
+def test_s2z5_the_key_service_lets_an_ask_project_put_and_refuses_every_other_exchange(home):
+    from awb.tcp import keys
+
+    folder = granted(home)
+    s = keys.Service(home.vault / "a.sock", home.vault / "c.sock", paths_fn=lambda: home)
+    for method in ("GET", "LIST"):
+        answer = s._call_socket({"op": "obs", "method": method, "project": folder.name}, 4242, caller=None)
+        assert answer["ok"] is False and "ask project" in answer["error"]
+    answer = s._call_socket({"op": "obs", "method": "PUT", "project": folder.name, "name": "x.md"}, 4242,
+                            caller=None)
+    assert "ask project" not in str(answer.get("error"))

@@ -31037,8 +31037,15 @@
    "name": "ask kind: xchg put hands a result out, inbound refused",
    "run": ".venv/bin/pytest tests/test_s2z5_ask_put.py::test_s2z5_an_ask_project_puts_a_result_out_and_still_refuses_inbound",
    "status": "passing"
+  },
+  {
+   "id": "S2Z5-P-2",
+   "phase": "T",
+   "name": "ask kind: the key service takes a put and refuses every other exchange",
+   "run": ".venv/bin/pytest tests/test_s2z5_ask_put.py::test_s2z5_the_key_service_lets_an_ask_project_put_and_refuses_every_other_exchange",
+   "status": "passing"
   }
  ],
- "total_tests": 4434,
+ "total_tests": 4435,
  "checked": "2026-11-22"
 }

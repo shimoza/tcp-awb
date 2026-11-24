@@ -1048,8 +1048,10 @@ class Service:
         if op == "obs" and str(req.get("method") or "").upper() == "ARCHIVE" and uid != os.getuid():
             # the archive of the puts fetched long ago is awb fetch's too (task BK4): it moves and deletes
             return {"ok": False, "error": "awb fetch archives what was fetched long ago, in the owner's own terminal"}
-        if op in ("obs", "take_owner", "take_lab", "inbox_find") and self._ask_project(req.get("project")):
-            # no material enters an ask project and nothing leaves it through the exchange (awb/askkind.py)
+        if op in ("obs", "take_owner", "take_lab", "inbox_find") and self._ask_project(req.get("project")) and not (
+                op == "obs" and str(req.get("method") or "").upper() == "PUT"):
+            # no material enters an ask project (awb/askkind.py); its own result goes out with awb xchg put (the
+            # owner's request 2026-11-24, ask 2026-11-24-tcp-s2z5-1 and -3)
             from awb import askkind
 
             return {"ok": False, "error": askkind.MATERIAL_LINE % req.get("project")}
