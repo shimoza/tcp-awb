@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from datetime import datetime, timezone
 import hmac
 import json
-import time
 import urllib.parse
 
 import pytest
@@ -94,14 +94,15 @@ def test_bytg16_link_reads_one_object_of_a_bucket_the_run_made(lab):
     run = start_run(w)
     make_bucket(w, run)
     put_object(w, run)
-    before = time.time()
+    before = datetime.now(timezone.utc).timestamp()
     a = link(w, run)
     assert a["ok"], a
     assert a["minutes"] == 60 and a["bucket"] == BUCKET and a["key"] == KEY
     assert a["key_sha256"] == hashlib.sha256(KEY.encode()).hexdigest()[:16]
     bucket, key, expires = verify(a["url"], w.fake.creds)
     assert (bucket, key) == (BUCKET, KEY)
-    assert before + 3600 - 5 <= expires <= time.time() + 3600 + 5
+    after = datetime.now(timezone.utc).timestamp()
+    assert before + 3600 - 5 <= expires <= after + 3600 + 5   # the link expiry, not a speed bound
     with pytest.raises(AssertionError):
         verify(a["url"], w.fake.creds, method="PUT")
     # a credential of its own that outlives the link, never the held one of the run's calls

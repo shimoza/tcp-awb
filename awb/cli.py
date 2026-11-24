@@ -11,8 +11,8 @@ awb report, awb career, awb write, awb voice, awb review, awb calc, awb hook, aw
 awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, awb pricebook, awb cloud, awb mirror, awb refresh,
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
-awb deploy, awb doc, awb pdf, awb winlab, awb platform-status, awb codex, awb exit, awb queue, awb open, awb side, awb dev,
-awb desk, awb version, awb handover, awb cost, awb solutions, awb ux.
+awb deploy, awb doc, awb pdf, awb docx, awb winlab, awb platform-status, awb codex, awb exit, awb queue,
+awb open, awb side, awb dev, awb desk, awb version, awb handover, awb cost, awb solutions, awb ux.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 

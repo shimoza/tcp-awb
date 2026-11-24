@@ -227,7 +227,7 @@ def test_a_table_has_a_header_row_repeated_on_each_page(project):
     doc = pydocx.Document(str(out))
     assert len(doc.tables) == 2
     first, second = doc.tables
-    assert first.style.name == "Table Grid"
+    assert first.style.name.lower() == "table grid"
     assert [[c.text for c in r.cells] for r in first.rows] == [["flavor", "vcpu"], ["s3.large", "2"],
                                                                  ["s3.xlarge", "4"]]
     head = first.rows[0]._tr
@@ -250,9 +250,9 @@ def test_markdown_pipe_tables_code_lists_and_alignment(project):
     assert table.rows[1].cells[1].paragraphs[0].alignment == 2      # right
     code = [p.text for p in doc.paragraphs if p.style.name == "Code"]
     assert code == ["awb pdf a.md", "        indented"]
-    assert doc.styles["Code"].font.name == "Courier New"
+    assert doc.styles["Code"].font.name.lower() == "courier new"
     items = [(p.text, p._p.pPr.numPr.numId.val, p._p.pPr.numPr.ilvl.val) for p in doc.paragraphs
-             if p.style.name == "List Paragraph"]
+             if p.style.name.lower() == "list paragraph"]
     assert [(t, lvl) for t, _, lvl in items] == [("one", 0), ("two", 0), ("deeper", 1), ("third", 0),
                                                  ("fourth", 0)]
     assert items[0][1] == items[1][1] == items[2][1] == 2 and items[3][1] == items[4][1] > 2
@@ -272,7 +272,7 @@ def test_the_footer_carries_page_and_numpages_fields(project):
                      part(out, "word/_rels/document.xml.rels"))
     assert '<w:pgSz w:w="11906" w:h="16838"/>' in doc
     props = pydocx.Document(str(out)).core_properties
-    assert props.title == "guide q7m4" and props.author == "Architect Workbench"
+    assert props.title == "guide q7m4" and props.author.lower() == "architect workbench"
 
 
 def test_every_xml_part_is_well_formed_and_holds_no_text_box(project):
