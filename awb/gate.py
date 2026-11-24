@@ -22,7 +22,10 @@ Classes of findings:
                  Face, Stripe, Telegram, Discord, Twilio, a JWT, cloud access key ids)
     homepath     an absolute path into a home folder (the Linux, macOS and Windows spellings, the home of the
                  super user, a tilde with a user name, a tar listing line) or the same path written with dashes
-                 (followed by a dash, a slash or the end of the path)
+                 (followed by a dash, a slash or the end of the path). One allowance: a script under evidence/
+                 of a project (`evidence_script`) may name the home of the work user of the host (/home/<work
+                 user>, its dash and tilde forms), where its lab runs read and write; every other home refuses
+                 there too (tcp-bytg, 2026-11-21)
     blocklist    anything a line of the owner's local blocklist matches (BLOCKLIST_FILES, one regular expression
                  per line): names of other workspaces on the host, a naming scheme that must not spread. The list
                  lives outside the repository, so what it holds stays the owner's
@@ -32,7 +35,8 @@ Classes of findings:
                  first cell is a handle (`ecs-3`); a project repository has no remote and the cleanup needs the id
     opaque       a file that is not text (a NUL byte in the first 8 KB, the magic of a PDF, a ZIP or a gzip
                  file, the suffix of a document, an archive, an image or a key store) or cannot be read; never
-                 silently clean
+                 silently clean. A workbook (.xlsx) is read with awb/xlsxlite.py `gate_text` and checked like a
+                 text; it is opaque only when it cannot be read safely (see `_scan_xlsx`)
 
 Every detector runs over the text as given and, when it differs, over its normalised form (awb.normalize:
 escapes, entities, percent encoding, invisible characters, terminal colour sequences) with the hits mapped
@@ -696,14 +700,51 @@ def _detect_token(text: str) -> list[int]:
     )
 
 
-def _detect_homepath(text: str) -> list[int]:
+_LINUX_HOME_GROUPS = ("a", "b", "f", "g")
+"""The groups of _HOMEPATH_RE that name a Linux home: the home folder, its dash form, a tilde with a user and a home
+folder at a line start."""
+
+
+def _detect_homepath(text: str, allow: frozenset = frozenset()) -> list[int]:
+    """Offsets of every home path; a Linux home of a user in `allow` passes (`evidence_script`)."""
     out: list[int] = []
     for m in _HOMEPATH_RE.finditer(text):
         user = next((g for g in m.groups() if g), "")
         if user.lower() in _GENERIC_USERS:
             continue
+        if allow and user in allow and m.lastgroup in _LINUX_HOME_GROUPS:
+            continue
         out.append(m.start())
     return out
+
+
+EVIDENCE_SCRIPT_SUFFIXES = frozenset((".py", ".sh", ".bash", ".zsh", ".ps1", ".js", ".mjs", ".ts"))
+
+
+def evidence_script(path: Path | str | None) -> bool:
+    """True for a script (EVIDENCE_SCRIPT_SUFFIXES) under evidence/ of a project folder (one with SCOPE.md). Such a
+    script runs as the work user and names its home (`/home/<work user>/tcp-xxxx/evidence/...`), so it may carry
+    that home; the sessions masked it by hand before (tcp-bytg, 2026-11-21). A lab log is checked for secrets only
+    (OWN_OUTPUT); every other file keeps the whole homepath class."""
+    if path is None:
+        return False
+    p = Path(path).absolute()
+    if p.suffix.lower() not in EVIDENCE_SCRIPT_SUFFIXES:
+        return False
+    for parent in p.parents:
+        if parent.name == "evidence":
+            return (parent.parent / "SCOPE.md").is_file()
+    return False
+
+
+def _allowed_homes(path: Path | str | None) -> frozenset:
+    """The users whose Linux home a file at `path` may name: the work user for an evidence script, else none."""
+    if not evidence_script(path):
+        return frozenset()
+    from awb import config
+
+    user = config.work_user()
+    return frozenset({user}) if user else frozenset()
 
 
 def _detect_blocklist(text: str) -> list[int]:
@@ -879,6 +920,10 @@ def _detect_all(text: str, matcher, path: Path | str | None = None,
     those pattern detectors (own output, OWN_OUTPUT_CLASSES)."""
     out: list[tuple[str, int]] = []
     detectors = [(c, d) for c, d in DETECTORS.items() if classes is None or c in classes]
+    homes = _allowed_homes(path)
+    if homes:
+        detectors = [(c, (lambda t, _h=homes: _detect_homepath(t, _h)) if d is _detect_homepath else d)
+                     for c, d in detectors]
     if matcher is not None:
         out.extend(("name", off) for off in _detect_names(text, matcher))
     n = _normalized(text)
@@ -1135,9 +1180,36 @@ def _scan_bytes(label: str, data: bytes, matcher: Matcher | None, path: Path | s
             found.update(Finding(label, 0, f.cls) for f in _scan_decoded(label, _pdf_outside_streams(data), matcher)
                          if f.cls in _PDF_RAW_CLASSES)
             return sorted(found, key=_order)
+    if Path(label).suffix.lower() == ".xlsx" and data.startswith(b"PK\x03\x04"):
+        return _scan_xlsx(label, data, matcher, path)
     if _is_opaque(label, data):
         return [Finding(label, 0, "opaque")]
     return _scan_decoded(label, data, matcher, path)
+
+
+def _scan_xlsx(label: str, data: bytes, matcher: Matcher | None, path: Path | str | None = None) -> list[Finding]:
+    """A workbook (tcp-bytg, 2026-11-21: built registers were refused as opaque). Its text (awb/xlsxlite.py
+    `gate_text`: sheet names, every row of values and formulas, shared strings, comments, defined names, document
+    properties, every other text and attribute value) gets every class, a finding on its line of that text; its raw
+    parts (markup, XML comments, part names, the extra fields and comments of the archive) get the classes of a
+    PDF outside its streams (no ids: Office writes its own GUIDs), on line 0 when the text did not show that class
+    already. Opaque when it cannot be read safely: a zip bomb, too many parts, bytes outside the parts, a part that
+    is not XML (a macro project, an embedded object, a picture), an external link or data connection, a macro
+    content type. A .xlsm stays opaque. Too large when its text or its raw parts are over TEXT_LIMIT."""
+    from awb import xlsxlite
+
+    try:
+        text, raw = xlsxlite.gate_text(data)
+    except (xlsxlite.XlsxError, RecursionError, MemoryError):
+        return [Finding(label, 0, "opaque")]
+    text_bytes, raw_bytes = text.encode("utf-8"), raw.encode("utf-8")
+    if len(text_bytes) > TEXT_LIMIT or len(raw_bytes) > TEXT_LIMIT:
+        return [Finding(label, 0, "too-large")]
+    found = set(_scan_decoded(label, text_bytes, matcher, path))
+    shown = {f.cls for f in found}
+    found.update(Finding(label, 0, f.cls) for f in _scan_decoded(label, raw_bytes, matcher)
+                 if f.cls in _PDF_RAW_CLASSES and f.cls not in shown)
+    return sorted(found, key=_order)
 
 
 RATE_WAIT = check.RATE_WAIT

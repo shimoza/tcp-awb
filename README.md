@@ -1661,7 +1661,12 @@ customer data out of the model as far as it can:
 - A gate checks every commit for names, secrets, home paths and the owner's blocklist. A text file over 8 MiB is
   refused at once as `too-large`, unscanned; a large lab log keeps its full text out of git (see lab runs). The lab
   log writers write the home folder part of a path as `~` (`/home/<user>/x` as `~/x`, `C:\Users\<user>\x` as `~\x`),
-  so a lab log and its summary pass on the first try. A fact id (`KB-Q7M4`) or a file id (`F-Q7M4.1`) of the
+  so a lab log and its summary pass on the first try. A script under `evidence/` of a project may name the home of
+  the work user (`/home/<work user>/tcp-xxxx/...`), where its lab runs read and write; any other home and every
+  other file keep the rule. A workbook (`.xlsx`) is read and checked like a text: its cells, formulas, sheet names,
+  comments, defined names and document properties; it stays `opaque` when it cannot be read safely (a zip bomb,
+  too many parts, bytes outside its parts, a macro, an embedded object or picture, an external link or data
+  connection), and a `.xlsm` stays opaque. A fact id (`KB-Q7M4`) or a file id (`F-Q7M4.1`) of the
   Workbench is never read as a name, also when its four letters spell a registered acronym. The commit-msg hook of
   a project takes a `Co-Authored-By:` line naming Claude and a "Generated with Claude Code" line out of the message
   and says so in one line, instead of refusing the commit; every other finding of the message still refuses it. The

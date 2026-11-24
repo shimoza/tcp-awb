@@ -30862,8 +30862,148 @@
    "name": "kb merge, renew, expired, find: find fails closed when nothing matches",
    "run": ".venv/bin/pytest tests/test_bytg_kb_merge.py::test_find_fails_closed_when_nothing_matches",
    "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-1",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a clean register passes",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_clean_register_passes",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-2",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a home path in a cell is found on a line",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_home_path_in_a_cell_is_found_on_a_line",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-3",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a registered name anywhere in the text is found",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_registered_name_anywhere_in_the_text_is_found",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-4",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a token in a formula and an id in a cell are found",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_token_in_a_formula_and_an_id_in_a_cell_are_found",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-5",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a credential table across two cells is a secret",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_credential_table_across_two_cells_is_a_secret",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-6",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a home path in an xml comment of a part is found",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_home_path_in_an_xml_comment_of_a_part_is_found",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-7",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: office guids in structural attributes are no id",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_office_guids_in_structural_attributes_are_no_id",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-8",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: the staged workbook is read and a clean one commits",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_the_staged_workbook_is_read_and_a_clean_one_commits",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-9",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a workbook that cannot be read safely stays opaque",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_workbook_that_cannot_be_read_safely_stays_opaque",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-10",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a macro workbook stays opaque by its suffix",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_macro_workbook_stays_opaque_by_its_suffix",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-11",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a macro content type in an xlsx stays opaque",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_macro_content_type_in_an_xlsx_stays_opaque",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-12",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a web hyperlink is read not refused",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_web_hyperlink_is_read_not_refused",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-13",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: other opaque kinds keep their rule",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_other_opaque_kinds_keep_their_rule",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-14",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: an evidence script may name the work users home",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_an_evidence_script_may_name_the_work_users_home",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-15",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: an evidence script still refuses any other home",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_an_evidence_script_still_refuses_any_other_home",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-16",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: every other file keeps the rule",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_every_other_file_keeps_the_rule",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-17",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: an evidence folder outside a project keeps the rule",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_an_evidence_folder_outside_a_project_keeps_the_rule",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-18",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: without a work user the home is refused",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_without_a_work_user_the_home_is_refused",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-19",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: an evidence script keeps every other class",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_an_evidence_script_keeps_every_other_class",
+   "status": "passing"
+  },
+  {
+   "id": "BYTG-GX-20",
+   "phase": "T",
+   "name": "gate xlsx and evidence home: a staged evidence script with the work home commits",
+   "run": ".venv/bin/pytest tests/test_bytg_gate_xlsx.py::test_a_staged_evidence_script_with_the_work_home_commits",
+   "status": "passing"
   }
  ],
- "total_tests": 4409,
+ "total_tests": 4429,
  "checked": "2026-11-22"
 }

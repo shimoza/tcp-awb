@@ -428,3 +428,200 @@ def read(path: Path) -> list[SheetData]:
                         data.rows.setdefault(int(m.group(2)), {})[column_number(m.group(1))] = value
             out.append(data)
         return out
+
+
+# --------------------------------------------------------------------------- the reader of the commit gate
+
+GATE_TOTAL = 32 * 1024 * 1024
+"""Bytes of all parts together, uncompressed, that the gate reads at most (a zip bomb stops here, by the sizes the
+archive declares; zipfile never reads more than a part declares and a part that holds more fails its check sum)."""
+_GATE_PARTS = (".xml", ".rels", ".vml")
+"""The parts the gate reads as text. Any other part (a macro project, an embedded object, a picture, printer
+settings) makes the workbook unreadable for the gate, so it stays opaque."""
+_GATE_REFUSED = re.compile(r"(?i)^(?:xl/externalLinks/|xl/connections\.xml$|xl/queryTables/|customXml/)")
+"""Parts that link the workbook to other files or data sources, or carry data no reader shows: refused."""
+_MACRO_TYPE = re.compile(rb"(?i)macroEnabled|vbaProject|ms-office\.activeX")
+_BRACED_GUID = re.compile(r"\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}")
+"""The id form Office writes into structural attributes (xr:uid, the ids of threaded comments and persons). Such an
+attribute value is left out of the text the gate reads; its raw part is still checked for every class but ids."""
+_HYPERLINK_TYPE = REL_NS + "/hyperlink"
+_GATE_COLUMNS = 1024
+"""Empty cells up to this column keep their place in a row line; a cell further right is put after the others."""
+
+
+def _gate_zip_whole(data: bytes, infos: list) -> None:
+    """Refuse an archive whose bytes are not all its parts, its directory and an end record without a comment: text
+    hidden before, between or after the parts would be committed and never read."""
+    import struct
+
+    end = len(data) - 22
+    if end < 0 or data[end:end + 4] != b"PK\x05\x06":
+        raise XlsxError("the workbook has an archive comment or a zip64 end")
+    _, _, _, total, cd_size, cd_offset, comment = struct.unpack("<HHHHIIH", data[end + 4:end + 22])
+    if comment or total != len(infos) or cd_offset + cd_size != end:
+        raise XlsxError("the workbook archive has bytes outside its parts")
+    pos = 0
+    for info in sorted(infos, key=lambda i: i.header_offset):
+        if info.header_offset != pos or data[pos:pos + 4] != b"PK\x03\x04":
+            raise XlsxError("the workbook archive has bytes outside its parts")
+        name_len, extra_len = struct.unpack("<HH", data[pos + 26:pos + 30])
+        pos += 30 + name_len + extra_len + info.compress_size
+        if info.flag_bits & 0x08:
+            if data[pos:pos + 4] == b"PK\x07\x08":
+                pos += 4
+            pos += 12
+    if pos != cd_offset:
+        raise XlsxError("the workbook archive has bytes outside its parts")
+
+
+def _gate_parse(raw: bytes) -> ET.Element:
+    if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+        raise XlsxError("a part of the workbook carries a document type declaration")
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True, insert_pis=True))
+    try:
+        parser.feed(raw)
+        return parser.close()
+    except ET.ParseError:
+        raise XlsxError("a part of the workbook is not valid XML") from None
+
+
+def _gate_values(el: ET.Element) -> list[str]:
+    """The text of `el` and of everything below it, one item per text, attribute value, comment and instruction."""
+    out: list[str] = []
+    for e in el.iter():
+        if e.tag in (ET.Comment, ET.ProcessingInstruction):
+            out.append(e.text or "")
+        else:
+            out.extend(v for v in e.attrib.values() if not _BRACED_GUID.fullmatch(v.strip()))
+            out.append(e.text or "")
+        out.append(e.tail or "")
+    return [v.strip() for v in out if v and v.strip()]
+
+
+def _gate_sheet(root: ET.Element, strings: list[str]) -> list[str]:
+    """A worksheet: one line per row with its cells in their columns, separated by a tab (the stored value, a shared
+    string by its text), so that a credential table across two cells reads as one; the formulas of a row on the
+    line after it, each as `=` and the formula; then every other text of the sheet (header and footer, hyperlinks,
+    validation prompts, comments in the XML)."""
+    lines: list[str] = []
+    for e in root.iter():
+        if not isinstance(e.tag, str) or _local(e.tag) != "row":
+            continue
+        cells: list[str] = []
+        formulas: list[str] = []
+        for c in e:
+            if not isinstance(c.tag, str) or _local(c.tag) != "c":
+                continue
+            kind = c.get("t", "n")
+            m = re.fullmatch(r"([A-Z]{1,3})[0-9]{1,7}", c.get("r", ""))
+            col = column_number(m.group(1)) if m else len(cells) + 1
+            if len(cells) < col - 1 and col <= _GATE_COLUMNS:
+                cells.extend([""] * (col - 1 - len(cells)))
+            value = ""
+            for part in c:
+                if not isinstance(part.tag, str):
+                    continue
+                name = _local(part.tag)
+                if name == "v" and part.text is not None:
+                    if kind == "s":
+                        try:
+                            value = strings[int(part.text)]
+                        except (ValueError, IndexError):
+                            raise XlsxError("a cell points to a missing string") from None
+                    else:
+                        value = part.text
+                elif name == "f":
+                    formulas.append("=" + (part.text or ""))
+                elif name == "is":
+                    value = _all_text(part)
+            cells.append(value.replace("\t", " "))
+        if any(cells):
+            lines.append("\t".join(cells))
+        if formulas:
+            lines.append("\t".join(formulas))
+    rest = ET.Element("rest")
+    for child in root:
+        if not (isinstance(child.tag, str) and _local(child.tag) == "sheetData"):
+            rest.append(child)
+    rest.attrib.update(root.attrib)
+    lines.extend(_gate_values(rest))
+    return lines
+
+
+def gate_text(data: bytes) -> tuple[str, str]:
+    """What the commit gate reads of a workbook: (text, raw). The text holds the sheet names, every row of every
+    sheet (values and formulas), the shared strings, comments, defined names, document properties and every other
+    text and attribute value of the XML parts, one item per line; the raw is every part as it stands (markup, XML
+    comments) with the part names, the extra fields and the comments of the archive. XlsxError when the workbook
+    cannot be read safely: not a zip, an encrypted part, a part name twice, more than MAX_MEMBERS parts, a part over
+    MAX_MEMBER or all over GATE_TOTAL, bytes outside the parts, a part that is not XML (a macro project, an embedded
+    object, a picture), a macro content type, an external link or data connection, a document type declaration."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except (zipfile.BadZipFile, ValueError, OSError):
+        raise XlsxError("the file is not a workbook") from None
+    with zf:
+        infos = zf.infolist()
+        names = [i.filename for i in infos]
+        if len(infos) > MAX_MEMBERS:
+            raise XlsxError("the workbook has too many parts")
+        if len(set(names)) != len(names):
+            raise XlsxError("the workbook names a part twice")
+        if sum(i.file_size for i in infos) > GATE_TOTAL or any(i.file_size > MAX_MEMBER for i in infos):
+            raise XlsxError("a part of the workbook is too large")
+        _gate_zip_whole(data, infos)
+        raws: dict[str, bytes] = {}
+        extra: list[str] = []
+        for info in infos:
+            name = info.filename
+            if info.is_dir():
+                extra.append(name)
+                continue
+            if info.flag_bits & 0x01:
+                raise XlsxError("a part of the workbook is encrypted")
+            if not name.lower().endswith(_GATE_PARTS):
+                raise XlsxError("the workbook has a part that is not XML")
+            if _GATE_REFUSED.search(name):
+                raise XlsxError("the workbook links to other files or data sources")
+            try:
+                with zf.open(info) as fh:
+                    raw = fh.read(MAX_MEMBER + 1)
+            except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError, EOFError):
+                raise XlsxError("a part of the workbook cannot be read") from None
+            if len(raw) != info.file_size:
+                raise XlsxError("a part of the workbook cannot be read")
+            raws[name] = raw
+            extra.append(name)
+            if info.comment:
+                extra.append(info.comment.decode("latin-1"))
+            if info.extra:
+                extra.append(info.extra.decode("latin-1"))
+        for name, raw in raws.items():
+            if name.lower().endswith(".rels"):
+                for rel in _gate_parse(raw).iter():
+                    if (isinstance(rel.tag, str) and _local(rel.tag) == "Relationship"
+                            and (rel.get("TargetMode") or "").lower() == "external"
+                            and rel.get("Type") != _HYPERLINK_TYPE):
+                        raise XlsxError("the workbook links to other files or data sources")
+        if _MACRO_TYPE.search(raws.get("[Content_Types].xml", b"")):
+            raise XlsxError("the workbook carries macros")
+        strings: list[str] = []
+        if "xl/sharedStrings.xml" in raws:
+            strings = [_all_text(si) for si in _gate_parse(raws["xl/sharedStrings.xml"])
+                       if isinstance(si.tag, str) and _local(si.tag) == "si"]
+        lines: list[str] = []
+        for name in sorted(raws):
+            if name.lower().endswith(".vml"):
+                # legacy drawing markup, not always well formed: its values when it parses, else its lines
+                try:
+                    lines.extend(_gate_values(_gate_parse(raws[name])))
+                except XlsxError:
+                    lines.extend(raws[name].decode("utf-8", errors="replace").splitlines())
+                continue
+            root = _gate_parse(raws[name])
+            if name.startswith("xl/worksheets/") and name.endswith(".xml"):
+                lines.extend(_gate_sheet(root, strings))
+            else:
+                lines.extend(_gate_values(root))
+        raw_text = "\n".join([*extra, *(r.decode("utf-8", errors="replace") for r in raws.values())])
+        return "\n".join(lines) + "\n", raw_text + "\n"
