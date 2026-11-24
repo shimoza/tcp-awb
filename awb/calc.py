@@ -219,7 +219,20 @@ def text(value: Decimal, places: int | None = None) -> str:
 
 
 def path_of(project: Path) -> Path:
-    return Path(project) / FOLDER / FILE
+    """The record of the project. A side session (.side/NAME of a project, awb side) records into the record of
+    its project, under the same lock, so the main session and its side sessions never give one id twice and a
+    merge of the side branch never meets two calc.tsv (tcp-bytg ask 2026-11-24-1)."""
+    return _main_root(Path(project)) / FOLDER / FILE
+
+
+def _main_root(project: Path) -> Path:
+    from awb import side
+
+    if project.parent.name == side.SIDE_DIR and side.is_side_worktree(project):
+        main = project.parent.parent
+        if (main / ".git").is_dir() and not (main / FOLDER).is_symlink():
+            return main
+    return project
 
 
 def _clean(value: str) -> str:
@@ -256,7 +269,7 @@ def find(project: Path, calc_id: str) -> Record | None:
 
 def record(project: Path, expression: str, lets: list[str], result: str, label: str = "") -> Record:
     """Append one calculation under the next id. The file is locked while the id is chosen and the line added."""
-    folder = Path(project) / FOLDER
+    folder = path_of(project).parent
     if folder.is_symlink():
         raise CalcError("the calc folder is a link")
     folder.mkdir(exist_ok=True)

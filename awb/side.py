@@ -524,14 +524,15 @@ def take(name: str, merge: bool = False, cwd: Path | None = None) -> list[str]:
     if os.path.lexists(p["wt"]) and not _plain(root, p["wt"], directory=True):
         raise SideError("the worktree must be a directory of this project")
     text = _read(root, result, MAX_RESULT) if os.path.lexists(result) else None
+    fresh = None
     if text is not None and _inherited(root, name, meta, text):
         out.append("result: none (%s is the one of the start commit, an earlier result, not this session's)"
                    % RESULT)
     elif text is not None:
         _require_safe(text)
-        notes = root / NOTES
-        notes.mkdir(exist_ok=True)
-        _write(root, notes / ("side-%s.md" % name), text)
+        fresh = text
+        if not merge:
+            _write_note(root, name, text)
         out.append("result: %s/side-%s.md" % (NOTES, name))
     else:
         out.append("result: none (%s missing)" % RESULT)
@@ -542,16 +543,63 @@ def take(name: str, merge: bool = False, cwd: Path | None = None) -> list[str]:
     out.append("files: %s" % (", ".join(f if _display_safe(f) else "[withheld]" for f in files[:30])
                               if files else "none"))
     if merge and log:
-        r = _git(root, "merge", "--no-ff", "--no-edit", "side/" + name, check=False)
-        if r.returncode != 0:
-            conflict = _git(root, "diff", "--name-only", "--diff-filter=U", check=False).stdout.strip()
-            _git(root, "merge", "--abort", check=False)
-            raise SideError("the merge of side/%s %s; nothing merged, the side stays"
-                            % (name, "conflicts" if conflict else "failed (git merge)"))
+        try:
+            _merge(root, name, fresh)
+        except SideError:
+            if fresh is not None:
+                _write_note(root, name, fresh)
+            raise
         out.append("merged side/%s" % name)
+    elif merge and fresh is not None:
+        _write_note(root, name, fresh)
     if merge:
         out.append(_drop(root, name))
     return out
+
+
+def _write_note(root: Path, name: str, text: str) -> None:
+    notes = root / NOTES
+    notes.mkdir(exist_ok=True)
+    _write(root, notes / ("side-%s.md" % name), text)
+
+
+def _tracked(root: Path, rel: str) -> bool:
+    return _git(root, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0
+
+
+def _merge(root: Path, name: str, fresh: str | None) -> None:
+    """Merge side/NAME with its result as notes/side-NAME.md and without SIDE-RESULT.md (tcp-bj3o ask
+    2026-11-24-1): every side branch adds SIDE-RESULT.md at the root, so it stays as HEAD has it and the second
+    merge does not conflict on it; a copy of an earlier plain take (untracked, equal to the result) gives way to
+    the merge. A conflict on any other path aborts the merge and names nothing of the content."""
+    note = "%s/side-%s.md" % (NOTES, name)
+    note_path = root / NOTES / ("side-%s.md" % name)
+    if fresh is not None and not _tracked(root, note) and os.path.lexists(note_path):
+        if _plain(root, note_path) and _read(root, note_path, MAX_RESULT) == fresh:
+            os.unlink(note_path)
+    r = _git(root, "merge", "--no-ff", "--no-commit", "side/" + name, check=False)
+    conflict = [f for f in _git(root, "diff", "--name-only", "-z", "--diff-filter=U",
+                                check=False).stdout.split("\0") if f]
+    started = _git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).returncode == 0
+    if not started or [f for f in conflict if f not in (RESULT, note)]:
+        if started:
+            _git(root, "merge", "--abort", check=False)
+        raise SideError("the merge of side/%s %s; nothing merged, the side stays"
+                        % (name, "conflicts" if conflict or r.returncode else "failed (git merge)"))
+    if _git(root, "cat-file", "-e", "HEAD:" + RESULT, check=False).returncode == 0:
+        _git(root, "checkout", "HEAD", "--", RESULT)
+    else:
+        _git(root, "rm", "-q", "-f", "--ignore-unmatch", "--", RESULT)
+    if fresh is not None:
+        _write_note(root, name, fresh)
+        _git(root, "add", "--", note)
+    elif note in conflict:
+        _git(root, "checkout", "--theirs", "--", note)
+        _git(root, "add", "--", note)
+    r = _git(root, "commit", "-q", "--no-edit", check=False)
+    if r.returncode != 0:
+        _git(root, "merge", "--abort", check=False)
+        raise SideError("the merge of side/%s failed (git commit); nothing merged, the side stays" % name)
 
 
 def _drop(root: Path, name: str) -> str:
