@@ -245,14 +245,36 @@ def write_summary(p, entries: list[dict], now: dt.datetime | None = None) -> boo
     return True
 
 
+def _read_small(path, cap: int) -> str | None:
+    """A regular file, never through a link, under a cap, UTF-8; else None (the core keeps its own reader: it never
+    imports the platform package awb.tcp)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, cap + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(data) > cap:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def read_summary(p, now: dt.datetime | None = None) -> dict:
     """What the board shows: {"state": "missing" | "stale" | "ok", "written": time or None, "hours": {code: h}}.
     Every row is checked against its form; a row that fails is left out."""
     from awb import codes
-    from awb.tcp import board
 
     now = _now(now)
-    text = board._read_small(summary_path(p), SUMMARY_MAX)
+    text = _read_small(summary_path(p), SUMMARY_MAX)
     if text is None:
         return {"state": "missing", "written": None, "hours": {}}
     lines = text.splitlines()
