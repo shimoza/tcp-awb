@@ -66,7 +66,8 @@ def _active_row(p: config.Paths, code: str, root: Path) -> bool:
 
 def is_ask(root, p: config.Paths | None = None, *, sock: Path | None = None) -> bool:
     """True only when the owner granted the project of the folder `root` the kind ask for the key token it holds.
-    Read from the owner's grant where it can be read, else from the key service. Never raises: any doubt is False,
+    Read from the owner's grant where it can be read, else from the key service of a sealed host (`sock` names
+    another socket, for the tests). Never raises: any doubt is False,
     and then every check runs."""
     try:
         code = _code_of(root)
@@ -80,8 +81,12 @@ def is_ask(root, p: config.Paths | None = None, *, sock: Path | None = None) -> 
         p = p or config.paths()
         if not config.is_work_user() and grants.readable(p):
             return granted_ask(p, code, token) and _active_row(p, code, Path(root))
-        from awb import receipt
+        from awb import receipt, toolguard
 
+        if sock is None and not toolguard._sealed():
+            # the key service of the seal answers for the work user (its socket path is fixed there, never one of
+            # the environment); a host without the seal has none: every check runs
+            return False
         answer = receipt.keys_call({"op": "kind", "token": token}, sock=sock, timeout=KIND_TIMEOUT)
         return answer.get("ok") is True and answer.get("kind") == ASK and answer.get("code") == code
     except Exception:
