@@ -178,7 +178,7 @@ def bomb() -> bytes:
 def test_a_workbook_that_cannot_be_read_safely_stays_opaque(tmp_path, register_path, case):
     clean = book()
     rels = ('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/'
-            'relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            'relationships"><Relationship\nId="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
             'relationships/oleObject" Target="file:///x/y.bin" TargetMode="External"/></Relationships>')
     if case == "macro":
         data = rezip(clean, add={"xl/vbaProject.bin": b"\x00macro"})

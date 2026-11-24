@@ -241,7 +241,6 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/pdffont.py": "the embedded fonts of awb pdf (text outside WinAnsi), which is command only",
     "awb/pdffig.py": "the figures of awb pdf (PNG, JPEG and inline SVG), which is command only",
     "awb/docx.py": "awb docx, run in a working session or by the owner (a Word file of a deliverable)",
-    "awb/xlsxlite.py": "the workbook writer and reader of awb pricebook, which is command only",
     "awb/version.py": "awb version live, run in a working session or by the owner against the deploy journal",
     "awb/confusables.py": "python -m awb.confusables, run once by a build session to write awb/confusables_latin.py",
 }
