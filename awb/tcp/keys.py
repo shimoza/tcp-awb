@@ -1149,7 +1149,7 @@ class Service:
         from awb import grants
 
         try:
-            return grants.granted(self.paths_fn(), code)
+            return grants.reaches(self.paths_fn(), code)
         except Exception:
             return False
 
@@ -1254,12 +1254,13 @@ class Service:
             raise Refused("the key service holds no tenant of that alias")
         ask_code = self._ask_caller(req) if caller is None and self._session_read(uid) else None
         if ask_code is not None:
-            # an ask project (awb/askkind.py): the read role on a test tenant, GET and HEAD, its own code only
+            # an ask project (awb/askkind.py): the test tenants with the read or the lab role (owner's word of
+            # 2026-11-24), never a customer or read-only tenant, its own code only
             from awb import askkind
 
             if self._readonly(alias) is not None or "login" in tenant:
                 raise Refused(askkind.TENANT_LINE % ask_code)
-            if role != "read" or method not in ("GET", "HEAD") or req.get("project") not in (None, "", ask_code):
+            if req.get("project") not in (None, "", ask_code):
                 raise Refused(askkind.TENANT_LINE % ask_code)
         entry = self._readonly(alias)
         if entry is not None:
@@ -1297,7 +1298,7 @@ class Service:
             row = self._project_row(project)
             if row is None:
                 raise Refused("a call to a test tenant runs from the folder of an active project")
-            if not _projects.tenant_access(row.kind):
+            if not _projects.tenant_reach(row.kind):
                 raise Refused("%s is a query: it has no test tenant; the owner switches it with awb projects kind "
                               "%s project" % (project, project))
             if not self._granted(project):
@@ -1398,7 +1399,7 @@ class Service:
             row = self._project_row(project)
             if row is None:
                 raise Refused("a call to a test tenant runs from the folder of an active project")
-            if not _projects.tenant_access(row.kind) or not self._granted(project):
+            if not _projects.tenant_reach(row.kind) or not self._granted(project):
                 raise Refused("%s has no grant of the owner: he runs awb projects kind %s project in his own "
                               "terminal" % (project, project))
             if not self._readonly_granted(alias, project):
@@ -1686,7 +1687,7 @@ class Service:
             row = self._project_row(project)
             if row is None:
                 raise Refused("a lease is for the folder of an active project")
-            if not _projects.tenant_access(row.kind) or not self._granted(project):
+            if not _projects.tenant_reach(row.kind) or not self._granted(project):
                 raise Refused("%s has no grant of the owner: he runs awb projects kind %s project in his own "
                               "terminal" % (project, project))
             if self._customer_differs(row):

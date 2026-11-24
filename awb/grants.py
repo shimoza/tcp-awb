@@ -57,6 +57,12 @@ def granted(p: config.Paths, code: str) -> bool:
     return isinstance(code, str) and load(p).get(code, {}).get("kind") == "project"
 
 
+def reaches(p: config.Paths, code: str) -> bool:
+    """True when the owner's grant lets `code` reach the test tenants: kind project, or kind ask (owner's word of
+    2026-11-24: the Playground reaches the test tenants directly, never a customer tenant)."""
+    return isinstance(code, str) and load(p).get(code, {}).get("kind") in ("project", "ask")
+
+
 def kind(p: config.Paths, code: str) -> str | None:
     """The kind the owner granted `code` (query, project or ask); None without a grant."""
     value = load(p).get(code, {}).get("kind") if isinstance(code, str) else None

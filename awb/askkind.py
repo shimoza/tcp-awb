@@ -8,7 +8,8 @@ Only the owner types there and no customer material ever enters it. So, in an as
 - the commit gate of the project repository looks for secrets only;
 - material is refused at every door (awb import, the paste door, awb paste, awb inbox take, awb xchg, awb bucket
   pull, awb fetch) with MATERIAL_LINE;
-- the test tenants are reached with the read role only; a lab run, a write and a customer tenant are refused.
+- the test tenants are reached directly, read and lab role, lab runs too (owner's word of 2026-11-24); a customer
+  tenant, a read-only tenant and another project's code are refused.
 
 The kind that lifts a check comes only from the owner's side, never from a file the session can write: the owner's
 grant (`awb projects kind CODE ask`, <vault>/grants.json) records kind ask and the key token of the project folder
@@ -28,8 +29,8 @@ from awb import codes, config
 ASK = "ask"
 MATERIAL_LINE = ("%s is an ask project: no material ever enters it, only the owner's own questions; take the "
                  "material into a query or a project")
-TENANT_LINE = ("%s is an ask project: it reads the test tenants with the read role only; a lab run, a write and a "
-               "customer tenant are refused")
+TENANT_LINE = ("%s is an ask project: it reaches the test tenants only (read and lab, owner's word of 2026-11-24); "
+               "a customer tenant, a read-only tenant and the code of another project are refused")
 KIND_TIMEOUT = 3.0
 """Seconds a hook waits for the key service's answer to `kind`; then the project counts as not ask."""
 

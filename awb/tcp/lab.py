@@ -1677,10 +1677,10 @@ def project_folder(code: str) -> Path:
     row = next((x for x in rows if x.code == code and x.state in projects.LIVE_STATES), None)
     if row is None:
         raise LabError("%s is not an active project" % code)
-    if not projects.tenant_access(row.kind):
+    if not projects.tenant_reach(row.kind):
         raise LabError("%s is a query: it has no test tenant; the owner switches it with awb projects kind %s project"
                        % (code, code))
-    if grants.readable(p) and not grants.granted(p, code):
+    if grants.readable(p) and not grants.reaches(p, code):
         raise LabError("%s has no grant of the owner: he runs awb projects kind %s project in his own terminal"
                        % (code, code))
     folder = p.projects_root / code
@@ -1793,14 +1793,6 @@ def main(argv: list[str] | None = None) -> int:
     from awb.cli import SafeParser
 
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv[:1] in (["run"], ["obs"]):
-        # an ask project (awb/askkind.py) reads only: no lab run, no recipe run, no object moved
-        from awb import askkind, hooks
-
-        root = hooks.project_root(os.getcwd())
-        if root is not None and askkind.folder_refuses(root):
-            print("awb lab: %s" % (askkind.TENANT_LINE % root.name), file=sys.stderr)
-            return EXIT_STOPPED
     if argv[:1] == ["run"] and argv[1:2] in (["start"], ["keep"], ["end"], ["status"]):
         # LR: a lab run of a session's own scripts with the admin login of a lab tenant (no recipe has these names)
         from awb import labclient

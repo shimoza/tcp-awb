@@ -583,7 +583,7 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
         print("%s: the owner's grant is %s (was %s)%s" % (args.code, args.kind, granted_before or "none",
                                                           ": it reaches the test tenants"
                                                           if projects.tenant_access(args.kind) else
-                                                          ": the owner's question session, read calls only"
+                                                          ": the owner's question session, test tenants only"
                                                           if args.kind == projects.ASK_KIND else ": no test tenant"))
         if args.kind == projects.ASK_KIND and token is None:
             print("%s: the folder holds no key token, so its checks stay those of a query until it has one and you "
@@ -610,7 +610,7 @@ def _cmd_projects_kind(args, p: config.Paths) -> int:
         return EXIT_OK
     print("%s is now %s %s (was %s)%s" % (pr.code, "an" if pr.kind == projects.ASK_KIND else "a", pr.kind, before,
                                        ": it reaches the test tenants" if projects.tenant_access(pr.kind)
-                                       else ": read calls only, his question session"
+                                       else ": test tenants only, his question session"
                                        if pr.kind == projects.ASK_KIND else ": no test tenant"))
     try:
         projects.record(p, pr, "Switched %s from %s to %s" % (pr.code, before, pr.kind))
@@ -828,7 +828,7 @@ def _build() -> argparse.ArgumentParser:
 
     s = sub.add_parser("spawn", help="create a sealed tcp- project: a query or a project")
     s.add_argument("kind", help="query (knowledge base, prices, no tenant), project (also the test tenants) or ask "
-                                "(the owner's question session: no customer, no material, read calls only)")
+                                "(the owner's question session: no customer, no material, test tenants only)")
     s.add_argument("--goal", required=True)
     s.add_argument("--customer", default=None, metavar="new",
                    help="new issues the customer code with the project's four characters (CUST-XXXX for "

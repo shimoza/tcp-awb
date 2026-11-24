@@ -210,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
                                                   "(owner side).")
     ap.add_argument("kind", choices=projects.ALL_KINDS, help="query (no test tenant), project (test tenants) or "
                                                                  "ask (his question session: no customer, no "
-                                                                 "material, read calls only)")
+                                                                 "material, test tenants only)")
     ap.add_argument("--goal", required=True)
     ap.add_argument("--customer", default=None, metavar="new",
                     help="new issues CUST-XXXX with the four characters of the project code; its written forms are "

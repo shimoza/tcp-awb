@@ -576,7 +576,7 @@ def _project(svc, req: dict, uid: int, caller) -> str:
         row = svc._project_row(project)
         if row is None:
             raise _refused("a lab run runs from the folder of an active project")
-        if not _projects.tenant_access(row.kind) or not svc._granted(project):
+        if not _projects.tenant_reach(row.kind) or not svc._granted(project):
             raise _refused("%s has no grant of the owner: he runs awb projects kind %s project in his own terminal"
                            % (project, project))
         if svc._customer_differs(row):

@@ -283,19 +283,20 @@ def test_kb_add_from_an_ask_project_runs_every_check(home, monkeypatch, capsys):
     assert "added KB-" in capsys.readouterr().out
 
 
-# --------------------------------------------------------------------------- the tenants: read only
+# --------------------------------------------------------------------------- the tenants: test tenants only
 
 
 def test_lab_runs_and_lab_calls_are_refused_in_an_ask_folder(home, monkeypatch, capsys):
+    """Changed on the owner's word of 2026-11-24 ("ему нужен прямой доступ ... только тестовыми тенантами"): an ask
+    project is no longer stopped before a lab run or a lab call; the key service still keeps it to test tenants."""
     folder = granted(home)
     monkeypatch.chdir(folder)
-    assert lab.main(["run", "start"]) == lab.EXIT_STOPPED
-    assert "read role only" in capsys.readouterr().err
-    assert lab.main(["obs", "status"]) == lab.EXIT_STOPPED
-    assert cloud.main(["call", "GET", "ecs", "/v1/x/cloudservers", "--tenant", "test-1", "--role", "lab"]) == 2
-    assert "read role only" in capsys.readouterr().err
-    assert cloud.main(["call", "POST", "ecs", "/v1/x/cloudservers", "--tenant", "test-1"]) == 2
-    assert "read role only" in capsys.readouterr().err
+    lab.main(["run", "status"])
+    assert "ask project" not in capsys.readouterr().err
+    cloud.main(["call", "GET", "ecs", "/v1/x/cloudservers", "--tenant", "test-1", "--role", "lab"])
+    assert "ask project" not in capsys.readouterr().err
+    cloud.main(["call", "POST", "ecs", "/v1/x/cloudservers", "--tenant", "test-1"])
+    assert "ask project" not in capsys.readouterr().err
 
 
 @pytest.fixture
@@ -319,14 +320,19 @@ def test_the_key_service_answers_the_kind_for_the_folder_token(home, service):
 
 
 def test_the_key_service_refuses_lab_writes_and_customer_tenants_for_an_ask_project(home, service):
+    """Changed on the owner's word of 2026-11-24: the lab role and writes on a test tenant pass the ask check; a
+    customer tenant and another project's code are still refused, and no material moves."""
     folder = granted(home)
     token = projects.read_key_token(folder)
     base = {"op": "call", "token": token, "service": "ecs", "path": "/v1/x/cloudservers", "region": "eu-de"}
-    for req in (dict(base, tenant="test-1", role="lab", method="GET"),
-                dict(base, tenant="test-1", role="read", method="POST"),
-                dict(base, tenant="cust-1", role="read", method="GET"),
+    for req in (dict(base, tenant="cust-1", role="read", method="GET"),
                 dict(base, tenant="test-1", role="read", method="GET", project="tcp-zzzz")):
-        with pytest.raises(keys.Refused, match="read role only"):
+        with pytest.raises(keys.Refused, match="test tenants only"):
+            service._call(req, 4242, caller=None)
+    for req in (dict(base, tenant="test-1", role="lab", method="GET", region="eu-nl"),
+                dict(base, tenant="test-1", role="lab", method="POST", region="eu-nl")):
+        # past the ask check; stopped at the next one (a region the tenant lacks), so no request leaves the host
+        with pytest.raises(keys.Refused, match="region is not one of the tenant"):
             service._call(req, 4242, caller=None)
     for op in ("take_lab", "take_owner", "inbox_find", "obs"):
         answer = service._call_socket({"op": op, "project": folder.name, "id": "f-1"}, 4242, caller=None)

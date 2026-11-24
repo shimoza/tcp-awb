@@ -60,6 +60,13 @@ TENANT_KINDS = ("project", "lab")
 def tenant_access(kind: str) -> bool:
     """True when a project of this kind may reach the test tenants."""
     return kind in TENANT_KINDS
+
+
+def tenant_reach(kind: str) -> bool:
+    """True when a session of this kind may call the test tenants and run lab runs on them: the kind project and,
+    on the owner's word of 2026-11-24, the kind ask (his Playground, direct access to the test tenants only)."""
+    return tenant_access(kind) or kind == "ask"
+
 HEADER = ("code", "kind", "customer", "platform", "path", "memory_key", "state", "created")
 STATES = ("active", "parked", "closed", "deleted")
 LIVE_STATES = ("active", "parked")
