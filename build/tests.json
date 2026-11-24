@@ -30428,8 +30428,120 @@
    "name": "owner wait times: nothing is recorded while the name check cannot run",
    "run": ".venv/bin/pytest tests/test_owner_wait_times.py::test_nothing_is_recorded_while_the_name_check_cannot_run",
    "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-1",
+   "phase": "T",
+   "name": "awb docx: headings carry their styles colour and a word numbering",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_headings_carry_their_styles_colour_and_a_word_numbering",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-2",
+   "phase": "T",
+   "name": "awb docx: numbers with a gap stay text and no numbering is set",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_numbers_with_a_gap_stay_text_and_no_numbering_is_set",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-3",
+   "phase": "T",
+   "name": "awb docx: a new page before each level one heading but the first",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_a_new_page_before_each_level_one_heading_but_the_first",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-4",
+   "phase": "T",
+   "name": "awb docx: the contents field lists the headings and links them before an update",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_the_contents_field_lists_the_headings_and_links_them_before_an_update",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-5",
+   "phase": "T",
+   "name": "awb docx: ids are bookmarks and links to them are hyperlinks",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_ids_are_bookmarks_and_links_to_them_are_hyperlinks",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-6",
+   "phase": "T",
+   "name": "awb docx: a png is an inline picture with its bytes and a caption below",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_a_png_is_an_inline_picture_with_its_bytes_and_a_caption_below",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-7",
+   "phase": "T",
+   "name": "awb docx: a wide image and a data uri are scaled to the text width",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_a_wide_image_and_a_data_uri_are_scaled_to_the_text_width",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-8",
+   "phase": "T",
+   "name": "awb docx: an inline svg is an svg picture with a png fallback",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_an_inline_svg_is_an_svg_picture_with_a_png_fallback",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-9",
+   "phase": "T",
+   "name": "awb docx: an svg without pdftoppm stands alone and one line says so",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_an_svg_without_pdftoppm_stands_alone_and_one_line_says_so",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-10",
+   "phase": "T",
+   "name": "awb docx: a web image is left out and counted in one line",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_a_web_image_is_left_out_and_counted_in_one_line",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-11",
+   "phase": "T",
+   "name": "awb docx: a table has a header row repeated on each page",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_a_table_has_a_header_row_repeated_on_each_page",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-12",
+   "phase": "T",
+   "name": "awb docx: markdown pipe tables code lists and alignment",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_markdown_pipe_tables_code_lists_and_alignment",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-13",
+   "phase": "T",
+   "name": "awb docx: the footer carries page and numpages fields",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_the_footer_carries_page_and_numpages_fields",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-14",
+   "phase": "T",
+   "name": "awb docx: every xml part is well formed and holds no text box",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_every_xml_part_is_well_formed_and_holds_no_text_box",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-15",
+   "phase": "T",
+   "name": "awb docx: the folder suffix and screen rules of awb pdf",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_the_folder_suffix_and_screen_rules_of_awb_pdf",
+   "status": "passing"
+  },
+  {
+   "id": "UI5O-DX-16",
+   "phase": "T",
+   "name": "awb docx: a control character is written as a question mark and counted",
+   "run": ".venv/bin/pytest tests/test_ui5o_docx.py::test_a_control_character_is_written_as_a_question_mark_and_counted",
+   "status": "passing"
   }
  ],
- "total_tests": 4347,
+ "total_tests": 4363,
  "checked": "2026-11-22"
 }

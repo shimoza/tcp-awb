@@ -944,6 +944,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | a console reference entry | `awb mirror console find "create vpc" --service vpc`, `awb mirror console show vpc/03-create` | the private console reference (`~/tcp-mirrors/console/<date>/`, one folder per dated pass, filled by the owner; never in the public dataset or in git), ranked by word overlap over the INDEX note, menu path, title and text; a how-to keeps its sources in an internal note and writes a step the reference lacks as "not confirmed yet: check on screen"; read only; the work user reads the copy that `awb mirror console publish` (owner side) puts in `/srv/tcp-mirrors/console/<date>/`; `awb mirror status` lists the passes, the newest date, the entries and the services |
 | a console how-to | `awb howto draft "create a vpc" --service vpc`, edit the text, `awb howto render deliverables/howto-create-a-vpc.md` | see "Console how-tos" below |
 | a PDF of a deliverable | `awb pdf deliverables/offer.md` | `deliverables/offer.pdf` from a Markdown or HTML file, with selectable text; see "A PDF of a deliverable" below |
+| a Word file of a deliverable | `awb docx deliverables/guide-en.html` | `deliverables/guide-en.docx` for partners who edit with tracked changes, the structure of the PDF; see "A Word file of a deliverable" below |
 | what is new on TCP | `awb mirror rn`, then `awb refresh --part release-notes` | the release notes of T Cloud Public as a mirror (the third public source, next to the docs and the service description; a run reads at most 200 pages of at most 2 MiB each and cuts long titles and tags) and, for each note first seen since the last refresh, the knowledge entries to check again (`recheck: KB-XXXX (release note DATE SERVICE)`; only entries that name the service and share two topic words with the note, most shared first, 15 per note and `--all` for every one; a note dated after today is listed as `announced`) and the services the list does not know (`new service?`; a title or service name from the site shows as printable ASCII cut to 80 characters); every matched entry (all, not only the 15 shown) gets a recheck request in `~/tcp-shared/recheck/requested.tsv`, an announced note from its date on, which the Saturday read tier takes as due |
 | the refresh every week | nothing: `awb-refresh-weekly.timer` runs `awb refresh weekly` as you every Saturday 17:00 UTC, two hours before the read tier | every part with the update of the mirrors, the release notes and the prices; it requests a recheck for each entry a release note matches, for every contract entry when the service description has a new revision and for each entry whose source names a page of the docs mirror that changed (`requested.tsv`, counted by reason in the report); a run that fails shows in `awb owner status` as `refresh: weekly run failed: <reason>` until one goes through |
 | read public documentation | `awb doc fetch https://learn.microsoft.com/...`, `awb doc hosts` | the page as text with the line `source: URL, fetched YYYY-MM-DD HH:MM UTC`, fetched by the key service on the owner's side (see "Public documentation through the key service") |
@@ -1047,6 +1048,21 @@ alone it keeps the standard fonts, so every character outside WinAnsi becomes `?
 use the same writer (`awb/pdf.py`). A project that misses something here (another file format, a font, a package)
 asks with `awb dev ask` and never builds its own writer or installs a package: development decides what is installed
 for all projects.
+
+## A Word file of a deliverable
+
+Partners who edit a guide with tracked changes need Word, so `awb docx FILE [--out DOCX] [--title T] [--h1-page]`
+writes a `.docx` of the same Markdown or HTML deliverable, with the structure of its PDF and with the standard
+library only (`awb/docx.py`). It reads the file with the parser of `awb pdf` and keeps its folder, link, name and
+secret rules. Headings are the Word styles Heading 1 to 3 in the colour of the page; numbers in the headings that
+count up without a gap become a Word numbering, so a heading a partner adds is numbered by Word. A line
+`<!-- toc -->` becomes a Word contents field that already lists the headings and is updated by Word on open (page
+numbers then). A PNG or JPEG is an inline picture with its own bytes, an inline SVG an SVG picture with a PNG
+fallback drawn through `awb pdf` and pdftoppm (Word 2016 and later show the SVG, older readers the PNG; without
+pdftoppm the SVG stands alone and one line says so). Captions stand centred below their figures, tables have a
+header row repeated on each page, code blocks keep their lines in the style Code, lists are real Word lists, ids
+are bookmarks and `href="#id"` links go to them, and the footer shows page / pages. Everything is plain editable
+text: no text box, no frame. `awb xchg put FILE.docx --kind guide` sends it as before.
 
 ## A typical day
 

@@ -152,11 +152,13 @@ class Block:
 
 @dataclass
 class Picture:
-    """An image of a figure block: the image object and its size in points before it is fitted to the page."""
+    """An image of a figure block: the image object and its size in points before it is fitted to the page; `data`
+    the bytes of the PNG or JPEG file as read (awb docx embeds them as they are)."""
     image: pdffig.Image
     width: float
     height: float
     texts: list = field(default_factory=list)
+    data: bytes = b""
 
 
 def plain(kind: str, text: str) -> Block:
@@ -1275,7 +1277,7 @@ class _Html(HTMLParser):
             w, h = aw, aw * img.height / img.width
         elif ah > 0:
             w, h = ah * img.width / img.height, ah
-        return Block("figure", figure=Picture(img, w, h))
+        return Block("figure", figure=Picture(img, w, h, data=data))
 
     def end_svg(self) -> None:
         root = self.svg[0]

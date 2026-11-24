@@ -938,6 +938,7 @@ DELEGATED = {
     "inbox": ("tcp.inbox", "take a file the owner dropped into an inbox into this project"),
     "howto": ("tcp.howto", "step-by-step console how-tos as text: draft, render"),
     "pdf": ("pdf", "a PDF of a Markdown or HTML deliverable, next to it: standard fonts, selectable text; --unicode embeds a font for Cyrillic"),
+    "docx": ("docx", "a Word file (.docx) of a Markdown or HTML deliverable for partners who edit with tracked changes: the structure of the PDF"),
     "xchg": ("tcp.xchg", "put a result of this project into the owner's from-session folder"),
     "doc": ("tcp.doc", "public documentation of an allowed host as text, fetched on the owner's side: fetch, hosts"),
     "start": ("start", "a piece of work in one command: register, spawn, grant, import, the open line (owner side)"),
