@@ -1288,7 +1288,7 @@ otherwise."
 ```bash
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
 awb winlab open lab-1 --minutes 60 --project tcp-xxxx
-awb winlab open lab-1 --minutes 240 --project tcp-xxxx --public-image   # disk images and vendor programs (ELF, PE) of the window are public: no secret check on their get
+awb winlab open lab-1 --minutes 240 --project tcp-xxxx --public-image   # binary files of the window (images, programs, Veeam backups) are public: no check on their get
 awb winlab open lab-1 --until 18:30 --project tcp-xxxx   # the same project again: extends its open window to 18:30 local time
 awb winlab extend lab-1 --minutes 120        # the open window now ends 120 minutes from now (never earlier than it did)
 awb winlab close lab-1                       # before its end

@@ -145,6 +145,12 @@ NAME_CLASSES = ("name", "path")
 
 SECRET_REF_RE = re.compile(r"\{\{\s*secret\s*:", re.I)
 STATE_RE = re.compile(r"awb-winlab|programdata[\\/]+ssh\b|administrators_authorized_keys", re.I)
+def _binary(path) -> bool:
+    """True when the first 64 KiB of the file hold a NUL byte: no text file of a lab machine does."""
+    with open(path, "rb") as fh:
+        return b"\x00" in fh.read(65536)
+
+
 _PROGRAM = (b"\x7fELF", b"MZ")
 """The first bytes of a program: ELF (Linux) and PE (Windows)."""
 
@@ -1635,6 +1641,9 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
     "sha256", "resumed", "file", "log"}. Raises WinlabError, Offline (broken: run it again). A disk image is our own
     lab output and gets no name check after the SHA-256 compare (OWN_IMAGE); `check` runs it. `overwrite` replaces
     an existing FILE once the received file passed every check."""
+    # every module the checks and the log need is loaded before the transfer: a deploy during an hour of transfer
+    # replaces the installed tree, and a module first imported at the end then fails (tcp-bytg 2026-11-25)
+    from awb import config, gate, hooks, labsecrets, lablog, ledger  # noqa: F401
     root = root or _root()
     try:
         machine = _pick(root, machine)
@@ -1952,10 +1961,18 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
             own = image and not names
             if own:
                 piece_names, whole = False, False
+            # the owner's word of 2026-11-25 ("железобетонно сделать, чтобы при передаче таких файлов ничего не
+            # проверялось"): in a window he opened with --public-image a binary file (a NUL byte in its first
+            # 64 KiB: a disk image, a program, a Veeam backup .vbk/.vib/.vbm) gets no name and no secret check; only
+            # the SHA-256 compare stays. A text file and a compressed archive (zip, gzip, 7z: it may carry documents)
+            # keep their checks.
+            bare = public_window and not compressed and _binary(snapshot)
+            if bare:
+                public, whole, piece_names = True, False, False
             # A large disk image gets the name check over the unique text runs of its bytes: a few thousand calls
             # for 22 GB instead of some hundred per piece. `checked` then moves only when every run read before it
             # was checked (a mark at least every RUN_MARK bytes), RUN_OVERLAP before the end of what was read.
-            runs = _TextRuns(size) if image and not own and not whole and size > RUNS_MIN else None
+            runs = _TextRuns(size) if image and not own and not whole and not bare and size > RUNS_MIN else None
             if runs is not None:
                 piece_names = False
             if whole and not start:
@@ -1972,7 +1989,7 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
                 elif start:
                     print("checks of the received file: resumed at %s of %s" % (_size(start), _size(size)),
                           file=sys.stderr, flush=True)
-                while data := fh.read(PIECE):
+                while not bare and (data := fh.read(PIECE)):
                     text = tail + _piece_text(data)
                     if piece_names and _piece_names(text):
                         raise WinlabError("the file carries registered name(s): the copy was deleted")
