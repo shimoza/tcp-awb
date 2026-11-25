@@ -142,10 +142,12 @@ NAME_CLASSES = ("name", "path")
 SECRET_REF_RE = re.compile(r"\{\{\s*secret\s*:", re.I)
 STATE_RE = re.compile(r"awb-winlab|programdata[\\/]+ssh\b|administrators_authorized_keys", re.I)
 _PS_PLAIN_RE = re.compile(
-    r"(?i)ConvertTo-SecureString\b(?=[^\n;|]*-AsPlainText)(?=[^\n;|]*[\"'][^\"'\n]{3,}[\"'])"
+    r"(?i)ConvertTo-SecureString\b(?=[^\n;|)]*-AsPlainText)(?=[^\n;|)]*[\"'][^\"'\n]{3,}[\"'])"
     r"|[\"'][^\"'\n]{3,}[\"']\s*\|\s*ConvertTo-SecureString\b"
     r"|(?<![\w-])-(?:Password|Passwd|Pwd|Kennwort)\s+[\"'][^\"'\n]+[\"']")
-"""A password typed into the text: a quoted value for ConvertTo-SecureString or a -Password argument."""
+"""A password typed into the text: a quoted value for ConvertTo-SecureString or a -Password argument. The
+ConvertTo-SecureString part ends at a closing bracket too, so a quoted -Description after (ConvertTo-SecureString $pw
+-AsPlainText -Force) is not taken for the password."""
 _COMPRESSED = (b"PK\x03\x04", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"\xfd7zXZ\x00", b"BZh", b"MSCF", b"Rar!",
                b"\x28\xb5\x2f\xfd")
 """Containers whose text no piece of the file shows: refused when the check cannot open them."""
