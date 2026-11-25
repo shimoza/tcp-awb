@@ -373,15 +373,23 @@ def _label(service: str, segs: list[str], put: bool) -> str:
     return "%s %s" % (service, words[-1] if words else "resource")
 
 
+ID_KEYS = ("id", "log_group_id", "log_stream_id")
+"""The keys of an answer that hold the id of a new resource (LTS answers log_group_id and log_stream_id)."""
+
+
+def _id_value(obj: dict):
+    return next((obj[k] for k in ID_KEYS if isinstance(obj.get(k), (str, int))), None)
+
+
 def _new_id(data) -> tuple[str | None, str | None]:
     """(id, name) of the new resource in an answer: top level or under its one key ({"user": {"id": ...}})."""
     if not isinstance(data, dict):
         return None, None
     inner = data
-    if not isinstance(data.get("id"), (str, int)):
+    if _id_value(data) is None:
         dicts = [v for v in data.values() if isinstance(v, dict)]
         inner = dicts[0] if len(dicts) == 1 else {}
-    rid, name = inner.get("id"), inner.get("name")
+    rid, name = _id_value(inner), inner.get("name")
     rid = str(rid) if isinstance(rid, (str, int)) and str(rid) and re.match(r"^[A-Za-z0-9_.:-]{1,128}$", str(rid)) \
         else None
     name = name if isinstance(name, str) and re.match(r"^[A-Za-z0-9_.-]{1,128}$", name) else None
@@ -442,6 +450,10 @@ def creates(method: str, service: str, path: str, query: dict, status: int, data
     if rid or name:
         return [item(_label(service, segs, False), name or rid,
                      {"method": "DELETE", "service": service, "path": "%s/%s" % (base, rid or name)})]
+    if status == 201:
+        # a create answered without a known id key: nothing can delete it, the end lists it as left behind
+        return [{"label": _label(service, segs, False), "name": base[:128], "state": "unrecorded",
+                 "delete": {"method": "POST", "service": service, "path": base, "region": region}}]
     return []
 
 
@@ -1137,10 +1149,10 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         n = len(run.get("created", []))
         kept = []
         for i, m in enumerate(made, start=1):
-            entry = dict(m, n=n + i, state="live", at=_now())
+            entry = dict({"state": "live"}, **m, n=n + i, at=_now())
             if anchored:
                 entry["anchor"] = anchored
-            if reason:
+            if reason and entry["state"] == "live":
                 kept.append(mark_kept(entry, reason))
             run.setdefault("created", []).append(entry)
         if method in ("DELETE", "POST") and (200 <= status < 300 or status == 404):
@@ -1167,6 +1179,35 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     return shorten_answer(answer, shown, svc.lab.values() + [v for c in creds for v in c] + tokens, drawn + hidden)
 
 
+def _read_path(d: dict) -> str:
+    """The path that reads what a recorded delete removes (the server of a batch delete by its id)."""
+    servers = (d.get("body") or {}).get("servers") if isinstance(d.get("body"), dict) else None
+    path = str(d.get("path") or "")
+    if d.get("method") == "POST" and isinstance(servers, list) and servers and isinstance(servers[0], dict):
+        return path.rsplit("/", 1)[0] + "/" + str(servers[0].get("id"))
+    return path
+
+
+def _gone(svc, signer, run_id: str, d: dict) -> bool:
+    """True when a read of the resource after its delete answers 404, False for any other answer or none."""
+    try:
+        status = _send(svc, signer, run_id, "HEAD" if d["service"] == "obs" else "GET", d["service"], _read_path(d),
+                       d.get("query") or {}, None, {}, None, None, None)[0]
+    except LabAdminError:
+        return False
+    return status == 404
+
+
+def _kept_by_platform(d: dict) -> bool:
+    return d.get("service") == "iam" and re.match(r"^/v3/projects/[^/]+$", str(d.get("path") or "")) is not None
+
+
+def _still_there(c: dict) -> str:
+    if _kept_by_platform(c.get("delete") or {}):
+        return "the platform keeps an IAM project after delete: %s is left behind" % entry_id(c)
+    return "still there after delete: %s" % entry_id(c)
+
+
 def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
     """The deletes of what is left, newest first, in passes while some fail and the time allows. The lab obs jobs of
     the run stop first; each pass aborts the open multipart uploads of the run's buckets before the deletes
@@ -1180,6 +1221,8 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
         failed = 0
         labobs.abort_uploads(svc, run, alias, calls)
         for c in sorted(leftovers(run), key=lambda c: -int(c.get("n") or 0)):
+            if c.get("state") in ("unrecorded", "left"):
+                continue
             d = c["delete"]
             signer = auth(svc, alias, login, d.get("region") or _regions(svc, alias)[0])
             try:
@@ -1192,6 +1235,14 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
                     raise
                 status, raw = 0, str(err).encode()
             ok = 200 <= status < 300 or status == 404
+            if 200 <= status < 300 and not _gone(svc, signer, run["id"], d):
+                # a delete that answers 2xx proves nothing: only a 404 of the read after it counts as removed
+                c["state"] = "left" if _kept_by_platform(d) else "failed"
+                c["error"] = _still_there(c)
+                failed += c["state"] == "failed"
+                calls.append({"method": d["method"], "service": d["service"], "path": d["path"], "status": status,
+                              "label": c["label"]})
+                continue
             c["state"] = "removed" if ok else "failed"
             if not ok:
                 failed += 1
@@ -1286,9 +1337,10 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
     answer = {"ok": True, "run": run["id"], "tenant": alias, "project": project, "created": len(created),
               "removed": [{"label": c["label"], "name": c.get("name")} for c in created if c["state"] == "removed"]
               + [{"label": g["label"], "name": g["handle"]} for g in run.get("listed_removed", [])],
-              "failed": [{"label": c["label"], "name": c.get("name"), "error": c.get("error"),
+              "failed": [{"label": c["label"], "name": c.get("name"),
+                          "error": "not recorded" if c["state"] == "unrecorded" else c.get("error"),
                           "delete": "%s %s %s" % (c["delete"]["method"], c["delete"]["service"], c["delete"]["path"])}
-                         for c in created if c["state"] == "failed"],
+                         for c in created if c["state"] in ("failed", "left", "unrecorded")],
               "kept": [{"label": c["label"], "id": entry_id(c), "reason": c.get("reason")}
                        for c in created if c["state"] == "kept"],
               "calls": done["calls"]}

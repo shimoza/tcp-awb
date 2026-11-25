@@ -249,7 +249,11 @@ through the key service with
     status, headers, body = labclient.call("POST", "iam", "/v3/users", body={...})
 
 and `awb lab run end` deletes what the run made, newest first, and reports created, removed and failed (`awb lab
-run status` lists the open runs and their leftovers). Every call needs the open run of its project and tenant. The
+run status` lists the open runs and their leftovers). The id of a create is taken from `id`, `log_group_id` or
+`log_stream_id` of the answer (LTS groups and streams are removed, streams first); a create with no such key is
+listed as "not recorded". After each delete the end reads the resource again and only a 404 counts as removed: one
+that still answers is "still there after delete", and an IAM project, which the platform keeps, is named as left
+behind. Every call needs the open run of its project and tenant. The
 key service takes the token itself (domain scoped for iam, project scoped for the other services, a temporary key
 for obs; `scope="domain"` gives a GET to eps a domain token made for that call and never kept, any other method or
 service with it is refused; eu-nl is closed on the test tenants by the owner's rule), answers in full and never hands over the password, the login or a whole token: tokens, temporary keys and

@@ -162,7 +162,10 @@ def _service_error(answer: dict) -> str:
 
 def _display_error(value) -> str:
     """Service diagnostics may contain rejected credentials even without a field label."""
-    if isinstance(value, str) and re.fullmatch(r"HTTP [1-5][0-9]{2}(?: [A-Z]{2,12}\.[0-9]{1,8})?", value):
+    if isinstance(value, str) and re.fullmatch(
+            r"HTTP [1-5][0-9]{2}(?: [A-Z]{2,12}\.[0-9]{1,8})?|not recorded|"
+            r"still there after delete: [A-Za-z0-9_.:-]{1,128}|"
+            r"the platform keeps an IAM project after delete: [A-Za-z0-9_.:-]{1,128} is left behind", value):
         return value
     return "operation failed"
 

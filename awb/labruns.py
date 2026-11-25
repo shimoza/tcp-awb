@@ -67,7 +67,7 @@ def open_run(p, project: str, tenant: str) -> dict | None:
 
 
 def leftovers(run: dict) -> list[dict]:
-    return [c for c in run.get("created", []) if c.get("state") in ("live", "failed")]
+    return [c for c in run.get("created", []) if c.get("state") in ("live", "failed", "left", "unrecorded")]
 
 
 def new_id(clock=time.time) -> str:
@@ -83,7 +83,7 @@ def attention(p, now: float | None = None) -> list[dict]:
         left = leftovers(run)
         if run.get("state") == "open" and now - float(run.get("started_ts") or now) > OLD_AFTER:
             out.append(dict(run, why="open", hours=int((now - float(run["started_ts"])) // 3600), left=left))
-        elif run.get("state") == "ended" and any(c.get("state") == "failed" for c in left):
+        elif run.get("state") == "ended" and any(c.get("state") in ("failed", "unrecorded") for c in left):
             out.append(dict(run, why="failed", left=left))
     return out
 
