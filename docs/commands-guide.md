@@ -99,7 +99,7 @@ The pieces behind `awb import`, one line each:
 
 | command | what it does |
 |---|---|
-| `awb intake --customer CUST-XXXX [--review] [FILE...]` | the intake alone, in wipe mode (no FILE: the vault inbox; `--customer new` issues a random code) |
+| `awb intake --customer CUST-XXXX [--review] [FILE...]` | the intake alone, in wipe mode (no FILE: the vault inbox; `--customer new` issues a random code). A code file (.ps1 .psm1 .psd1 .sh .py .bat .cmd .tf .yaml .yml .json .sql) arrives byte for byte: names, secrets and addresses are replaced in its string literals and comments only, identifiers and variables are never read as a URL or a bank code, encoded runs are still decoded and checked. A Word file with tracked changes gets a `### Tracked changes` list after its text: kind, author number, text and the 40 characters before it |
 | `awb bucket pull CODE` | new files of `in/` into the vault inbox, then the intake |
 | `awb register review CUST-XXXX [--report REPORT]` | the review of the newest stop of `--review` by hand; `--report` names another private report of the customer |
 

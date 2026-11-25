@@ -94,6 +94,12 @@ class Extraction:
     # objects, html attributes and scripts): checked for registered forms only, because it is too noisy for
     # structured patterns and for candidates
     scan_text: str = ""
+    # the scanner profile of a code file (awb/extract/text.py CODE_PROFILES): its text arrives as it is, only the
+    # string literals and comments of it are sanitised and checked
+    code: str = ""
+    # a list the output carries after `text` (the tracked changes of a word file with their anchors); it is checked
+    # and sanitised like the text, but a reader that returns `text` alone gives the text unchanged
+    appendix: str = ""
 
 
 # --------------------------------------------------------------------------- sniffing

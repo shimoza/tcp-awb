@@ -48,6 +48,7 @@ from pathlib import Path
 
 from awb import cleanlogs, codes, config, gate, parts, register
 from awb import extract as _extract
+from awb.extract import text as _extract_text
 from awb import images as _images
 from awb import report as _report
 
@@ -648,7 +649,7 @@ def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | 
             fr.parts.append(_report.Part(part_id=part_id, label=label, kind=pex.kind, state=pex.state,
                                          notes=list(pex.notes), meta=dict(pex.meta)))
             pieces = [pex.detect_text or ""]
-            if pex.text and pex.text not in pieces[0]:
+            if pex.text and not pex.code and pex.text not in pieces[0]:
                 pieces.append(pex.text)
             pieces.append(_meta_text(pex.meta))
             pieces.extend(pex.notes)
@@ -941,19 +942,58 @@ def _write_outputs(rec, extractions, engine: _Engine, outdir: Path, outputs: lis
             progress("file %d of %d: %s, %.1f s" % (number, len(rec.files), fr.file_id, time.monotonic() - started))
 
 
+def _sanitize_code(engine: _Engine, text: str, profile: str, where: str) -> tuple[str, Counter]:
+    """A code file with its string literals and comments sanitised; the code between them stays byte for byte."""
+    counts: Counter = Counter()
+    out: list[str] = []
+    for a, b, literal in _extract_text.code_segments(text, profile):
+        piece = text[a:b]
+        if literal and piece.strip():
+            piece, found = engine.sanitize(piece, where)
+            counts.update(found)
+        elif not literal:
+            # an encoded run of the code is read like one of a string: decoded, checked and replaced as before
+            def word(m):
+                if not _extract_text.encoded_word(m.group(0)):
+                    return m.group(0)
+                sane, found = engine.sanitize(m.group(0), where)
+                counts.update(found)
+                return sane
+            piece = re.sub(r"\S+", word, piece)
+        out.append(piece)
+    return "".join(out), counts
+
+
+def _code_view(text: str, views: list[tuple[str, str]]) -> str:
+    """An output with the body of each code file as the checks read it (awb/extract/text.py mask_code): the words
+    of the code are no names, no addresses and no bank codes."""
+    for body, seen in views:
+        if body:
+            text = text.replace(body, seen, 1)
+    return text
+
+
 def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Path], check_failed: set[str],
                replace: bool, fr) -> None:
     """Steps 6 and 7 for one file."""
     bodies: dict[str, str] = {}
+    views: list[tuple[str, str]] = []     # (body, body as the checks read it) of every code file
     by_id = dict(extractions[fr.file_id])
     for part in fr.parts:
         pex = by_id[part.part_id]
         # the secret wipe of awb clean (awb/cleanlogs.py) first: a key, a token, a password field and a password
         # in prose become [secret]; the lines the gate still finds a secret in go after the sanitising
         wiped: Counter = Counter()
-        body, counts = engine.sanitize(cleanlogs.wipe_secrets(pex.text or "", wiped), "%s output" % part.part_id)
+        source = "\n\n".join(t for t in (pex.text, pex.appendix) if t)
+        if pex.code:
+            body, counts = _sanitize_code(engine, cleanlogs.wipe_secrets(source, wiped), pex.code,
+                                          "%s output" % part.part_id)
+        else:
+            body, counts = engine.sanitize(cleanlogs.wipe_secrets(source, wiped), "%s output" % part.part_id)
         body = cleanlogs.drop_secret_lines(body, wiped)
         body, gate_counts = gate.wipe_gate_classes(body)     # a home path and a blocklist word, also when trusted
+        if pex.code:
+            views.append((body.strip("\n"), _extract_text.mask_code(body, pex.code).strip("\n")))
         counts.update(wiped)
         counts.update(gate_counts)
         bodies[part.part_id] = body
@@ -965,7 +1005,8 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
         return
     out = outdir / ("%s.md" % fr.file_id)
     text = _output_text(fr, bodies)
-    hits = engine.leaks(text, candidates=False) + _body_hits(engine, text)
+    seen = _code_view(text, views)
+    hits = engine.leaks(seen, candidates=False) + _body_hits(engine, seen)
     if not hits:
         existed = os.path.lexists(out)
         try:
@@ -982,7 +1023,8 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
             raise IntakeError("output %s already exists" % fr.file_id)
         outputs.append(out)   # from here on a failure of the run removes it again
         written_text = out.read_text(encoding="utf-8")
-        hits = engine.leaks(written_text, candidates=False) + _body_hits(engine, written_text)
+        seen = _code_view(written_text, views)
+        hits = engine.leaks(seen, candidates=False) + _body_hits(engine, seen)
         if hits:
             out.unlink(missing_ok=True)
             outputs.remove(out)

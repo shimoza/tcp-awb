@@ -497,14 +497,162 @@ def unfold_calendar(text: str) -> str:
     return _FOLD_RE.sub("", text)
 
 
+CODE_PROFILES = {
+    ".ps1": "ps", ".psm1": "ps", ".psd1": "ps", ".sh": "sh", ".py": "py", ".bat": "bat", ".cmd": "bat",
+    ".tf": "tf", ".yaml": "yaml", ".yml": "yaml", ".json": "json", ".sql": "sql",
+}
+"""The file types the intake keeps whole: the profile of the scanner below by suffix. Names, secrets and addresses are
+looked for in the string literals and comments of such a file only; the rest of the file arrives as it is."""
+_HEREDOC_RE = re.compile(r"<<(-?)[ \t]*([\"']?)([A-Za-z_]\w*)\2")
+_YAML_KEY_RE = re.compile(r"[ \t]*(?:-[ \t]+)*[\w.$@/-]+:(?=\s|$)")
+_BAT_LINE_RE = re.compile(r"[ \t]*@?(?:(rem)(?=\s|$)|(echo)\b|(set)\b[^=\n]*=)|[ \t]*::", re.IGNORECASE)
+# per profile: line comment starters, block comments, quote characters with (escape character, doubled quote)
+_SCAN = {
+    "ps": (("#",), (("<#", "#>"),), {"'": ("", True), '"': ("`", True)}),
+    "sh": (("#",), (), {"'": ("", False), '"': ("\\", False)}),
+    "py": (("#",), (), {"'": ("\\", False), '"': ("\\", False)}),
+    "tf": (("#", "//"), (("/*", "*/"),), {'"': ("\\", False)}),
+    "json": ((), (), {'"': ("\\", False)}),
+    "sql": (("--",), (("/*", "*/"),), {"'": ("", True), '"': ("", True)}),
+}
+
+
+def _quote_end(text: str, i: int, escape: str, doubled: bool) -> int:
+    """The index after the quoted string that opens at text[i]; the end of the text for one that never closes."""
+    q, n, j = text[i], len(text), i + 1
+    while j < n:
+        ch = text[j]
+        if escape and ch == escape and j + 1 < n:
+            j += 2
+        elif ch == q:
+            if doubled and text[j + 1:j + 2] == q:
+                j += 2
+                continue
+            return j + 1
+        else:
+            j += 1
+    return n
+
+
+def _line_end(text: str, i: int) -> int:
+    j = text.find("\n", i)
+    return len(text) if j < 0 else j
+
+
+def _scan_literals(text: str, profile: str) -> list[tuple[int, int]]:
+    """The (start, end) of every string literal, comment and here-document of `text`, in order."""
+    lines, blocks, quotes = _SCAN[profile]
+    n = len(text)
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i < n:
+        ch = text[i]
+        end = 0
+        block = next((b for b in blocks if text.startswith(b[0], i)), None)
+        if block:
+            j = text.find(block[1], i + len(block[0]))
+            end = n if j < 0 else j + len(block[1])
+        elif profile == "ps" and ch == "@" and text[i + 1:i + 2] in ('"', "'") \
+                and re.match(r"[ \t]*\r?\n", text[i + 2:i + 40]):
+            j = text.find("\n" + text[i + 1] + "@", i + 2)
+            end = n if j < 0 else j + 3
+        elif profile == "py" and text.startswith(("'''", '"""'), i):
+            j = text.find(text[i:i + 3], i + 3)
+            end = n if j < 0 else j + 3
+        elif profile in ("sh", "tf") and text.startswith("<<", i) and text[i + 2:i + 3] != "<" \
+                and _HEREDOC_RE.match(text, i):
+            m = _HEREDOC_RE.match(text, i)
+            start = _line_end(text, m.end()) + 1
+            pattern = r"^[ \t]*%s[ \t]*\r?$" if m.group(1) else r"^%s\r?$"
+            hit = re.compile(pattern % re.escape(m.group(3)), re.M).search(text, start)
+            if start < n:
+                spans.append((start, hit.start() if hit else n))
+            i = hit.end() if hit else n
+            continue
+        elif ch in quotes:
+            end = _quote_end(text, i, *quotes[ch])
+        elif any(text.startswith(tok, i) for tok in lines) and (profile != "sh" or i == 0 or text[i - 1] in " \t\n;(&|"):
+            end = _line_end(text, i)
+        if end:
+            spans.append((i, end))
+            i = end
+        else:
+            i += 1
+    return spans
+
+
+def _line_literals(text: str, profile: str) -> list[tuple[int, int]]:
+    """The literal parts of a file read line by line: the values of a yaml file, the comments and echoed text of a
+    batch file."""
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        start = len(body)
+        if profile == "yaml":
+            m = _YAML_KEY_RE.match(body)
+            start = m.end() if m else re.match(r"[ \t]*(?:-[ \t]+)*", body).end()
+            if body.strip() in ("---", "..."):
+                start = len(body)
+        else:
+            m = _BAT_LINE_RE.match(body)
+            if m and not (m.group(2) or m.group(3)):
+                start = 0
+            elif m:
+                start = m.end()
+            else:
+                spans.extend((pos + q.start(), pos + q.end()) for q in re.finditer(r'"[^"]*"', body))
+        if start < len(body):
+            spans.append((pos + start, pos + len(body)))
+        pos += len(line)
+    return spans
+
+
+def code_segments(text: str, profile: str) -> list[tuple[int, int, bool]]:
+    """`text` cut into (start, end, literal) pieces that cover it: a string literal or a comment is a literal piece,
+    the rest is code."""
+    spans = _line_literals(text, profile) if profile in ("yaml", "bat") else _scan_literals(text, profile)
+    out: list[tuple[int, int, bool]] = []
+    last = 0
+    for a, b in spans:
+        if a > last:
+            out.append((last, a, False))
+        out.append((a, b, True))
+        last = b
+    if last < len(text):
+        out.append((last, len(text), False))
+    return out
+
+
+_WORD_RE = re.compile(r"\S+")
+
+
+def encoded_word(word: str) -> bool:
+    """Whether a word of the code is a base64 or hex run that decodes to text: detection reads that one."""
+    return len(word) >= 16 and any(r is not None for _, _, r, *_ in _decoded_blocks(word, ("base64", "hex")))
+
+
+def mask_code(text: str, profile: str) -> str:
+    """`text` as the checks read a code file: string literals and comments as they are, the words of the code
+    blanked (same length, line breaks kept), an encoded run of the code kept so that it is still decoded."""
+    out = []
+    for a, b, literal in code_segments(text, profile):
+        piece = text[a:b]
+        out.append(piece if literal else _WORD_RE.sub(
+            lambda m: m.group(0) if encoded_word(m.group(0)) else " " * len(m.group(0)), piece))
+    return "".join(out)
+
+
 def extract_text(path: Path, kind: str = "text") -> Extraction:
     """Read a text-like file. `kind` is one of text, html, csv, json."""
     path = Path(path)
     ex = Extraction(path, kind, "ok")
     data = path.read_bytes()
     raw, encoding = decode_bytes(data)
-    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
-    if kind == "text" and is_calendar(raw, path.name):
+    profile = CODE_PROFILES.get(path.suffix.lower(), "") if kind in ("text", "json") else ""
+    if not profile:
+        raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    if kind == "text" and not profile and is_calendar(raw, path.name):
         raw = unfold_calendar(raw)
     ex.meta["encoding"] = encoding
     detect_extra: list[str] = []
@@ -535,12 +683,13 @@ def extract_text(path: Path, kind: str = "text") -> Extraction:
             ex.notes.append("csv did not parse as a table, kept as text")
     else:
         ex.text = raw
+    ex.code = profile
 
     # detection sees every decoded block of the raw file (also those inside html attributes); the
     # output text carries the decoded text in place of the block, so nothing encoded slips through
     decoded, binary = find_base64_blocks(raw)
     hexed = find_hex_blocks(raw)
-    ex.text, expanded = expand_base64_blocks(ex.text)
+    ex.text, expanded = (ex.text, 0) if profile else expand_base64_blocks(ex.text)
     if decoded:
         ex.meta["base64_decoded"] = len(decoded)
         ex.notes.append("%d base64 block(s) decoded into detect text" % len(decoded))
@@ -553,7 +702,7 @@ def extract_text(path: Path, kind: str = "text") -> Extraction:
     if kind == "svg":
         ex.notes.append("svg picture, its text nodes are the output, the picture is held on the vault side")
 
-    parts = [ex.text]
+    parts = [mask_code(ex.text, profile) if profile else ex.text]
     parts.extend(detect_extra)
     for key in ("title", "author", "description", "keywords"):
         if ex.meta.get(key):

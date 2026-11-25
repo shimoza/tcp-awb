@@ -730,6 +730,57 @@ _W_FIXED = {
 }
 
 
+_ANCHOR = 40
+"""The characters of the text before a tracked change that tell where it stood."""
+
+
+def _tracked_changes(root: ET.Element) -> list[tuple[str, int, str, str]]:
+    """(kind, author number, text, anchor) of every insertion and deletion of a document part, in order. The authors
+    are numbered by their first change; the anchor is the `_ANCHOR` characters of the text before the change, as a
+    reader sees it (a deletion is not part of it). A change that carries no text, a mark of a paragraph, is left out."""
+    seen: list[str] = []
+    authors: dict[str, int] = {}
+    found: list[tuple[str, int, str, str]] = []
+
+    def walk(el: ET.Element) -> None:
+        for c in el:
+            tag = _local(c.tag)
+            if tag in ("pPr", "rPr", "moveFrom"):
+                continue
+            if tag in ("ins", "del"):
+                names = ("t", "tab") if tag == "ins" else ("delText", "t", "tab")
+                text = "".join(" " if _local(n.tag) == "tab" else n.text or "" for n in c.iter()
+                               if _local(n.tag) in names)
+                if text.strip():
+                    number = authors.setdefault((_attr(c, "author") or "").strip(), len(authors) + 1)
+                    before = re.sub(r"\s+", " ", "".join(seen))[-_ANCHOR:]
+                    found.append(("insertion" if tag == "ins" else "deletion", number, text, before))
+                if tag == "ins":
+                    seen.append(text)
+                continue
+            if tag == "t":
+                seen.append(c.text or "")
+            elif tag in ("tab", "br", "cr"):
+                seen.append(" ")
+            else:
+                walk(c)
+                if tag == "p":
+                    seen.append("\n")
+
+    walk(root)
+    return found
+
+
+def _tracked_lines(root: ET.Element) -> list[str]:
+    """The list of the tracked changes of a document for its output text: the author as a number, the text and the
+    anchor, so that the reviewer's positions are not lost."""
+    lines = []
+    for kind, number, text, anchor in _tracked_changes(root):
+        where = 'after "%s"' % anchor if anchor.strip() else "at the start"
+        lines.append('- %s by author-%d %s: "%s"' % (kind, number, where, " ".join(text.split())))
+    return ["### Tracked changes", *lines] if lines else []
+
+
 def _docx(parts: _Parts, ex: Extraction, out: list[str], det: list[str]) -> None:
     main = parts.main_part("word/document.xml")
     root = parts.get(main)
@@ -741,6 +792,10 @@ def _docx(parts: _Parts, ex: Extraction, out: list[str], det: list[str]) -> None
     ctx = _Ctx(parts=parts, rels=parts.rels_for(main))
     if body is not None:
         _w_blocks(body, out, ctx)
+        tracked = _tracked_lines(body)
+        if tracked:
+            ex.meta["tracked_changes"] = len(tracked) - 1
+            ex.appendix = "\n".join(tracked)
     # authors of tracked changes (w:ins, w:del, w:rPrChange ...) sit in attributes only
     revision_authors = _attr_values(root, "author")
 
