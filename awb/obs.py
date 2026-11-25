@@ -52,6 +52,8 @@ class OBSError(Exception):
 class Keys:
     ak: str = field(repr=False)
     sk: str = field(repr=False)
+    token: str = field(default="", repr=False)
+    """The security token of a temporary AK/SK (assume_role, an agency): sent as X-Security-Token and signed."""
 
 
 def keys_from_pass(entry: str) -> Keys:

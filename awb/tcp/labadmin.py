@@ -140,6 +140,12 @@ STALE_LOGIN_LINE = "HTTP 401; the stored login may be stale: awb keys status"
 DOMAIN_SERVICES = ("iam", "tms")
 """Global services: a login token for them is scoped to the domain, a key-signed call to tms names the account in
 X-Domain-Id (a project token or a call without it answers 401 TMS.0003, tcp-ui5o 2026-11-20)."""
+DOMAIN_READ_SERVICES = ("eps",)
+"""Global services a GET may read with a domain scoped token (scope "domain"): EPS answers 401 EPS.0003 to a project
+token (tcp-bj3o 2026-11-25). The token is made for the call and never kept."""
+DOMAIN_SCOPE_LINE = ("refused: scope domain takes a GET to %s only; the domain token is made for that call and "
+                     "never kept")
+REGION_CLOSED_LINE = "refused: eu-nl is closed on the test tenants by the owner's rule"
 _ERROR_CODE_RE = re.compile(r"^[A-Z][A-Za-z]{1,11}\.[0-9]{1,8}$")
 
 
@@ -759,10 +765,11 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
     from awb import obs, sign
     from awb.tcp import cloud
 
-    tscope = "domain" if service in DOMAIN_SERVICES else (scope or auth.region)
+    tscope = "domain" if service in DOMAIN_SERVICES or scope == "domain" else (scope or auth.region)
+    project = None if scope == "domain" else scope
     expanded = path
     if "{project_id}" in expanded:
-        _, info = auth.token(scope or auth.region)
+        _, info = auth.token(project or auth.region)
         expanded = expanded.replace("{project_id}", info.get("project_id") or "")
     if "{domain_id}" in expanded:
         _, info = auth.token("domain")
@@ -801,6 +808,8 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
             hdrs["X-Auth-Token"] = held_token
         elif auth.pair:
             hdrs = sign.sign(method, url, hdrs, data or b"", auth.pair["ak"], auth.pair["sk"])
+        elif scope == "domain" and service not in DOMAIN_SERVICES:
+            hdrs["X-Auth-Token"] = fetch_token(auth.login, auth.region, "domain", svc.endpoint)[0]
         else:
             hdrs["X-Auth-Token"] = auth.token(tscope)[0]
     status, rh, raw = _http(method, url, hdrs, data)
@@ -1048,10 +1057,15 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         raise _refused(NO_RUN_LINE % (project, alias, alias))
     regions = _regions(svc, alias)
     region = req.get("region") or regions[0]
+    if region == "eu-nl" and not customer:
+        raise _refused(REGION_CLOSED_LINE)
     if region not in regions:
         raise _refused("the region is not one of the tenant's")
     scope = req.get("scope")
-    if scope is not None and (not isinstance(scope, str) or not _SCOPE_RE.match(scope)):
+    if scope == "domain":
+        if customer or method != "GET" or service not in DOMAIN_READ_SERVICES:
+            raise _refused(DOMAIN_SCOPE_LINE % " and ".join(DOMAIN_READ_SERVICES))
+    elif scope is not None and (not isinstance(scope, str) or not _SCOPE_RE.match(scope)):
         raise _refused("a scope is a project name (eu-de, eu-de_<suffix>) or its id")
     held_token = held_cred = None
     extra = {}

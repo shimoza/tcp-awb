@@ -108,7 +108,8 @@ class Client:
         self._domain_id: str | None = None
 
     def clean(self, text: str) -> str:
-        for secret, mark in ((self.token, "<token>"), (self.keys.sk, "<sk>"), (self.keys.ak, "<ak>")):
+        for secret, mark in ((self.token, "<token>"), (self.keys.token, "<security-token>"), (self.keys.sk, "<sk>"),
+                             (self.keys.ak, "<ak>")):
             if secret:
                 text = text.replace(secret, mark)
         return text
@@ -176,11 +177,14 @@ class Client:
             waited = throttle.wait_turn(host)
             if to_obs:
                 signed = dict(hdrs)
+                if self.keys.token:
+                    signed["x-obs-security-token"] = self.keys.token
                 obs_client.sign(method.upper(), key, signed, sub)
             elif self.token:
                 signed = dict(hdrs, **{"X-Auth-Token": self.token})
             else:
-                signed = sign.sign(method, url, hdrs, data, self.keys.ak, self.keys.sk)
+                signed = sign.sign(method, url, dict(hdrs, **{"X-Security-Token": self.keys.token})
+                                   if self.keys.token else hdrs, data, self.keys.ak, self.keys.sk)
             req = urllib.request.Request(url, data=data if body is not None else None, method=method.upper())
             for k, v in signed.items():
                 req.add_header(k, v)
