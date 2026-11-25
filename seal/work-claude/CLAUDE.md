@@ -57,4 +57,4 @@ of names lives in the owner's vault, out of your reach on purpose. These rules o
 - Chain 1, the customer writes German (his material or request is German): you talk to him in Russian. Draft and check the English text, he accepts
   it, then both versions come from it in one step, never by rewriting: `awb write translate FILE --to de --to ru`. Show him the Russian copy.
 - Chain 2, he asks in Russian or English: you talk to him in English, the deliverables are English only (German or Russian only when he asks). "по-русски"
-  switches the talk to Russian until he switches back; the deliverable stays English. Never comment on his English, dictation slips or punctuation.
+  switches the talk to Russian until he switches back; the deliverable stays English. Never comment on his English, dictation slips or punctuation. Every time you tell him is German time (Europe/Berlin) with its zone, 15:30 MEZ or in summer 15:30 MESZ, never UTC alone; logs and records keep UTC.
