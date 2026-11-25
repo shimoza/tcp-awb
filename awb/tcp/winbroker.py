@@ -550,7 +550,14 @@ class Broker:
                 return self._answer(uid, op, name, code, {"ok": True, "machines": names}), b""
             if not isinstance(name, str) or not winlab.NAME_RE.match(name):
                 raise WinlabError("a call names a lab machine (awb winlab list)")
-            machine = winlab.allowed(name, code, path=self.registry, now=self.clock())
+            started = req.get("job_started")
+            if isinstance(started, str):
+                now = self.clock()
+                machine = winlab.allowed_job(name, code, started, path=self.registry, now=now)
+                if winlab.open_window(machine, now) is None:
+                    self._job_only(op, req)
+            else:
+                machine = winlab.allowed(name, code, path=self.registry, now=self.clock())
             if op == "check":
                 found = {"name": name, "end": machine["window"]["end"]}
                 if machine["window"].get("public_image") is True:
@@ -593,6 +600,28 @@ class Broker:
         except Failed as err:
             return self._answer(uid, op, name, code, {"ok": False, "kind": "failed", "error": str(err)}), b""
         return self._answer(uid, op, name, code, answer), data
+
+    def _job_only(self, op, req: dict) -> None:
+        """After the end of the window a job that started inside it may still be asked for its state, stopped and
+        read: the check, the status or stop script the session itself writes for that job and the stat or chunks of
+        its log file. Nothing else is served."""
+        session = winlab._session_module()
+        if op == "check":
+            return
+        if op == "run":
+            text = req.get("text")
+            found = re.fullmatch(r"# awb-winlab \{[^\n]*\"job\": \"(wl-[0-9]{8}-[0-9]{6}-[0-9a-f]{4})\"[^\n]*\}\n.*",
+                                 text, re.S) if isinstance(text, str) else None
+            if found and text in (session.job_status_script(found.group(1)), session.job_stop_script(found.group(1))):
+                return
+        elif op in ("stat", "get_chunk") and req.get("digest") is not True:
+            path = req.get("path")
+            found = re.search(r"\\jobs\\(wl-[0-9]{8}-[0-9]{6}-[0-9a-f]{4})\\log\.txt$", path) \
+                if isinstance(path, str) else None
+            if found and session._job_winlog(path, found.group(1)):
+                return
+        raise WinlabError("the window has ended: only the status, the stop and the log of a job that started inside "
+                          "it are served")
 
     def _answer(self, uid: int, op, name, code, answer: dict) -> dict:
         outcome = "ok" if answer.get("ok") else "%s: %s" % (answer["kind"], answer["error"])

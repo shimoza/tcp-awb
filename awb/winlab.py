@@ -4,6 +4,8 @@
         [--account awblab]
     awb winlab open NAME --minutes N|--until HH:MM --project tcp-xxxx              owner side: a window for a project,
         [--public-image]                                                           or a longer one when it has one
+    awb winlab extend NAME --minutes N                                             owner side: the open window
+                                                                                   ends N minutes from now
     awb winlab close NAME                                                          owner side: end the window now
     awb winlab remove NAME [--script-only]                                         owner side: forget a machine,
                                                                                    print remove.ps1 for the laptop
@@ -454,6 +456,18 @@ def open_(name: str, minutes: int | None, project: str, *, path: Path | None = N
         name, project, _shown(m["window"]["end"]), minutes, image)
 
 
+def extend(name: str, minutes: int, *, path: Path | None = None, now: datetime.datetime | None = None) -> str:
+    """Give the open window of `name` the end `minutes` from now (1 to MINUTES_MAX, as open), never an earlier one
+    than it has; its project and its --public-image statement stay. Refused when no window is open: that is open."""
+    _owner_user()
+    now = now or _now()
+    w = open_window(_get(load(path), name), now)
+    if not w:
+        raise WinlabError("%s has no open window to extend: awb winlab open %s --minutes N --project CODE"
+                          % (name, name))
+    return open_(name, minutes, w["project"], path=path, now=now, extend=True)
+
+
 @_transaction
 def close(name: str, *, path: Path | None = None, now: datetime.datetime | None = None) -> str:
     _owner_user()
@@ -504,6 +518,24 @@ def allowed(name: str, project: str, *, path: Path | None = None, now: datetime.
     if w["project"] != project:
         raise WinlabError("the window of %s is open for another project, not for %s" % (name, project))
     return dict(m, name=name)
+
+
+def allowed_job(name: str, project: str, started: str, *, path: Path | None = None,
+                now: datetime.datetime | None = None) -> dict:
+    """`allowed`; after the end of the window also the same machine for a job that started inside that window
+    (`started`, a stamp): the project's own window stays in the registry until another one replaces it."""
+    try:
+        return allowed(name, project, path=path, now=now)
+    except WinlabError:
+        m = _get(load(path), name)
+        w = m.get("window")
+        try:
+            inside = bool(w) and w["project"] == project and _parse(w["start"]) <= _parse(started) < _parse(w["end"])
+        except (ValueError, KeyError, TypeError):
+            inside = False
+        if not inside:
+            raise
+        return dict(m, name=name)
 
 
 def windows(path: Path | None = None, now: datetime.datetime | None = None) -> list[tuple[str, dict]]:
@@ -760,7 +792,7 @@ def removal_script(name: str) -> str:
 
 # --------------------------------------------------------------------------- command line
 
-SESSION_COMMANDS = ("run", "start", "status", "log", "stop", "put", "get")
+SESSION_COMMANDS = ("run", "start", "status", "log", "stop", "wait", "put", "get")
 """The commands of a project session on a machine (part 3, awb/winlabsession.py)."""
 
 
@@ -808,6 +840,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="your statement that the disk images of this window are public images built in the lab: a "
                         "get of a disk image or a compressed file skips the secret check (the name check of a compressed file "
                         "stays)")
+    e = sub.add_parser("extend", help="give the open window of a machine the end N minutes from now, never an "
+                                      "earlier one (owner side, his own terminal)")
+    e.add_argument("name")
+    e.add_argument("--minutes", type=int, required=True, help="1 to %d from now, as open" % MINUTES_MAX)
     c = sub.add_parser("close", help="end the window of a machine now (owner side, his own terminal)")
     c.add_argument("name")
     r = sub.add_parser("remove", help="forget a lab machine and its window and print remove.ps1 for the laptop "
@@ -844,16 +880,22 @@ def main(argv: list[str] | None = None) -> int:
                        ("stop", "end the job")):
         s = sub.add_parser(name, help="%s (project session)" % what)
         s.add_argument("job", help="the job id awb winlab start printed")
+    s = sub.add_parser("wait", help="block until the job is no longer running and print its end state, asking "
+                                    "again after 2 s, 4 s and so on up to 60 s (project session)")
+    s.add_argument("job", help="the job id awb winlab start printed")
+    s.add_argument("--timeout", type=int, default=3600, help="seconds to wait at most (default 3600)")
     s = sub.add_parser("put", help="a file of the project's winlab-out/ to the machine, in chunks that resume, the "
                                    "SHA-256 compared (project session)")
     s.add_argument("file")
     s.add_argument("winpath", help="the whole path on the machine, C:\\lab\\file.txt")
     s.add_argument("--machine", help="the machine, when the project holds windows on two")
+    s.add_argument("--overwrite", action="store_true", help="replace WINPATH on the machine when it exists")
     s = sub.add_parser("get", help="a file of the machine into the project, in chunks that resume, the SHA-256 "
                                    "compared (project session)")
     s.add_argument("winpath", help="the whole path on the machine, C:\\lab\\file.txt")
     s.add_argument("file")
     s.add_argument("--machine", help="the machine, when the project holds windows on two")
+    s.add_argument("--overwrite", action="store_true", help="replace FILE when it exists")
     s.add_argument("--recheck", action="store_true",
                    help="check the part a get kept when the name check could not run again, without a transfer")
     s.add_argument("--check", action="store_true",
@@ -884,6 +926,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "open":
             print(open_(args.name, args.minutes, args.project, public_image=args.public_image,
                         until=args.until, extend=True))
+        elif args.command == "extend":
+            print(extend(args.name, args.minutes))
         elif args.command == "close":
             print(close(args.name))
         elif args.command == "remove":

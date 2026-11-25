@@ -128,7 +128,11 @@ DISK_IMAGES = {".vhdx": "vhdx", ".vhd": "vhd", ".vmdk": "vmdk", ".qcow2": "qcow2
 SECTOR = 512
 LOG_READ = 4 * 1024 * 1024
 """The most of a job's log one `awb winlab log` fetches."""
-PRINT_LINES = 200
+PRINT_MAX = 2000
+PRINT_SIDE = 1000
+WAIT_TIMEOUT = 3600
+WAIT_FIRST = 2.0
+WAIT_LAST = 60.0
 BROKER_SOCKET_ENV = "AWB_WINLAB_SOCKET"
 BROKER_SOCKET = "/run/awb-winlab/broker.sock"
 BROKER_SLACK = 120.0
@@ -271,14 +275,17 @@ class BrokerTransport(Transport):
     """The Transport over the lab broker (part 4): every call names the machine, the project and the key token of
     the project folder; the broker checks the window, holds the key and speaks SSH."""
 
-    def __init__(self, name: str, project: str, token: str | None):
+    def __init__(self, name: str, project: str, token: str | None, started: str | None = None):
         self.name = name
         self.project = project
         self.token = token
+        self.started = started
 
     def _call(self, request: dict, timeout: float = BROKER_SLACK, payload: bytes = b"") -> tuple[dict, bytes]:
-        return _broker_call(dict(request, machine=self.name, project=self.project, token=self.token), payload,
-                            timeout)
+        request = dict(request, machine=self.name, project=self.project, token=self.token)
+        if self.started:
+            request["job_started"] = self.started
+        return _broker_call(request, payload, timeout)
 
     def check(self) -> dict:
         """The window is open for the project: {"name", "end"}; else WinlabError with the broker's line."""
@@ -315,7 +322,8 @@ def _token(root) -> str | None:
 def connect(machine: dict) -> Transport:
     """The transport to `machine` (what _session returns: the machine with the session's project and folder): the
     lab broker's. Its window check comes first, so a refusal or a missing broker sends nothing."""
-    transport = BrokerTransport(machine.get("name"), machine.get("project"), _token(machine.get("root")))
+    transport = BrokerTransport(machine.get("name"), machine.get("project"), _token(machine.get("root")),
+                                 machine.get("job_started"))
     transport.check()
     return transport
 
@@ -368,11 +376,15 @@ def session_list(start: Path | None = None) -> list[str]:
     return lines
 
 
-def _allowed(name: str, code: str, root: Path) -> dict:
-    """winlab.allowed from this user's registry, else the broker's check (the owner's registry)."""
+def _allowed(name: str, code: str, root: Path, started: str | None = None) -> dict:
+    """winlab.allowed from this user's registry, else the broker's check (the owner's registry). `started` is the
+    start of a job: its status, log and stop are still allowed after the window ended."""
     if _local_registry():
-        return winlab.allowed(name, code)
-    answer, _ = _broker_call({"op": "check", "machine": name, "project": code, "token": _token(root)})
+        return winlab.allowed_job(name, code, started) if started else winlab.allowed(name, code)
+    request = {"op": "check", "machine": name, "project": code, "token": _token(root)}
+    if started:
+        request["job_started"] = started
+    answer, _ = _broker_call(request)
     return _broker_machine(answer, name)
 
 
@@ -602,6 +614,8 @@ def _vm_body(vm: str, text: str) -> list[str]:
     return [
         "$awbVm = %s" % _ps(vm),
         "$awbFile = Join-Path $env:ProgramData ('awb-winlab\\vm\\' + $awbVm + '.txt')",
+        "if (-not (Test-Path -LiteralPath $awbFile -PathType Leaf)) { throw ('the credential file of the VM ' + $awbVm "
+        "+ ' is missing on the lab machine: the owner puts it there') }",
         "$awbOpen = @((Get-Acl -LiteralPath $awbFile -ErrorAction Stop).Access | Where-Object {",
         "    $_.AccessControlType -eq 'Allow' -and",
         "    $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin "
@@ -623,8 +637,35 @@ def _vm_body(vm: str, text: str) -> list[str]:
     ]
 
 
+_FORMAT_RE = re.compile(r"\b(?:Format|Out)-[A-Za-z]+\b|\|\s*(?:ft|fl|fw|fc|oh)\b", re.I)
+_EXIT_RE = re.compile(r"\s*(?:exit|return|throw)\b", re.I)
+_STATEMENT_RE = re.compile(r"\s*(?:\$|\(|if\b|foreach\b|for\b|while\b|switch\b|try\b|do\b|function\b|param\b)", re.I)
+OUT_STRING = "| Out-String -Width 200"
+MISSING_CREDENTIAL_RE = re.compile(r"^.*the credential file of the VM .* is missing on the lab machine.*$", re.M)
+
+
+def with_out_string(text: str) -> str:
+    """`text` with `| Out-String -Width 200` after it when it has no Format or Out command: PowerShell writes a
+    formatted table of a bare command to the pipe only when the command ends in one (a Get-VM printed nothing).
+    A command of several statements goes in a script block first."""
+    if _FORMAT_RE.search(text) or _EXIT_RE.match(text):
+        return text
+    body = text.strip("\n")
+    if "\n" in body or ";" in body or "#" in body or _STATEMENT_RE.match(body):
+        return "& {\n%s\n} %s" % (body, OUT_STRING)
+    return "%s %s" % (body, OUT_STRING)
+
+
+def plain_credential_line(text: str | None) -> str | None:
+    """A text that holds the line of a missing guest credential file is that line alone, not the error record
+    around it."""
+    found = MISSING_CREDENTIAL_RE.search(text) if text else None
+    return found.group(0).strip() if found else text
+
+
 def command_script(text: str, vm: str | None = None) -> str:
     """The script `awb winlab run` sends: the header, no progress records, the command (in the VM with `vm`)."""
+    text = with_out_string(text)
     body = _vm_body(vm, text) if vm else [text.rstrip("\n")]
     return "\n".join([_header("run", vm=vm), "$ProgressPreference = 'SilentlyContinue'"] + body) + "\n"
 
@@ -728,7 +769,10 @@ def job_stop_script(job: str) -> str:
     ]) + "\n"
 
 
-def file_move_script(src: str, dst: str) -> str:
+def file_move_script(src: str, dst: str, overwrite: bool = False) -> str:
+    if overwrite:
+        return "\n".join([_header("file-move", src=src, dst=dst, overwrite=True), "$ErrorActionPreference = 'Stop'",
+                          "Move-Item -LiteralPath %s -Destination %s -Force" % (_ps(src), _ps(dst))]) + "\n"
     return "\n".join([_header("file-move", src=src, dst=dst), "$ErrorActionPreference = 'Stop'",
                       "[IO.File]::Move(%s, %s)" % (_ps(src), _ps(dst))]) + "\n"
 
@@ -786,15 +830,19 @@ def landed(text: str) -> tuple[str | None, str]:
 def _print_cut(text: str, where: str, stream=None) -> None:
     stream = stream or sys.stdout
     lines = text.rstrip("\n").split("\n")
-    stream.write("\n".join(lines[:PRINT_LINES]) + "\n")
-    if len(lines) > PRINT_LINES:
-        stream.write("... %d more lines in %s\n" % (len(lines) - PRINT_LINES, where))
+    if len(lines) <= PRINT_MAX:
+        stream.write("\n".join(lines) + "\n")
+        return
+    cut = len(lines) - 2 * PRINT_SIDE
+    stream.write("\n".join(lines[:PRINT_SIDE]) + "\n")
+    stream.write("... %d lines cut here, the whole output is in %s\n" % (cut, where))
+    stream.write("\n".join(lines[-PRINT_SIDE:]) + "\n")
 
 
 # --------------------------------------------------------------------------- run
 
 
-def _session(name: str, root: Path | None) -> tuple[Path, str, dict]:
+def _session(name: str, root: Path | None, started: str | None = None) -> tuple[Path, str, dict]:
     root = root or _root()
     winlab._check_name(name)
     check_own(name, "the machine name")
@@ -808,7 +856,7 @@ def _session(name: str, root: Path | None) -> tuple[Path, str, dict]:
             pass
         else:
             os.close(fd)
-    return root, code, dict(_allowed(name, code, root), project=code, root=str(root))
+    return root, code, dict(_allowed(name, code, root, started), project=code, root=str(root), job_started=started)
 
 
 def _refused(root: Path | None, machine: str, title: str, err: Exception) -> None:
@@ -847,16 +895,18 @@ def run(name: str, text: str, vm: str | None = None, timeout: float = RUN_TIMEOU
     head = ["command:"] + ["    " + line for line in text.rstrip("\n").split("\n")]
     title = "run on %s%s" % (name, " in vm %s" % vm if vm else "")
     transport = _connect(root, name, title, machine)
+    began = _stamp()
     try:
         exit_code, out, err = transport.run(command_script(text, vm), timeout=timeout)
     except Offline as exc:
-        log(root, name, title, head + ["offline: %s" % exc])
+        log(root, name, title, head + ["started %s" % began, "offline: %s" % exc])
         raise
     finally:
         transport.close()
     out_text, out_note = landed(out)
     err_text, err_note = landed(err)
-    lines = head + ["exit %d" % exit_code]
+    err_text = plain_credential_line(err_text)
+    lines = head + ["started %s, ended %s" % (began, _stamp()), "exit %d" % exit_code]
     for label, body, note in (("stdout", out_text, out_note), ("stderr", err_text, err_note)):
         lines += ["%s: %s" % (label, note)] if body is None else _block(label + (" (%s)" % note if note else ""),
                                                                            body)
@@ -960,12 +1010,21 @@ def start(name: str, text: str, vm: str | None = None, root: Path | None = None)
     return {"job": job, "log": (folder / ("%s.log" % job)).relative_to(root)}
 
 
-def _job_call(job: str, root: Path | None, script, op: str) -> tuple[Path, dict, dict]:
+def _job_started(record: dict) -> str | None:
+    """The start of the job as a stamp, for the window check after the window ended; None when it is no stamp."""
+    value = record.get("started")
+    try:
+        return value if isinstance(value, str) and winlab._stamp(winlab._parse(value)) == value else None
+    except ValueError:
+        return None
+
+
+def _job_call(job: str, root: Path | None, script, op: str, quiet: bool = False) -> tuple[Path, dict, dict]:
     root = root or _root()
     path, record = _job_record(root, job)
     name = record["machine"]
     try:
-        root, code, machine = _session(name, root)
+        root, code, machine = _session(name, root, _job_started(record))
         transport = _connect(root, name, "%s of job %s" % (op, job), machine)
     except WinlabError as err:
         _refused(root, name, "%s of job %s" % (op, job), err)
@@ -983,8 +1042,11 @@ def _job_call(job: str, root: Path | None, script, op: str) -> tuple[Path, dict,
     if result["state"] != "offline":
         record["state"] = result["state"]
         record["exit"] = result["exit"]
+        if result["state"] != "running" and "ended" not in record:
+            record["ended"] = _stamp()
         _write_json(path, record)
-    log(root, name, "%s of job %s" % (op, job), [state_line(job, name, result)])
+    if not quiet:
+        log(root, name, "%s of job %s" % (op, job), [state_line(job, name, result)])
     return root, record, result
 
 
@@ -993,6 +1055,40 @@ def status(job: str, root: Path | None = None) -> dict:
     """{"state": running|ended|stopped|lost|unknown|offline, "exit": N or None, "machine"}. Raises WinlabError."""
     _root_, record, result = _job_call(job, root, job_status_script, "status")
     return dict(result, machine=record["machine"])
+
+
+@_serial
+def _poll(job: str, root: Path | None = None) -> dict:
+    _root_, record, result = _job_call(job, root, job_status_script, "status", quiet=True)
+    return dict(result, machine=record["machine"], started=record.get("started"), ended=record.get("ended"))
+
+
+def wait(job: str, timeout: float = WAIT_TIMEOUT, root: Path | None = None) -> dict:
+    """Block until the job is not running: status after 2 s, 4 s and so on up to 60 s (an offline machine is asked
+    again, the job goes on there). Returns the state as status does with "waited" (seconds) and "timed_out" (the
+    job still runs or the machine was offline when `timeout` ran out). Only the first and the last answer go to the
+    log. Raises WinlabError."""
+    root = root or _root()
+    slept, delay = 0.0, WAIT_FIRST
+    began = time.monotonic()
+    first = True
+    while True:
+        result = _poll(job, root)
+        if first:
+            log(root, result["machine"], "wait for job %s" % job, [state_line(job, result["machine"], result)])
+            first = False
+        waited = max(slept, time.monotonic() - began)
+        done = result["state"] not in ("running", "offline")
+        if done or waited >= timeout:
+            result = dict(result, waited=int(waited), timed_out=not done)
+            log(root, result["machine"], "wait for job %s" % job,
+                [state_line(job, result["machine"], result), "waited %d s%s" % (
+                    result["waited"], ", gave up: the job goes on" if result["timed_out"] else "")])
+            return result
+        step = min(delay, max(timeout - waited, 0.0))
+        _pause(step)
+        slept += step
+        delay = min(delay * 2, WAIT_LAST)
 
 
 @_serial
@@ -1010,7 +1106,7 @@ def job_log(job: str, root: Path | None = None) -> dict:
     name = record["machine"]
     winlog = str(record.get("winlog", ""))
     try:
-        root, code, machine = _session(name, root)
+        root, code, machine = _session(name, root, _job_started(record))
         if not WINPATH_RE.fullmatch(winlog):
             raise WinlabError("the record of job %s names no log file" % job)
     except WinlabError as err:
@@ -1059,6 +1155,7 @@ def job_log(job: str, root: Path | None = None) -> dict:
     else:
         text = bytes(data).decode("utf-8", "replace")
     clean, note = landed(text)
+    clean = plain_credential_line(clean)
     record["log_offset"] = offset + consumed
     _write_json(path, record)
     joblog = root / LOG_FOLDER / "jobs" / ("%s.log" % job)
@@ -1383,10 +1480,11 @@ def _pick(root: Path, machine: str | None) -> str:
 
 
 @_serial
-def put(file: str, winpath: str, machine: str | None = None, root: Path | None = None) -> dict:
+def put(file: str, winpath: str, machine: str | None = None, root: Path | None = None,
+        overwrite: bool = False) -> dict:
     """The file `file` of winlab-out/ to `winpath` on the machine of the project's window. Returns {"machine",
     "size", "sha256", "resumed", "check", "log"}. Raises WinlabError (refused or failed), Offline (broken: run it
-    again)."""
+    again). A file at `winpath` is replaced with `overwrite`, else refused."""
     root = root or _root()
     try:
         machine = _pick(root, machine)
@@ -1398,13 +1496,13 @@ def put(file: str, winpath: str, machine: str | None = None, root: Path | None =
         _refused(root, machine or NO_WINDOW, "put to %s" % (machine or "a lab machine"), err)
         raise
     try:
-        return _put(root, found["name"], found, src, winpath)
+        return _put(root, found["name"], found, src, winpath, overwrite)
     except WinlabError as err:
         log(root, machine, "put to %s" % machine, ["to %s" % winpath, "failed: %s" % err])
         raise
 
 
-def _put(root: Path, name: str, machine: dict, src: Path, winpath: str) -> dict:
+def _put(root: Path, name: str, machine: dict, src: Path, winpath: str, overwrite: bool = False) -> dict:
     with winlab._parent(src) as folder:
         fd = winlab._regular(folder, src.name)
         with os.fdopen(fd, "rb") as source_file, tempfile.TemporaryDirectory(prefix="awb-winlab-") as scratch:
@@ -1415,10 +1513,11 @@ def _put(root: Path, name: str, machine: dict, src: Path, winpath: str) -> dict:
             after = os.fstat(source_file.fileno())
             if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (st.st_size, st.st_mtime_ns, st.st_ctime_ns):
                 raise WinlabError("the source changed while it was copied: nothing was sent")
-            return _put_snapshot(root, name, machine, src, winpath, snapshot, st)
+            return _put_snapshot(root, name, machine, src, winpath, snapshot, st, overwrite)
 
 
-def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str, snapshot: Path, st) -> dict:
+def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str, snapshot: Path, st,
+                  overwrite: bool = False) -> dict:
     rel = src.relative_to(os.path.realpath(root)).as_posix()
     size, ident = st.st_size, [st.st_size, st.st_mtime_ns, st.st_ino]
     rpath = _record_path(root, "put", name, winpath)
@@ -1432,8 +1531,9 @@ def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str,
     part = winpath + PART
     title = "put %s to %s" % (rel, name)
     transport = _connect(root, name, title, machine)
+    began = _stamp()
     try:
-        if transport.stat(winpath) is not None:
+        if not overwrite and transport.stat(winpath) is not None:
             raise WinlabError("%s exists on %s: put does not overwrite, choose another WINPATH" % (winpath, name))
         there = transport.stat(part) if same else None
         offset = there["size"] if there and there["size"] <= size else 0
@@ -1448,7 +1548,7 @@ def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str,
             _unlink(rpath)
             raise WinlabError("the SHA-256 of %s on %s does not match the file: the part was deleted, nothing kept"
                               % (winpath, name))
-        exit_code, _out, _err = transport.run(file_move_script(part, winpath), timeout=60)
+        exit_code, _out, _err = transport.run(file_move_script(part, winpath, overwrite), timeout=60)
         if exit_code != 0:
             raise WinlabError("the part on %s could not be renamed to %s (exit %d): the same put again tries it"
                               % (name, winpath, exit_code))
@@ -1458,8 +1558,9 @@ def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str,
     finally:
         transport.close()
     _unlink(rpath)
-    path = log(root, name, title, ["to %s" % winpath, "%s, sha256 %s, %s, %s" % (
-        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole", checked)])
+    path = log(root, name, title, ["to %s" % winpath, "started %s, ended %s" % (began, _stamp()),
+                                   "%s, sha256 %s, %s, %s" % (_size(size), sha, "resumed at %s" % _size(resumed)
+                                                              if resumed else "whole", checked)])
     return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "check": checked,
             "log": path.relative_to(root)}
 
@@ -1498,8 +1599,9 @@ def _send(transport: Transport, src: Path, part: str, offset: int, size: int) ->
                 verify = True
 
 
-def target(root: Path, file: str) -> Path:
-    """Where get writes `file`: inside the project, not in input/ or .git, not over a file or through a link."""
+def target(root: Path, file: str, overwrite: bool = False) -> Path:
+    """Where get writes `file`: inside the project, not in input/ or .git, not through a link; over a file only
+    with `overwrite` (a regular file; a folder or a link never)."""
     given = Path(file)
     path = Path(os.path.abspath(given if given.is_absolute() else Path.cwd() / given))
     parent = Path(os.path.realpath(path.parent))
@@ -1515,7 +1617,11 @@ def target(root: Path, file: str) -> Path:
     except FileNotFoundError:
         pass
     if os.path.lexists(parent / path.name):
-        raise WinlabError("%s exists: get does not overwrite, choose another FILE" % rel.as_posix())
+        if not overwrite:
+            raise WinlabError("%s exists: get does not overwrite, choose another FILE or give --overwrite"
+                              % rel.as_posix())
+        if os.path.isdir(parent / path.name) or os.path.islink(parent / path.name):
+            raise WinlabError("%s is a folder or a link: --overwrite replaces a regular file only" % rel.as_posix())
     if path.name.endswith(PART):
         raise WinlabError("FILE may not end in %s" % PART)
     check_text(path.name, "the name of FILE")
@@ -1523,21 +1629,23 @@ def target(root: Path, file: str) -> Path:
 
 
 @_serial
-def get(winpath: str, file: str, machine: str | None = None, root: Path | None = None, check: bool = False) -> dict:
+def get(winpath: str, file: str, machine: str | None = None, root: Path | None = None, check: bool = False,
+        overwrite: bool = False) -> dict:
     """`winpath` of the machine of the project's window into the project as `file`. Returns {"machine", "size",
     "sha256", "resumed", "file", "log"}. Raises WinlabError, Offline (broken: run it again). A disk image is our own
-    lab output and gets no name check after the SHA-256 compare (OWN_IMAGE); `check` runs it."""
+    lab output and gets no name check after the SHA-256 compare (OWN_IMAGE); `check` runs it. `overwrite` replaces
+    an existing FILE once the received file passed every check."""
     root = root or _root()
     try:
         machine = _pick(root, machine)
         root, _code_, found = _session(machine, root)
         check_winpath(winpath)
-        dst = target(root, file)
+        dst = target(root, file, overwrite)
     except WinlabError as err:
         _refused(root, machine or NO_WINDOW, "get from %s" % (machine or "a lab machine"), err)
         raise
     try:
-        return _get(root, found["name"], found, winpath, dst, check)
+        return _get(root, found["name"], found, winpath, dst, check, overwrite)
     except WinlabError as err:
         log(root, machine, "get from %s" % machine, ["from %s" % winpath, "failed: %s" % err])
         raise
@@ -1547,13 +1655,15 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
         raise
 
 
-def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path, check: bool = False) -> dict:
+def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path, check: bool = False,
+         overwrite: bool = False) -> dict:
     # Keep the destination directory pinned through transfer, checks and publication.
     with winlab._parent(dst, create=True) as folder:
-        return _get_at(root, name, machine, winpath, dst, folder, check)
+        return _get_at(root, name, machine, winpath, dst, folder, check, overwrite)
 
 
-def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folder: int, check: bool = False) -> dict:
+def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folder: int, check: bool = False,
+            overwrite: bool = False) -> dict:
     from awb import hooks
 
     rel = dst.relative_to(os.path.realpath(root)).as_posix()
@@ -1562,6 +1672,7 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
     record = _read_json(rpath) or {}
     title = "get %s from %s" % (rel, name)
     transport = _connect(root, name, title, machine)
+    began = _stamp()
     try:
         st = transport.stat(winpath)
         if st is None:
@@ -1576,7 +1687,8 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         same = (record.get("winpath") == winpath and record.get("file") == rel and record.get("size") == size
                 and record.get("mtime") == st.get("mtime"))
         _reclaim(folder, record, part, size)
-        _write_json(rpath, {"winpath": winpath, "file": rel, "size": size, "mtime": st.get("mtime"), "machine": name})
+        _write_json(rpath, {"winpath": winpath, "file": rel, "size": size, "mtime": st.get("mtime"), "machine": name,
+                            **({"overwrite": True} if overwrite else {})})
         fd = winlab._regular(folder, part, os.O_RDWR | os.O_CREAT)
         with os.fdopen(fd, "r+b") as fh:
             have = os.fstat(fh.fileno()).st_size
@@ -1598,13 +1710,17 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         expected = None                     # no SHA-256 from the machine: kept, never deleted (tcp-bytg ask 11)
     public_window = _public_window(machine)
     rec = dict(record if same else {}, winpath=winpath, file=rel, size=size, mtime=st.get("mtime"), machine=name)
+    rec.pop("overwrite", None)
+    if overwrite:
+        rec["overwrite"] = True
     mismatch = "the SHA-256 of the copy does not match %s on %s" % (winpath, name)
     own = not check and _own_image(folder, part, dst, size)
     sha, public = _check_and_publish(rpath, rec, folder, part, dst, size, expected, public_window, mismatch,
                                       names=not own)
     _unlink(rpath)
-    path = log(root, name, title, ["from %s" % winpath, "%s, sha256 %s, %s" % (
-        _size(size), sha, "resumed at %s" % _size(resumed) if resumed else "whole")]
+    path = log(root, name, title, ["from %s" % winpath, "started %s, ended %s" % (began, _stamp()),
+                                   "%s, sha256 %s, %s" % (_size(size), sha, "resumed at %s" % _size(resumed)
+                                                          if resumed else "whole")]
                + (["secret check skipped: a public image window of the owner"] if public else [])
                + ([OWN_IMAGE] if own else []))
     if own:
@@ -1904,7 +2020,17 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
             _unlink(rpath)
             raise
         # Hard-link publication cannot replace a destination another writer created.
-        os.link(staged, dst.name, src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
+        if rec.get("overwrite") is True:
+            # a second private name is linked first and renamed over FILE: the old file stays until then
+            fresh = ".winlab-" + secrets.token_hex(16)
+            os.link(staged, fresh, src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
+            try:
+                os.replace(fresh, dst.name, src_dir_fd=folder, dst_dir_fd=folder)
+            except OSError:
+                os.unlink(fresh, dir_fd=folder)
+                raise
+        else:
+            os.link(staged, dst.name, src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
         back = False
     finally:
         try:
@@ -1960,9 +2086,11 @@ def recheck(winpath: str, file: str, machine: str | None = None, root: Path | No
     name = machine
     try:
         check_winpath(winpath)
-        dst = target(root, file)
+        dst = target(root, file, overwrite=True)
         rel = dst.relative_to(os.path.realpath(root)).as_posix()
         name, rpath, rec = _kept(root, winpath, rel, machine)
+        if os.path.lexists(dst) and rec.get("overwrite") is not True:
+            raise WinlabError("%s exists: get does not overwrite, choose another FILE or give --overwrite" % rel)
     except WinlabError as err:
         _refused(root, name or NO_WINDOW, title, err)
         raise
@@ -2069,6 +2197,14 @@ def main(args: argparse.Namespace, tail: list[str] | None) -> int:
             print("awb winlab: job %s started on %s: awb winlab status|log|stop %s" % (
                 result["job"], args.name, result["job"]), file=sys.stderr)
             return EXIT_OK
+        if command == "wait":
+            result = wait(args.job, timeout=args.timeout)
+            print(state_line(args.job, result["machine"], result))
+            if result["timed_out"]:
+                print("awb winlab: still not ended after %d s: the job goes on, run wait again" % result["waited"],
+                      file=sys.stderr)
+                return EXIT_OFFLINE
+            return EXIT_OK if result["state"] == "ended" and result["exit"] == 0 else EXIT_REMOTE
         if command in ("status", "stop"):
             result = (status if command == "status" else stop)(args.job)
             print(state_line(args.job, result["machine"], result))
@@ -2084,7 +2220,7 @@ def main(args: argparse.Namespace, tail: list[str] | None) -> int:
                 result["log"].as_posix()), file=sys.stderr)
             return EXIT_OK
         if command == "put":
-            result = put(args.file, args.winpath, machine=args.machine)
+            result = put(args.file, args.winpath, machine=args.machine, overwrite=args.overwrite)
             print("awb winlab: put %s to %s on %s, sha256 matches%s" % (
                 _size(result["size"]), args.winpath, result["machine"],
                 ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))
@@ -2135,7 +2271,8 @@ def _get_command(args) -> int:
         print("awb winlab: checked %s of %s from %s again, sha256 %s, published as %s" % (
             _size(result["size"]), args.winpath, result["machine"], result["sha256"][:12], result["file"]))
         return EXIT_OK
-    result = get(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
+    result = get(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False),
+                 overwrite=getattr(args, "overwrite", False))
     print("awb winlab: got %s into %s from %s, sha256 matches%s" % (
         _size(result["size"]), result["file"], result["machine"],
         ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))

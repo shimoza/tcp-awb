@@ -1289,6 +1289,7 @@ awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
 awb winlab open lab-1 --minutes 60 --project tcp-xxxx
 awb winlab open lab-1 --minutes 240 --project tcp-xxxx --public-image   # disk images and vendor programs (ELF, PE) of the window are public: no secret check on their get
 awb winlab open lab-1 --until 18:30 --project tcp-xxxx   # the same project again: extends its open window to 18:30 local time
+awb winlab extend lab-1 --minutes 120        # the open window now ends 120 minutes from now (never earlier than it did)
 awb winlab close lab-1                       # before its end
 awb winlab remove lab-1
 awb winlab list                              # machines, their window, its end (in a project session: the windows open for it, from the broker)
@@ -1342,8 +1343,11 @@ awb winlab run lab-1 --vm lab-vm -- hostname      # inside the VM, with PowerShe
 awb winlab start lab-1 -- .\build-lab.ps1         # a long job; prints its id wl-<date>-<time>-xxxx
 awb winlab status JOB                             # running, ended with exit code N, stopped, lost, machine offline
 awb winlab log JOB                                # the new part of its log
+awb winlab wait JOB [--timeout 3600]               # blocks (asks after 2 s, 4 s, up to 60 s) and prints the end state
 awb winlab stop JOB
 awb winlab put winlab-out/setup-lab.ps1 C:\lab\setup-lab.ps1
+awb winlab put winlab-out/setup-lab.ps1 C:\lab\setup-lab.ps1 --overwrite   # replaces the file there
+awb winlab get C:\lab\export.csv results/export.csv --overwrite            # replaces results/export.csv
 awb winlab get C:\lab\export.csv results/export.csv
 awb winlab get C:\lab\disk.vhdx results/disk.vhdx           # own lab output: no name check
 awb winlab get C:\lab\disk.vhdx results/disk.vhdx --check   # the name check too, over its unique text
@@ -1359,6 +1363,13 @@ Administrators and SYSTEM may read). The CLIXML progress records of powershell.e
 by the rules of `awb paste --own` and the command, its output, every job and every transfer go into
 `notes/winlab/` of the project. A job is a scheduled task of the laptop's account with its log on the laptop, so it
 goes on while the tunnel is down: status then says machine offline and running again once the tunnel is back.
+status, log, wait and stop keep working for a job that started inside a window after the window ended; a new
+command, put and get do not. A command with no Format or Out command gets `| Out-String -Width 200` after it
+(several statements go in a script block first), so a bare `Get-VM` prints its table. Output over 2000 lines is
+printed as the first 1000 and the last 1000 lines with one line that says how many were cut; the log of the project
+keeps all of it. A VM whose credential file is missing gives one plain line. put and get never replace a file unless
+you give `--overwrite` (get replaces it only after every check passed). A run, a transfer and a job record their start
+and their end time.
 put takes files of the project's `winlab-out/` only, after the name check and the secret check; get writes into
 the project, never into `input/`. A disk image built in the lab is our own output and gets the secret check only,
 over all of its bytes and at the speed of the transfer (about 1 s per 4 MB of random bytes): a file whose name ends
