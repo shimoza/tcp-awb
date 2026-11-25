@@ -188,6 +188,7 @@ DYNAMIC: dict[tuple[str, str], object] = {
 # Modules no unit imports: they run as a command and in no daemon, so a change of one restarts nothing.
 COMMAND_ONLY: dict[str, str] = {
     "awb/seal.py": "awb seal check, run by the work user against the host",
+    "awb/state.py": "awb state rotate, run in a working session on its own STATE.md",
     "awb/prtake.py": "awb pr take, run by the owner in his own working copy",
     "awb/material.py": "awb material add, run in a working session with the pasted text on standard input",
     "awb/paste.py": "awb paste, run in a working session with a terminal output on standard input",
