@@ -2052,6 +2052,11 @@ def main(argv: list[str] | None = None) -> int:
         from awb import labclient
 
         return labclient.run_main(argv[1:])
+    if argv[:1] == ["kept"]:
+        # a bucket kept past the end of a run: awb lab kept drop NAME
+        from awb import labclient
+
+        return labclient.kept_main(argv[1:])
     if argv[:1] == ["obs"]:
         # LO: a large object to or from OBS in a lab run, moved by the key service as a job (awb/tcp/labobs.py)
         from awb import labclient

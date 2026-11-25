@@ -647,6 +647,14 @@ def lab_run_items(p: config.Paths, now: float | None = None) -> list[Item]:
     for k in kept:
         text = "lab run on %s kept %s %s: %s" % (k["tenant"], k["label"], str(k["id"])[:8], k["reason"])
         out.append(Item(str(k.get("project") or "?"), _short(text), WHERE_SESSION, None, "kept", str(k["tenant"]), source=text))
+    try:
+        buckets = labruns.load_kept(p)
+    except Exception:
+        buckets = []
+    for k in buckets:
+        text = "lab run %s kept %s %s on %s" % (k.get("run"), k.get("kind"), k.get("name"), k.get("tenant"))
+        out.append(Item(str(k.get("project") or "?"), _short(text), WHERE_SESSION,
+                        "awb lab kept drop %s" % k.get("name"), source=text))
     return out
 
 

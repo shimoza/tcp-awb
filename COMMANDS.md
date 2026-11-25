@@ -2023,7 +2023,8 @@ raise, check, write the evidence and always tear down; awb lab run start|end|sta
 - `--tenant TENANT`: test-10491, test-10497, test-10503 or a granted customer tenant in write mode (end: default the one open run)
 - `--project PROJECT`: default: the code of this folder's project
 
-### `awb lab run end [--tenant TENANT] [--project PROJECT]`
+### `awb lab run end [--keep NAME[,NAME...]] [--tenant TENANT] [--project PROJECT]`
+- `--keep NAME[,NAME...]`: OBS bucket names of the run that stay (the kept list of the project); any other kind is refused before a delete
 - `--tenant TENANT`: test-10491, test-10497, test-10503 or a granted customer tenant in write mode (end: default the one open run)
 - `--project PROJECT`: default: the code of this folder's project
 

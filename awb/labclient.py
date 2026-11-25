@@ -4,6 +4,8 @@
     awb lab run keep ITEM --reason TEXT [--tenant T]   keep one recorded create (its number or id) past the end
     awb lab run end [--tenant T]                  delete what the run made, newest first; report and close it
     awb lab run status                            the open runs of this project and their leftovers
+    awb lab run end --keep NAME[,NAME...]         end the run and leave the named OBS buckets (the kept list)
+    awb lab kept drop NAME                        delete a kept bucket later, with the delete and proof of an end
 
 A change to a stand the project holds (task LK) stays: `call(..., keep="why")` keeps the create it makes (a rule of
 a listed security group), `awb lab run keep` keeps one already recorded. The key service allows it on a lab tenant
@@ -892,6 +894,10 @@ def _parser(action: str) -> argparse.ArgumentParser:
              "end": "delete what the run made, newest first, report created, removed and failed, close the run",
              "status": "the open runs of this project and their leftovers"}
     ap = SafeParser(prog="awb lab run %s" % action, description=helps[action])
+    if action == "end":
+        ap.add_argument("--keep", default="", metavar="NAME[,NAME...]",
+                        help="OBS bucket names of the run that stay (the kept list of the project); any other "
+                             "kind is refused before a delete")
     if action == "keep":
         ap.add_argument("item", help="the number of the recorded create (awb lab run status) or its id")
         ap.add_argument("--reason", required=True, help="why it stays, one line")
@@ -931,7 +937,7 @@ def run_main(argv: list[str]) -> int:
             return _start(root, project, args.tenant, args.note)
         if action == "keep":
             return _keep(root, project, args.tenant, args.item, args.reason)
-        return _end(root, project, args.tenant)
+        return _end(root, project, args.tenant, [n for n in args.keep.split(",") if n.strip()] if args.keep else [])
     except LabClientError as err:
         _print("awb lab run: %s" % err, file=sys.stderr)
         return EXIT_REFUSED
@@ -993,7 +999,7 @@ def _keep(root: Path | None, project: str, tenant: str | None, item: str, reason
 
 @_boundary
 @_locked
-def _end(root: Path | None, project: str, tenant: str | None) -> int:
+def _end(root: Path | None, project: str, tenant: str | None, keep: list[str] | None = None) -> int:
     _identifier(project, "project")
     if tenant is not None:
         _identifier(tenant, "tenant")
@@ -1004,7 +1010,8 @@ def _end(root: Path | None, project: str, tenant: str | None) -> int:
         tenant, run = _pick(root, None, None)
     elif root is not None:
         run = _open_runs(root).get(tenant)
-    answer = _request({"op": "lab_run", "action": "end", "project": project, "tenant": tenant, "run": run}, root)
+    answer = _request({"op": "lab_run", "action": "end", "project": project, "tenant": tenant, "run": run,
+                       "keep": [k.strip() for k in keep or []]}, root)
     if not answer.get("ok"):
         raise LabClientError(_service_error(answer))
     run = _identifier(answer["run"], "run")
@@ -1054,8 +1061,11 @@ def _status(project: str | None, root: Path | None = None) -> int:
     if not answer.get("ok"):
         raise LabClientError(_service_error(answer))
     rows = answer.get("runs") or []
+    kept = answer.get("kept_list") or []
     if not rows:
         _print("no open lab run and no leftovers%s" % (" of %s" % project if project else ""))
+    _kept_lines(kept)
+    if not rows:
         return EXIT_OK
     for r in rows:
         _print("%s  %s on %s  %s, %d min, %d calls, %d left, %d kept" % (
@@ -1065,3 +1075,55 @@ def _status(project: str | None, root: Path | None = None) -> int:
             _print("    #%s %s %s %s%s" % (c.get("n") or "-", c["state"], c["label"], c.get("name") or "",
                                      " (%s)" % _display_error(c["error"]) if c.get("error") else ""))
     return EXIT_OK
+
+
+def _kept_lines(kept: list) -> None:
+    """The kept list of the project, one line each: tenant, region, kind, name, run, date."""
+    if not isinstance(kept, list):
+        return
+    for k in kept:
+        if isinstance(k, dict):
+            _print("kept  %s  %s  %s  %s  %s  %s" % tuple(str(k.get(f) or "-") for f in (
+                "tenant", "region", "kind", "name", "run", "date")))
+
+
+def kept_main(argv: list[str]) -> int:
+    """awb lab kept drop NAME: delete a kept bucket through the key service, with the delete and the proof of a run
+    end (the read after the delete answers 404)."""
+    from awb.cli import SafeParser
+
+    ap = SafeParser(prog="awb lab kept", description="The buckets kept past the end of a lab run.")
+    sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
+    d = sub.add_parser("drop", help="delete a kept bucket and prove it gone")
+    d.add_argument("name")
+    d.add_argument("--project", default=None, help="default: the code of this folder's project")
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else EXIT_REFUSED
+    if args.command != "drop":
+        ap.print_usage(sys.stderr)
+        return EXIT_REFUSED
+    try:
+        root = _root()
+    except LabClientError:
+        root = None
+    try:
+        project = args.project or (_code(root) if root else None)
+        if not project:
+            raise LabClientError("this folder names no project; give --project")
+        _identifier(project, "project")
+        answer = _request({"op": "lab_run", "action": "drop", "project": project, "name": args.name}, root)
+        if not answer.get("ok"):
+            raise LabClientError(_service_error(answer))
+    except LabClientError as err:
+        _print("awb lab kept: %s" % err, file=sys.stderr)
+        return EXIT_REFUSED
+    if answer.get("dropped"):
+        _print("kept bucket %s deleted and gone (404 of the read after the delete)" % args.name)
+        return EXIT_OK
+    for c in answer.get("failed") or []:
+        if isinstance(c, dict):
+            _print("  failed   %s %s: %s" % (c.get("label"), c.get("name") or "", _display_error(c.get("error"))))
+    _print("kept bucket %s is still there: awb lab kept drop %s tries again" % (args.name, args.name))
+    return EXIT_LEFT

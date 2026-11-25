@@ -70,6 +70,47 @@ def leftovers(run: dict) -> list[dict]:
     return [c for c in run.get("created", []) if c.get("state") in ("live", "failed", "left", "unrecorded")]
 
 
+def kept_dir(p) -> Path:
+    return Path(p.vault) / "lab-kept"
+
+
+def load_kept(p, project: str | None = None) -> list[dict]:
+    """The buckets kept past the end of a run (`awb lab run end --keep`), one record per bucket: project, tenant,
+    region, kind, name, run, date and the deletes (the bucket and the objects the run made in it)."""
+    out = []
+    try:
+        names = sorted(os.listdir(kept_dir(p)))
+    except OSError:
+        return []
+    for name in names:
+        code = name[:-5]
+        if not name.endswith(".json") or (project is not None and code != project):
+            continue
+        try:
+            rows = json.loads((kept_dir(p) / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(rows, list):
+            out += [dict(r, project=code) for r in rows if isinstance(r, dict) and r.get("name")]
+    return out
+
+
+def save_kept(p, project: str, rows: list[dict]) -> None:
+    folder = kept_dir(p)
+    folder.mkdir(parents=True, exist_ok=True)
+    os.chmod(folder, 0o700)
+    fd, tmp = tempfile.mkstemp(prefix=".kept.", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump([{k: v for k, v in r.items() if k != "project"} for r in rows], fh, indent=1, sort_keys=True)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, folder / ("%s.json" % project))
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
 def new_id(clock=time.time) -> str:
     stamp = datetime.fromtimestamp(clock(), timezone.utc).strftime("%Y%m%d-%H%M%S")
     return "run-%s-%s" % (stamp, "".join(_secrets.choice("abcdefghijkmnpqrstuvwxyz23456789") for _ in range(4)))

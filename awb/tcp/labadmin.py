@@ -360,6 +360,7 @@ def fetch_token(login: dict, region: str, scope: str, endpoint: str | None = Non
 
 # the records live in the core module awb/labruns.py, which the owner status reads too
 runs_dir, save, load_runs, open_run = labruns.runs_dir, labruns.save, labruns.load_runs, labruns.open_run
+load_kept, save_kept = labruns.load_kept, labruns.save_kept
 leftovers, new_id, attention = labruns.leftovers, labruns.new_id, labruns.attention
 
 
@@ -1222,7 +1223,7 @@ def _still_there(c: dict) -> str:
     return "still there after delete: %s" % entry_id(c)
 
 
-def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
+def _end(svc, run: dict, alias: str, login: dict, p, persist: bool = True) -> dict:
     """The deletes of what is left, newest first, in passes while some fail and the time allows. The lab obs jobs of
     the run stop first; each pass aborts the open multipart uploads of the run's buckets before the deletes
     (awb/tcp/labobs.py): a bucket delete answers 409 BucketNotEmpty while one is there."""
@@ -1245,7 +1246,8 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
             except LabAdminError as err:
                 if str(err).startswith("HTTP 401") and str(err).endswith(STALE_LOGIN_LINE.partition("; ")[2]):
                     c["state"], c["error"] = "failed", str(err)
-                    save(p, run)
+                    if persist:
+                        save(p, run)
                     raise
                 status, raw = 0, str(err).encode()
             ok = 200 <= status < 300 or status == 404
@@ -1270,19 +1272,96 @@ def _end(svc, run: dict, alias: str, login: dict, p) -> dict:
                 c.pop("error", None)
             calls.append({"method": d["method"], "service": d["service"], "path": d["path"], "status": status,
                           "label": c["label"]})
-        save(p, run)
+        if persist:
+            save(p, run)
         if not failed or n == END_PASSES - 1 or time.monotonic() + END_PAUSE > deadline:
             break
         time.sleep(END_PAUSE)
     return {"calls": calls}
 
 
+KEEP_KIND_LINE = ("refused: --keep takes the name of an OBS bucket this run made, and %s is not one: nothing is "
+                  "deleted")
+KEPT_NAME_LINE = "refused: no kept bucket %s in %s: awb lab run status lists them"
+NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,63}$")
+
+
+def _keep_names(req: dict) -> list[str]:
+    names = req.get("keep") or []
+    if not isinstance(names, list) or any(not isinstance(n, str) for n in names):
+        raise _refused("refused: --keep takes bucket names")
+    return list(dict.fromkeys(names))
+
+
+def _split_kept(run: dict, names: list[str]) -> list[dict]:
+    """The records of the buckets to keep, checked before anything is deleted: every name is an OBS bucket the run
+    made and has not removed. The objects the run made in a bucket stay with it."""
+    out = []
+    for name in names:
+        bucket = next((c for c in run.get("created", []) if c.get("label") == "obs bucket"
+                       and c.get("state") in ("live", "failed", "left") and entry_id(c) == name
+                       and (c.get("delete") or {}).get("service") == "obs"), None)
+        if bucket is None:
+            raise _refused(KEEP_KIND_LINE % (name if NAME_RE.match(name) else "that name"))
+        path = str((bucket.get("delete") or {}).get("path") or "").rstrip("/")
+        parts = [c for c in run.get("created", []) if c is not bucket and c.get("label") == "obs object"
+                 and c.get("state") in ("live", "failed", "left")
+                 and str((c.get("delete") or {}).get("path") or "").startswith(path + "/")]
+        out.append({"bucket": bucket, "objects": parts})
+    return out
+
+
+def _move_to_kept(run: dict, p, split: list[dict], alias: str) -> list[dict]:
+    """Move the records of the buckets out of the run into the kept list of the project. A bucket keeps the tags
+    of the run: nothing is sent to it."""
+    new = []
+    for k in split:
+        b = k["bucket"]
+        new.append({"tenant": alias, "region": (b.get("delete") or {}).get("region"), "kind": "obs bucket",
+                    "name": entry_id(b), "run": run["id"], "date": _now(), "deletes": [b] + k["objects"]})
+        moved = {id(b)} | {id(c) for c in k["objects"]}
+        run["created"] = [c for c in run.get("created", []) if id(c) not in moved]
+    save_kept(p, run["project"], load_kept(p, run["project"]) + new)
+    return new
+
+
+def _drop(svc, req: dict, uid: int, caller) -> dict:
+    """awb lab kept drop NAME: the delete and the proof of a run end, for a kept bucket of the project."""
+    project = _project(svc, req, uid, caller)
+    p = svc.paths_fn()
+    name = str(req.get("name") or "")
+    with svc.lab.lock:
+        row = next((r for r in load_kept(p, project) if r.get("name") == name), None)
+    if row is None:
+        raise _refused(KEPT_NAME_LINE % (name if NAME_RE.match(name) else "of that name", project))
+    alias = row["tenant"]
+    _tenant_, login = _tenant(svc, alias, project)
+    pseudo = {"id": row["run"], "project": project, "tenant": alias, "created": row["deletes"]}
+    done = _end(svc, pseudo, alias, login, p, persist=False)
+    gone = all(c.get("state") == "removed" for c in row["deletes"])
+    with svc.lab.lock:
+        rows = [r for r in load_kept(p, project) if r.get("name") != name]
+        save_kept(p, project, rows if gone else rows + [row])
+    svc._log(uid, alias, "admin", "DROP", "lab-run", "-", "ok" if gone else "failed", project)
+    answer = {"ok": True, "project": project, "tenant": alias, "name": name, "dropped": gone, "calls": done["calls"],
+              "failed": [{"label": c["label"], "name": c.get("name"), "error": c.get("error")}
+                         for c in row["deletes"] if c.get("state") != "removed"]}
+    shown, hidden = masks(login)
+    return shorten_answer(answer, shown, svc.lab.values(), hidden)
+
+
+def _kept_rows(rows: list[dict]) -> list[dict]:
+    return [{k: r.get(k) for k in ("project", "tenant", "region", "kind", "name", "run", "date")} for r in rows]
+
+
 def serve_run(svc, req: dict, uid: int, caller) -> dict:
     """The op lab_run: start, end or status of the runs of a project."""
     action = req.get("action")
-    if action not in ("start", "end", "status", "keep"):
-        raise _refused("a lab run action is start, keep, end or status")
+    if action not in ("start", "end", "status", "keep", "drop"):
+        raise _refused("a lab run action is start, keep, end, status or drop")
     p = svc.paths_fn()
+    if action == "drop":
+        return _drop(svc, req, uid, caller)
     if action == "status":
         if uid == os.getuid() and not req.get("project"):
             project = None
@@ -1300,7 +1379,7 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
                              "minutes": int((time.time() - float(run.get("started_ts") or time.time())) // 60),
                              "left": [{"n": c.get("n"), "label": c["label"], "name": c.get("name"), "state": c["state"],
                                        "error": c.get("error")} for c in left]})
-        return {"ok": True, "runs": rows}
+        return {"ok": True, "runs": rows, "kept_list": _kept_rows(load_kept(p, project))}
     project = _project(svc, req, uid, caller)
     alias = req.get("tenant")
     _tenant_, login = _tenant(svc, alias, project)
@@ -1339,6 +1418,15 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
                         and (named in (None, r["id"]))), None)
             if run is None:
                 raise _refused("refused: no open lab run of %s on %s and none with failed deletes" % (project, alias))
+    kept_now: list[dict] = []
+    created_before = None
+    names = _keep_names(req)
+    if names:
+        with svc.lab.lock:
+            split = _split_kept(run, names)
+            created_before = len(run.get("created", []))
+            kept_now = _move_to_kept(run, p, split, alias)
+            save(p, run)
     done = _end(svc, run, alias, login, p)
     with svc.lab.lock:
         run["state"] = "ended"
@@ -1348,7 +1436,8 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
     created = run.get("created", [])
     svc._log(uid, alias, "admin", "END", "lab-run", "-", "%d/%d" % (
         sum(1 for c in created if c["state"] == "removed"), len(created)), project)
-    answer = {"ok": True, "run": run["id"], "tenant": alias, "project": project, "created": len(created),
+    answer = {"ok": True, "run": run["id"], "tenant": alias, "project": project,
+              "created": len(created) if created_before is None else created_before,
               "removed": [{"label": c["label"], "name": c.get("name")} for c in created if c["state"] == "removed"]
               + [{"label": g["label"], "name": g["handle"]} for g in run.get("listed_removed", [])],
               "failed": [{"label": c["label"], "name": c.get("name"),
@@ -1356,7 +1445,9 @@ def serve_run(svc, req: dict, uid: int, caller) -> dict:
                           "delete": "%s %s %s" % (c["delete"]["method"], c["delete"]["service"], c["delete"]["path"])}
                          for c in created if c["state"] in ("failed", "left", "unrecorded")],
               "kept": [{"label": c["label"], "id": entry_id(c), "reason": c.get("reason")}
-                       for c in created if c["state"] == "kept"],
+                       for c in created if c["state"] == "kept"]
+              + [{"label": k["kind"], "id": k["name"], "reason": "in the kept list of %s" % project}
+                 for k in kept_now],
               "calls": done["calls"]}
     shown, hidden = masks(login)
     return shorten_answer(answer, shown, svc.lab.values(), hidden)

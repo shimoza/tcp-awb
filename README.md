@@ -298,6 +298,12 @@ nothing, so the end never undoes it. A delete of a resource listed live in RESOU
 says `delete_listed=True`; when it succeeds (2xx or 404) the run records it as removed, the end lists it and the
 client sets its row to deleted. `awb lab run start` prints the python that runs a lab script.
 
+A run that made a tools bucket the project guide links to ends with `awb lab run end --keep NAME[,NAME...]`: it
+deletes everything else and the named OBS buckets (by bucket name, no other kind) stay. A name that is not a bucket of
+the run is refused before anything is deleted. A kept bucket leaves the run's record and goes into the kept list of the
+project (tenant, region, kind, name, run, date); it keeps the run's tags. `awb lab run status` and `awb owner status`
+show the list, and `awb lab kept drop NAME` deletes a kept bucket later with the same delete and proof as a run end.
+
 A large file (an IMS image of 10 to 128 GB and more) does not fit a lab call, which takes 256 KB of JSON or text, and
 the egress filter keeps the session away from OBS. Inside the open run the key service moves it itself, as a
 background job:
