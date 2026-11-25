@@ -46,10 +46,11 @@ finds the resources by their tags or their lab name.
 | `vars` | fixed values of the recipe: an address range, a script for user data |
 | `budget` | `minutes` for the run and `teardown_minutes` for the teardown |
 | `guard` | the cost guard: `resources` (the most it may create) and `lifetime_minutes` (the longest a resource may live); budget plus teardown must fit into the lifetime |
-| `preflight` | optional: reads made with the read key after the disk types and before the first create, each finding the list item whose `by` field (default `name`) equals `value` and needing its `field` (under `key` when that field is an object, such as `az_status` by AZ) to equal `equals`; a miss stops the run with one line and nothing is made |
+| `preflight` | optional: reads made with the read key after the disk types and before the first create, each finding the list item whose `by` field (default `name`) equals `value` and needing its `field` (under `key` when that field is an object, such as `az_status` by AZ) to equal `equals`; a read of one object has no `list`, `value`, `by` or `key`: its `field` is a path in the answer (`server.status` equals `SHUTOFF`); a miss stops the run with one line and nothing is made |
 | `steps` | the calls in order, each with an `id` and `do`: `create`, `call` or `wait` |
 | `checks` | what must hold, each naming the step it reads |
-| `teardown` | for every create step: the delete call and the read that proves the resource gone |
+| `restore` | optional: what the teardown gives back first, whatever happened (`disk-reader` gives the system volume back to its server); see "Giving back what a run took" |
+| `teardown` | for every create step that is not kept: the delete call and the read that proves the resource gone |
 | `kb` | optional: scope, tags, class and the statement for the knowledge base when every check passed |
 
 Every call goes through the key service with the lab key and the project code: `method`, `service`, `path`
@@ -130,7 +131,9 @@ others; a row proven not created stays so with both answers as proof. A row that
 close`; a row still creating (a run that was killed) does.
 
 A `wait` step repeats its call every `every` seconds (default 10) until the field of `until` `equals`, is `in` or
-`contains` a value, for at most `within` seconds; a value of `fail_on` ends it early. A `call` step that does not
+`contains` a value, for at most `within` seconds; a value of `fail_on` ends it early. `"until": {"status": [200]}`
+waits for the HTTP status of the answer instead (a HEAD of an object that a server writes last: 404 until it is
+there). A `call` step that does not
 answer 2xx stops the run, unless a check expects its status.
 
 Checks: `"reached": true` (a wait reached its state), `"status": [403]` (an expected refusal), `"field"` with
@@ -145,8 +148,39 @@ accepted gets its row as usual, so its check fails and the teardown deletes it.
 A `gone` proof may carry `"also"`: a second read (`call` with `status` or with `field` and `in`) that must say gone as
 well, read after the first one holds (an RDS instance: the read by id and the recycle bin).
 
+A create step may carry `"keep": "reason"` (3 to 120 plain characters): the teardown leaves the resource, the recipe has no
+teardown entry for it and its row in `RESOURCES.md` says kept with the reason, the name and the expiry (a kept row does
+not hold `awb close` and does not make the exit code 4). `disk-reader` keeps its bucket this way, because the bucket
+holds the files it read. A create whose answer is lost is still looked up by its name and placed first.
+
+`${userdata:diskreader}` is the base64 of the reader script of `awb/tcp/diskreader.py`, made for the values of the run
+(the bucket is `${name}`, the region, `${sys_volume}` and the parameter `files`); it goes into the `user_data` of a
+server. The dry run shows `<user_data of diskreader>`. A value the script is not made from stops the run as a recipe
+error.
+
 A step or a teardown entry may carry `"confirm"`: the note that its API shape is not proven by a live call yet. The
 dry run, the list and the evidence show these notes, so the first live run says which shapes held.
+
+## Giving back what a run took
+
+A recipe may take something it did not create and has to give it back: `disk-reader` detaches the system volume of a
+stopped server. `restore` is its guarantee. Its keys:
+
+| key | what it holds |
+|---|---|
+| `after` | the step that arms it; it is armed before that step's call is made, so a call that failed or whose answer was lost is covered too |
+| `says` | what is given back, in a phrase |
+| `read` | a GET of the state (`GET evs /v2/{project_id}/volumes/ID`) |
+| `settled` | a condition on that read (`field` with `equals` or `in`) that says no job is under way; the teardown reads until it holds |
+| `actions` | in order, each with `id`, `says`, `when` (conditions that all hold on a fresh read, else the action is skipped; a `${step}` the run never made makes it skipped too), `call` and `then` (the condition to read until after the call) |
+| `proof` | the condition that proves it given back (`volume.attachments.0.server_id` equals the server) |
+| `within` | seconds for each read-until, inside the teardown minutes |
+| `keep` | create steps the teardown does not delete when the proof does not hold |
+
+The teardown runs the restore before any delete. A proof that does not hold writes one line for the owner, sets the exit
+code to 4 and leaves the steps in `keep` alone: deleting a server that still holds the volume would delete the volume
+with it (`delete_volume`), so the reader of `disk-reader` stays and its row says `NOT DELETED`. The dry run shows the
+restore under "teardown, first".
 
 ## An example
 
@@ -201,6 +235,7 @@ dry run, the list and the evidence show these notes, so the first live run says 
 | `nat-snat-egress` | does a NAT gateway take an SNAT rule for the network of a new subnet with an EIP and read the rule back | 5 resources, 30 minutes |
 | `obs-lifecycle-rule` | does an OBS bucket take a lifecycle rule that expires objects after one day and read the rule back | 1 resource, 15 minutes |
 | `dns-private-zone` | does a private DNS zone bound to a new VPC take an A record and read it back | 3 resources, 20 minutes |
+| `disk-reader` | can the system volume of a stopped server (param `server_id`, in `az`) be read read-only by a Linux reader ECS, its files put into the run's bucket and be attached back to the server as its system volume with the same device name | 3 resources, 70 minutes |
 
 `elb-health` lets the port in from `100.125.0.0/16` (the parameter `hc_source`), the address range the health checks
 of a shared ELB are said to come from; that range is to confirm live. Its first live run on 2026-10-12 left the member
@@ -252,3 +287,22 @@ did not call before says "to confirm live" in its note, with the page of the pub
   header; the key service sends every body as JSON. `obs-lifecycle-rule` sends the JSON form and is likely to be
   refused live until the key service can send an XML body. Its read back checks the status 200 only, because a check
   reads JSON answers.
+
+`disk-reader` (tcp-bytg ask 2026-11-21-tcp-bytg-10) is tested on fake answers only; every shape it calls says "to
+confirm live". It reads the server with a GET on `cloudservers/ID` of the ECS service for the state (`SHUTOFF` or the
+run is refused before its first create), the AZ, the system volume (the first of
+`os-extended-volumes:volumes_attached`, `bootIndex` 0) with its device name and the VPC and the `os-interface` path
+under it for the subnet. It then makes the bucket, a security group without an inbound rule and the reader (`adminPass`
+is `{{random:password}}`, nobody logs in; `agency_name` is the parameter `agency`; `user_data` is
+`${userdata:diskreader}`), detaches the volume with a DELETE on `detachvolume`, attaches it to the reader with a POST on
+`attachvolume`, waits with a HEAD for `manifest.json` in the bucket, reads it (`result` must be `read`) and gives the
+volume back with the same two calls and `device` in the attach body. The reader writes `files/<path in the volume>` for
+the fixed files (`Windows/INF/setupapi*.log`, `Windows/System32/winevt/Logs/System.evtx` and `Application.evtx`,
+`Windows/System32/config/SYSTEM` and `SOFTWARE`) and for the colon separated parameter `files` and `manifest.json`
+last, after the unmount. What to look at in the first live run: whether the platform takes `adminPass` with
+`user_data`; whether the agency exists (the owner makes it once: a cloud service agency for ECS with OBS write rights,
+the lab key cannot write IAM); whether a reader without an EIP reaches the OBS endpoint of the region and the metadata
+service answers its `securitykey` path; whether `ntfs-3g` is on the image or installs from its repository; whether the
+call operation parses the JSON of the manifest for the check `read-ok`; and the device name the attach of a system
+volume takes. The files stay in the bucket named after the project and the run (its row says kept and the expiry tag
+ends it); `awb lab obs get` reads one while a lab run of the project is open.

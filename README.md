@@ -232,6 +232,20 @@ goes on when the find proves nothing was made; the recipes `ecs-flavor-boot`, `s
 stops the run as a recipe error and is never taken as the answer a check looks for.
 Five more recipes (`eip-bandwidth-adjust`, `evs-snapshot-restore`, `nat-snat-egress`, `obs-lifecycle-rule` and
 `dns-private-zone`) are tested on fake answers only; `recipes/README.md` lists the shapes still to confirm live.
+The recipe `disk-reader` (tcp-bytg ask 2026-11-21-tcp-bytg-10) reads Windows state of a stopped server (setupapi.dev.log,
+the event logs System.evtx and Application.evtx, the registry hives SYSTEM and SOFTWARE and the files of its parameter
+`files`): `awb lab run disk-reader --param server_id=ID [--param az=eu-de-02] [--param files=PATH:PATH]`. It refuses a
+server that is not stopped or not in its AZ before it makes anything. It makes a bucket named after the project, a
+security group with no inbound rule and a small Linux reader ECS (no EIP) in the subnet and AZ of the server, detaches
+the system volume of the server, attaches it to the reader, which mounts it read-only with ntfs-3g and puts the files
+into the bucket (the script is `awb/tcp/diskreader.py`, the user_data; it holds no secret and fetches nothing from a
+public bucket, it signs its puts with the credential of the reader's IAM agency, param `agency`), then attaches the
+volume back to the server with the same device name and deletes the reader. The teardown always gives the volume back
+first, also after a failed step or a signal (`restore` in the recipe), proves it back with a read and only then deletes
+the reader; a volume that is not proven back keeps the reader alive and the command exits 4 with the line to put it
+back by hand. The bucket stays (a create step with `keep`: its row says kept, its expiry tag ends it) because it holds
+the files. The engine gained a wait on the status of an answer, `keep`, `restore`, a preflight on one object and
+`${userdata:diskreader}`; `recipes/README.md` describes them.
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 
