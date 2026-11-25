@@ -1,0 +1,16 @@
+# Third-party products whose facts stay out of the public TCP facts dataset (the owner's word of 2026-11-25: the
+# facts carry TCP only, never the work with a vendor such as Veeam). One name per line, matched as a whole word,
+# any case, in the statement and the tags of a fact. The facts stay in the knowledge base for the projects.
+Veeam
+OPNsense
+pfSense
+SonicWall
+Meraki
+Fortinet
+FortiGate
+Palo Alto
+Commvault
+Acronis
+Rubrik
+Cohesity
+Zerto

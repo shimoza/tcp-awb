@@ -157,6 +157,26 @@ class DatasetError(Exception):
     """A dataset step cannot be done. The message carries counts and dates, never a value of a file."""
 
 
+THIRD_PARTY = Path(__file__).resolve().parents[2] / "rules" / "dataset-third-party.txt"
+
+
+def third_party_names(path: Path = THIRD_PARTY) -> list[str]:
+    """The third-party products of rules/dataset-third-party.txt, one per line, # starts a comment."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        raise DatasetError("the list of third-party products cannot be read: nothing to build") from None
+    return [x.strip() for x in lines if x.strip() and not x.lstrip().startswith("#")]
+
+
+def third_party(record: dict, names: list[str] | None = None) -> bool:
+    """True when the statement or a tag of the fact names a third-party product (the owner's word of 2026-11-25:
+    the public facts carry TCP only, never the work with a vendor such as Veeam)."""
+    names = third_party_names() if names is None else names
+    text = " ".join([str(record.get("statement") or "")] + [str(t) for t in record.get("tags") or []])
+    return any(re.search(r"(?i)(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(n), text) for n in names)
+
+
 def tenant_free(text: str) -> str:
     """The alias of a test tenant and the names of the Workbench's own commands and parts replaced by plain words."""
     text = _TENANT_RE.sub("a TCP test tenant", text)
@@ -918,6 +938,11 @@ def _build(p: config.Paths, *, out: Path, today: datetime.date | None = None,
     left["names a service not offered"] = len(flagged)
     if not records:
         raise DatasetError("no fact left after the offered check: nothing to build")
+    before = len(records)
+    records = [r for r in records if not third_party(r)]
+    left["about a third-party product"] = before - len(records)
+    if not records:
+        raise DatasetError("no fact left after the third-party filter: nothing to build")
     for r in records:
         r["statement"] = tenant_free(r["statement"])
         r["source"] = tenant_free(r["source"])
