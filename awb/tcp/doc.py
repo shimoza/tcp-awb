@@ -20,7 +20,7 @@ What the service checks before anything is sent (`check_url`, the same function 
 Then: no cookie, no auth header, a fixed User-Agent naming the Workbench, `Accept-Encoding: identity`. A host that
 sends gzip all the same (the docs host does since 2026-11) is read: the gzip body is unpacked under the same cap, a
 broken one and every other encoding are refused. A redirect
-is followed only to a URL that passes the same checks, at most 3 times. A body of more than 5 MB is refused (by its
+is followed only to a URL that passes the same checks (its target may carry a query string, the first URL may not), at most 3 times. A body of more than 5 MB is refused (by its
 Content-Length before a byte is read, or when the read passes the cap), and only a text type is taken (HTML, XHTML,
 Markdown, plain text, JSON) or a PDF (task DF-PDF, 2026-11-07): `application/pdf`, or an octet stream whose body starts
 with `%PDF-`, up to 32 MB. A PDF becomes text through `pdftotext -layout` of the poppler tools on a private temporary
@@ -31,7 +31,7 @@ lists, code blocks, tables as rows of cells; scripts, styles and forms are left 
 
 Rate: at most 30 fetches a minute and 500 a day per project. Each fetch writes one line of the doc ledger,
 `<vault>/log/doc-YYYY-MM.tsv`: the time, the project, the host, the path, the size and the status. Never page
-content and never a query (there is none).
+content and never a query (the path of the line is without the query of a redirect).
 
 Links and help indexes (task DL, 2026-11-11): `--links` appends the links of an HTML page (absolute, without the
 fragment, at most MAX_LINKS, a host off the list marked), so a session can walk from page to page. A help system built
@@ -98,6 +98,7 @@ INDEX_TYPES = {"application/javascript": "script", "text/javascript": "script", 
 """Types a help index comes in; taken only by `find`, never by a fetch of a page."""
 _WORDS_RE = re.compile(r"^[A-Za-z0-9 ._/&+-]{2,120}$")
 _HOST_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
+_QUERY_RE = re.compile(r"^[A-Za-z0-9._~/%+:@!$&'()*,;=?-]+$")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9._~/%+:@!$&'()*,;=-]*$")
 _BAD_PERCENT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _PROJECT_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
@@ -276,6 +277,11 @@ def current_hosts() -> list[str]:
 
 def check_url(url, hosts: list[str] | None = None) -> tuple[str, str]:
     """(host, path) of a URL the reader may fetch; DocError naming the rule otherwise."""
+    return _check_url(url, hosts)[:2]
+
+
+def _check_url(url, hosts, allow_query: bool = False) -> tuple[str, str, str]:
+    """(host, path, query) of a URL; a query passes only when allow_query (the target of a redirect)."""
     if not isinstance(url, str) or not url or len(url) > 400 or any(ord(c) < 33 or ord(c) > 126 for c in url):
         raise DocError("refused: the URL is not plain ASCII without spaces")
     try:
@@ -289,8 +295,13 @@ def check_url(url, hosts: list[str] | None = None) -> tuple[str, str]:
         raise DocError("refused: no user info in the URL")
     if port is not None or parts.netloc.endswith(":"):
         raise DocError("refused: no port in the URL")
+    query = ""
     if "?" in url:
-        raise DocError("refused: no query string")
+        query = parts.query
+        if not allow_query or not query:
+            raise DocError("refused: no query string")
+        if not _QUERY_RE.match(query) or _BAD_PERCENT_RE.search(query):
+            raise DocError("refused: the query has a character that is not URL-safe")
     if "#" in url:
         raise DocError("refused: no fragment")
     host = (parts.hostname or "").lower()
@@ -314,7 +325,7 @@ def check_url(url, hosts: list[str] | None = None) -> tuple[str, str]:
         decoded = next_path
     if not _public(url, ""):
         raise DocError("refused: private URL withheld")
-    return host, path
+    return host, path, query
 
 
 # --------------------------------------------------------------------------- HTML as text
@@ -762,9 +773,10 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
     the ledger)."""
     hosts = current_hosts() if hosts is None else hosts
     host, path = check_url(url, hosts)
+    query = ""
     for hop in range(MAX_REDIRECTS + 1):
         try:
-            status, headers, resp = getter(host, path)
+            status, headers, resp = getter(host, path + "?" + query if query else path)
         except Exception:   # A getter's exceptions can contain request or remote values, including DocError.
             raise _at(DocError("failed: no answer from the host"), host, path) from None
         try:
@@ -775,11 +787,11 @@ def fetch(url: str, *, getter=https_get, hosts: list[str] | None = None, cap: in
                 if where.startswith("/") and not where.startswith("//"):
                     where = "https://%s%s" % (host, where)
                 try:
-                    host, path = check_url(where, hosts)
+                    host, path, query = _check_url(where, hosts, allow_query=True)
                 except DocError as err:
                     raise DocError("refused: a redirect to a URL the rules refuse (%s)"
                                    % str(err).split(": ", 1)[-1]) from None
-                url = "https://%s%s" % (host, path)
+                url = "https://%s%s%s" % (host, path, "?" + query if query else "")
                 continue
             if status != 200:
                 raise DocError("failed: the host answered %d" % status if isinstance(status, int)

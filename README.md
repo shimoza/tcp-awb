@@ -346,7 +346,7 @@ GET only, https only, the host exactly a line of `rules/allow-domains.txt` or of
 HOST [--why TEXT]` on the owner side appends a host after the checks of the list, read at the next fetch, and
 `awb owner status` counts the hosts not yet in the repository), no port, no
 user info, no query string, no fragment and a path of at most 300 URL-safe characters. It follows at most 3
-redirects and only to a URL that passes the same checks, takes at most 5 MB of HTML, Markdown, plain text or JSON
+redirects and only to a URL that passes the same checks (a redirect target may carry a query string, the first URL may not), takes at most 5 MB of HTML, Markdown, plain text or JSON
 and turns HTML into text (headings, paragraphs, lists, code, tables). It also reads a PDF of up to 32 MB (a service
 description, a price list): `pdftotext -layout` of the poppler tools on a private temporary file, each page after a
 line `--- page N ---`, and the first line then ends with `, pdf, N pages`; an encrypted PDF, a broken one and a scan

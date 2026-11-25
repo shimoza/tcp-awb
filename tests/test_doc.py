@@ -119,11 +119,15 @@ def test_a_redirect_is_followed_on_the_list_and_refused_off_it():
         ("docs.example.org", "/c"): html_page("<p>landed</p>"),
         ("learn.microsoft.com", "/out"): (302, {"location": "https://attacker.example.net/collect"}, b""),
         ("learn.microsoft.com", "/q"): (307, {"location": "https://docs.example.org/c?x=1"}, b""),
+        ("docs.example.org", "/c?x=1"): html_page("<p>landed with a query</p>"),
+        ("learn.microsoft.com", "/outq"): (302, {"location": "https://attacker.example.net/collect?x=1"}, b""),
         ("learn.microsoft.com", "/plain"): (301, {"location": "http://docs.example.org/c"}, b""),
     })
     page = doc.fetch("https://learn.microsoft.com/a", getter=g, hosts=HOSTS)
     assert page["url"] == "https://docs.example.org/c" and page["text"].strip() == "landed"
-    for start, rule in (("/out", "not on rules/allow-domains.txt"), ("/q", "no query string"),
+    page = doc.fetch("https://learn.microsoft.com/q", getter=g, hosts=HOSTS)
+    assert page["url"] == "https://docs.example.org/c?x=1" and page["text"].strip() == "landed with a query"
+    for start, rule in (("/out", "not on rules/allow-domains.txt"), ("/outq", "not on rules/allow-domains.txt"),
                         ("/plain", "https only")):
         with pytest.raises(doc.DocError, match="redirect to a URL the rules refuse") as err:
             doc.fetch("https://learn.microsoft.com" + start, getter=g, hosts=HOSTS)
