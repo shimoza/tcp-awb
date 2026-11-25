@@ -552,8 +552,11 @@ def html_text(page: str) -> str:
 
 
 def _plain(text: str) -> str:
-    """Text without control characters but tab and newline."""
-    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", text.replace("\r\n", "\n").replace("\r", "\n"))
+    """Text without control characters but tab and newline, and without the invisible marks a page carries
+    harmlessly: a byte order mark, zero-width spaces and joiners, the word joiner and the soft hyphen (tcp-s2z5
+    2026-11-25: the archive help pages of a vendor carry a byte order mark in an included part)."""
+    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f\ufeff\u200b-\u200d\u2060\u00ad]", "",
+                  text.replace("\r\n", "\n").replace("\r", "\n"))
 
 
 # --------------------------------------------------------------------------- the service side
