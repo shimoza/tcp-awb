@@ -14,3 +14,11 @@ Acronis
 Rubrik
 Cohesity
 Zerto
+# Windows versions out of Microsoft support and Microsoft licence terms (the owner's word of 2026-11-25): facts on
+# moving them to TCP read as support that neither TCP nor Microsoft gives; licence readings are not for the public.
+Windows Server 2008
+2008 R2
+Windows Server 2012
+2012 R2
+SPLA
+License Mobility
