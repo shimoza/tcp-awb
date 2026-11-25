@@ -229,14 +229,14 @@ def test_ux10_winlab_add_remove_and_public_image_stay_refused_in_a_session(regis
     before = registry.read_text(encoding="utf-8")
     for argv, line in ((["add", OTHER_MACHINE, "--port", "2202", "--fingerprint", OTHER_FINGERPRINT,
                          "--no-customer-data"], winlab.OWNER_LINE),
-                       (["remove", MACHINE], winlab.OWNER_LINE),
-                       (["open", MACHINE, "--minutes", "30", "--project", PROJECT, "--public-image"],
-                        winlab.PUBLIC_IMAGE_LINE)):
+                       (["remove", MACHINE], winlab.OWNER_LINE)):
         assert cli.main(["winlab"] + argv) == 1, argv
         assert line in capsys.readouterr().err
-    with pytest.raises(winlab.WinlabError) as err:
+    # --public-image is gone (B-080): the option is no option and the call has no such argument
+    assert cli.main(["winlab", "open", MACHINE, "--minutes", "30", "--project", PROJECT, "--public-image"]) == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+    with pytest.raises(TypeError):
         winlab.open_(MACHINE, 30, PROJECT, now=T0, public_image=True)
-    assert str(err.value) == winlab.PUBLIC_IMAGE_LINE
     assert registry.read_text(encoding="utf-8") == before
 
 

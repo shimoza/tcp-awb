@@ -248,13 +248,12 @@ def test_wl_owner_commands_are_refused_for_the_work_user_and_in_a_session(regist
             call()
         assert str(err.value) == winlab.OWNER_LINE
     if session:
-        # open of another project is refused by the open window, not by the side, and --public-image stays his
+        # open of another project is refused by the open window, not by the side; --public-image is gone
         with pytest.raises(winlab.WinlabError) as err:
             winlab.open_(MACHINE, 30, OTHER, now=minutes(1))
         assert "has an open window for %s" % PROJECT in str(err.value)
-        with pytest.raises(winlab.WinlabError) as err:
+        with pytest.raises(TypeError):
             winlab.open_(MACHINE, 30, PROJECT, now=minutes(1), public_image=True)
-        assert str(err.value) == winlab.PUBLIC_IMAGE_LINE
         assert registered.read_text(encoding="utf-8") == before
     assert registered.read_text(encoding="utf-8") == before
     assert cli.main(["winlab", "list"]) == 0                      # list is for anyone

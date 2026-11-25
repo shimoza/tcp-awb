@@ -1,6 +1,10 @@
-"""tcp-bytg 2026-11-25 (ask 2026-11-25-tcp-bytg-2): in a public image window of the owner a vendor program (ELF or
-PE) skips the secret check of a get, like a disk image; in a plain window it keeps it, and a plain text file keeps it
-in both."""
+"""tcp-bytg 2026-11-25 (ask 2026-11-25-tcp-bytg-2), changed by task B-080 (the owner's word of 2026-11-25): a vendor
+program (ELF or PE) comes with a get like every other file, in every window: only the SHA-256 compare runs, no secret
+check. There is no public image window any more."""
+import hashlib
+
+import pytest
+
 from awb import cli, winlab
 from tests.test_hooks import CODE, project  # noqa: F401 - the fixture
 from tests.test_wl_session import KEY_ID, KEY_SECRET, MACHINE, WINDIR, lab, logs  # noqa: F401 - the fixture
@@ -12,16 +16,21 @@ def _program(magic: bytes) -> bytearray:
 
 def test_a_program_keeps_the_secret_check_in_a_plain_window(lab, capsys):
     lab.files[(WINDIR + "extract").lower()] = _program(b"\x7fELF")
-    assert cli.main(["winlab", "get", WINDIR + "extract", "extract"]) == 1
-    assert "secret(s): the copy was deleted" in capsys.readouterr().err
-    assert not (lab.root / "extract").exists()
+    assert cli.main(["winlab", "get", WINDIR + "extract", "extract"]) == 0, capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "secret(s)" not in err and "deleted" not in err
+    assert (lab.root / "extract").read_bytes() == bytes(lab.files[(WINDIR + "extract").lower()])
 
 
 def test_a_program_skips_the_secret_check_in_a_public_image_window(lab, capsys):
     winlab.close(MACHINE)
-    winlab.open_(MACHINE, 60, CODE, public_image=True)
+    winlab.open_(MACHINE, 60, CODE)
+    with pytest.raises(TypeError):
+        winlab.open_(MACHINE, 60, CODE, public_image=True)      # the option is gone
     for name, magic in (("extract", b"\x7fELF"), ("tool.exe", b"MZ")):
-        lab.files[(WINDIR + name).lower()] = _program(magic)
+        body = _program(magic)
+        lab.files[(WINDIR + name).lower()] = body
         assert cli.main(["winlab", "get", WINDIR + name, name]) == 0, capsys.readouterr().err
-        assert (lab.root / name).exists()
-    assert "secret check skipped: a public image window of the owner" in logs(lab.root)
+        assert (lab.root / name).read_bytes() == bytes(body)
+        assert hashlib.sha256(bytes(body)).hexdigest() in logs(lab.root)
+    assert "secret check" not in logs(lab.root) and "public image" not in logs(lab.root)

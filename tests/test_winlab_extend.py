@@ -90,15 +90,21 @@ def test_winlab_extend_never_shortens_the_window(owner, capsys):
 
 
 def test_winlab_extend_adds_public_image_and_never_takes_it_away(owner, capsys):
+    """--public-image is gone (B-080: no content check in WinLab): the option is refused, a window carries no such
+    field; extending a window changes only its end."""
     assert cli.main(["winlab", "open", MACHINE, "--minutes", "60", "--project", PROJECT]) == 0
     assert "public_image" not in _window()
+    capsys.readouterr()
     owner[0] = minutes(5)
-    assert cli.main(["winlab", "open", MACHINE, "--minutes", "60", "--project", PROJECT, "--public-image"]) == 0
-    assert "public images: no secret check" in capsys.readouterr().out
-    assert _window()["public_image"] is True and _window()["end"] == "2026-11-05T11:05:00Z"
+    before = _window()
+    assert cli.main(["winlab", "open", MACHINE, "--minutes", "60", "--project", PROJECT, "--public-image"]) == 2
+    assert "unrecognized arguments" in capsys.readouterr().err and _window() == before
+    assert cli.main(["winlab", "open", MACHINE, "--minutes", "60", "--project", PROJECT]) == 0
+    assert "public image" not in capsys.readouterr().out
+    assert "public_image" not in _window() and _window()["end"] == "2026-11-05T11:05:00Z"
     owner[0] = minutes(6)
     assert cli.main(["winlab", "open", MACHINE, "--minutes", "90", "--project", PROJECT]) == 0
-    assert _window()["public_image"] is True and _window()["end"] == "2026-11-05T11:36:00Z"
+    assert "public_image" not in _window() and _window()["end"] == "2026-11-05T11:36:00Z"
 
 
 def test_winlab_extend_still_refuses_the_window_of_another_project(owner, capsys):

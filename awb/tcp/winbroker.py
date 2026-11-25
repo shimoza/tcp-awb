@@ -560,8 +560,6 @@ class Broker:
                 machine = winlab.allowed(name, code, path=self.registry, now=self.clock())
             if op == "check":
                 found = {"name": name, "end": machine["window"]["end"]}
-                if machine["window"].get("public_image") is True:
-                    found["public_image"] = True
                 return self._answer(uid, op, name, code, {"ok": True, "machine": found}), b""
             transport = SshTransport(self, name, machine)
             if op == "run":

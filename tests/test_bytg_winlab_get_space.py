@@ -1,4 +1,6 @@
-"""tcp-bytg 2026-11-19: awb winlab get of a 21.9 GB image ended in OSError, its check copy filled the host disk."""
+"""tcp-bytg 2026-11-19: awb winlab get of a 21.9 GB image ended in OSError, its copy for the content check filled the
+host disk. No content check and no second copy exist any more: the received file is compared and published in place,
+and an unexpected failure after the transfer gives the part back."""
 from __future__ import annotations
 
 import shutil

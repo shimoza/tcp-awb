@@ -1,13 +1,15 @@
-"""Task B-040: a disk image built in the lab goes to a lab machine with the secret check only, at transfer speed
-(awb/winlabsession.py disk_image, check_file, _image_secret_count; the owner's decision of 2026-11-06).
+"""Task B-040, changed by task B-080 (the owner's word of 2026-11-25): a disk image built in the lab goes to a lab
+machine and comes back at transfer speed, like every other file. WinLab runs no name check and no secret check of a
+put or a get (awb/winlabsession.py): the file arrives with its SHA-256 and nothing is deleted for a name or a secret.
 
-A disk image is a file whose name ends in .vhdx, .vhd, .vmdk, .qcow2, .iso or .img and whose bytes carry the
-format's signature (a raw .img: a size of whole sectors). It never reaches the name check and still gets the secret
-check over all of its bytes. Every secret is made at run time; the noise is os.urandom. The speed bound is 2 s per
-piece of 4 MB on the build host; AWB_TEST_IMAGE_CHECK_SECONDS widens it on a slow box.
+The disk image kinds (.vhdx, .vhd, .vmdk, .qcow2, .iso, .img with their signatures), a file named like one without
+its signature and a raw .img of a size that is not whole sectors all pass alike, even when their bytes hold a secret
+or a registered name of tests/fixtures.py. Every secret is made at run time; the noise is os.urandom. The speed bound
+is 2 s for a put and a get of 4 MB on the build host; AWB_TEST_IMAGE_CHECK_SECONDS widens it on a slow box.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 import string
@@ -16,12 +18,13 @@ import time
 import pytest
 
 from awb import hooks, winlabsession
-from awb.winlab import WinlabError
+from tests import fixtures
 from tests.test_hooks import project  # noqa: F401 - the fixture of lab
 from tests.test_wl_session import WINDIR, lab, logs  # noqa: F401 - the fixture
 
 _R = random.Random(20261106)
 SPEED = float(os.environ.get("AWB_TEST_IMAGE_CHECK_SECONDS", "2"))
+NAME = fixtures.CUSTOMER_FORMS[0]
 
 
 def _run(chars: str, n: int) -> str:
@@ -47,6 +50,8 @@ SIGNED = [
     ("disk.iso", "iso", 0x8001, b"CD001"),
     ("disk.IMG", "img", 0, b""),
 ]
+HOLDS = ("password = %s\nfor %s\n" % (WORD, NAME)).encode()
+"""A secret and a registered name: what the checks of before refused."""
 
 
 def _image(folder, name: str, offset: int = 0, mark: bytes = b"", size: int = SIZE, body: bytes = b""):
@@ -60,93 +65,105 @@ def _image(folder, name: str, offset: int = 0, mark: bytes = b"", size: int = SI
 
 @pytest.fixture
 def name_check(monkeypatch):
-    """A fake name check that finds nothing and records each call: "whole" and "pieces"."""
+    """A fake name check that finds nothing and records each call: it is never called."""
     calls: list[str] = []
 
     def whole(path, p=None):
         calls.append("whole")
         return []
 
-    def pieces(text):
+    def pieces(text, p=None):
         calls.append("pieces")
-        return 0
+        return []
 
     monkeypatch.setattr(hooks, "file_hits", whole)
-    monkeypatch.setattr(winlabsession, "_name_count", pieces)
+    monkeypatch.setattr(hooks, "name_hits", pieces)
     return calls
 
 
 @pytest.fixture
 def no_name_check(monkeypatch):
     def refuse(*args, **kwargs):
-        pytest.fail("the name check ran on a disk image")
+        pytest.fail("a name check ran on a file of WinLab")
 
     monkeypatch.setattr(hooks, "file_hits", refuse)
-    monkeypatch.setattr(winlabsession, "_name_count", refuse)
+    monkeypatch.setattr(hooks, "name_hits", refuse)
+
+
+def _through(lab, path, winname: str | None = None) -> dict:
+    """Put `path` (in winlab-out/) to the machine and get it back: both pass, the file arrives with its SHA-256 and
+    nothing is deleted. Returns the result of the put."""
+    data = path.read_bytes()
+    sha = hashlib.sha256(data).hexdigest()
+    winpath = WINDIR + (winname or path.name)
+    put = winlabsession.put("winlab-out/" + path.name, winpath)
+    assert "check" not in put and put["sha256"] == sha and put["size"] == len(data)
+    assert bytes(lab.files[winpath.lower()]) == data
+    back = winlabsession.get(winpath, "back-" + path.name)
+    assert "check" not in back and back["sha256"] == sha and back["size"] == len(data)
+    assert (lab.root / ("back-" + path.name)).read_bytes() == data
+    assert not list(lab.root.glob("*.awb-part")) and not list(lab.root.glob(".winlab-*"))
+    return put
 
 
 @pytest.mark.parametrize("name, kind, offset, mark", SIGNED)
-def test_wl_each_signature_makes_a_disk_image_that_gets_the_secret_check_only(tmp_path, no_name_check, name, kind,
+def test_wl_each_signature_makes_a_disk_image_that_gets_the_secret_check_only(lab, no_name_check, name, kind,
                                                                             offset, mark):
-    path = _image(tmp_path, name, offset, mark)
-    assert winlabsession.disk_image(path, SIZE) == kind
-    assert winlabsession.check_file(path, SIZE) == "secret check only, disk image %s" % kind
+    path = _image(lab.root / "winlab-out", name, offset, mark, body=HOLDS)
+    _through(lab, path)
+    assert WORD not in logs(lab.root) and NAME not in logs(lab.root)
 
 
 @pytest.mark.parametrize("name, kind, offset, mark", [s for s in SIGNED if s[1] != "img"])
-def test_wl_the_name_of_a_disk_image_without_its_signature_gets_the_full_check(tmp_path, name_check, name, kind,
+def test_wl_the_name_of_a_disk_image_without_its_signature_gets_the_full_check(lab, name_check, name, kind,
                                                                              offset, mark):
-    path = _image(tmp_path, name)
-    assert winlabsession.disk_image(path, SIZE) is None
-    assert winlabsession.check_file(path, SIZE) == "name and secret check"
-    assert name_check == ["whole", "pieces"]
-    # the signature in a file of another name is no disk image either
-    other = _image(tmp_path, "disk.bin", offset, mark)
-    assert winlabsession.disk_image(other, SIZE) is None
+    out = lab.root / "winlab-out"
+    _through(lab, _image(out, name, body=HOLDS))
+    # the signature in a file of another name passes alike
+    _through(lab, _image(out, "disk.bin", offset, mark, body=HOLDS))
+    assert name_check == []
 
 
-def test_wl_an_img_whose_size_is_not_whole_sectors_gets_the_full_check(tmp_path, name_check):
-    path = _image(tmp_path, "raw.img", size=SIZE + 100)
-    assert winlabsession.disk_image(path, SIZE + 100) is None
-    assert winlabsession.check_file(path, SIZE + 100) == "name and secret check"
-    assert name_check == ["whole", "pieces"]
+def test_wl_an_img_whose_size_is_not_whole_sectors_gets_the_full_check(lab, name_check):
+    _through(lab, _image(lab.root / "winlab-out", "raw.img", size=SIZE + 100, body=HOLDS))
+    assert name_check == []
 
 
 @pytest.mark.parametrize("body", ["password = %s\n" % WORD, KEY_BLOCK], ids=["password", "private-key"])
-def test_wl_a_disk_image_with_a_secret_is_refused_without_the_name_check(tmp_path, no_name_check, body):
+def test_wl_a_disk_image_with_a_secret_is_refused_without_the_name_check(lab, no_name_check, body):
     noise = random.Random(1).randbytes(2048)
-    path = _image(tmp_path, "lab.vhdx", 0, b"vhdxfile", body=noise + b"\n" + body.encode() + b"\n" + noise)
-    with pytest.raises(WinlabError, match=r"carries \d+ secret\(s\)"):
-        winlabsession.check_file(path, SIZE)
+    path = _image(lab.root / "winlab-out", "lab.vhdx", 0, b"vhdxfile",
+                  body=noise + b"\n" + body.encode() + b"\n" + noise)
+    _through(lab, path)
+    assert WORD not in logs(lab.root) and "PRIVATE KEY" not in logs(lab.root)
 
 
 @pytest.mark.parametrize("body, cut", [("password = %s\n" % WORD, 4), (KEY_BLOCK, 12)], ids=["password", "private-key"])
-def test_wl_a_secret_across_the_border_of_two_pieces_of_a_disk_image_is_refused(tmp_path, monkeypatch,
-                                                                                no_name_check, body, cut):
-    monkeypatch.setattr(winlabsession, "PIECE", 4096)
-    start = 4096 - cut                                  # the border falls inside the key word or the armour line
+def test_wl_a_secret_across_the_border_of_two_pieces_of_a_disk_image_is_refused(lab, no_name_check, body, cut):
+    start = 4096 - cut                                  # a border of 4096 bytes falls inside the secret
     data = bytearray(SIZE)
     data[:8] = b"vhdxfile"
     data[start - 1:start + len(body) + 1] = b"\n" + body.encode() + b"\n"
-    path = tmp_path / "lab.vhdx"
+    path = lab.root / "winlab-out" / "lab.vhdx"
     path.write_bytes(bytes(data))
-    with pytest.raises(WinlabError, match=r"carries \d+ secret\(s\)"):
-        winlabsession.check_file(path, SIZE)
+    _through(lab, path)
 
 
 @pytest.mark.wallclock
-def test_wl_the_secret_check_of_4_mb_of_random_bytes_keeps_up_with_the_transfer():
-    # today's check takes about one piece of noise in a hundred for a secret (Pwd= and three characters): such a
-    # piece goes through the whole check again for its count, so the bound is taken on a piece without one
-    for _ in range(5):
-        text = winlabsession._piece_text(os.urandom(winlabsession.PIECE))
-        if not winlabsession._secret_count(winlabsession._secret_lines(text)):
-            break
+def test_wl_the_secret_check_of_4_mb_of_random_bytes_keeps_up_with_the_transfer(lab, no_name_check):
+    # random noise with a secret in it: no check runs and nothing delays the put or the get
+    noise = os.urandom(winlabsession.CHUNK)
+    data = b"vhdxfile" + noise[:1 << 20] + b"\npassword = %s\n" % WORD.encode() + noise[1 << 20:]
+    path = lab.root / "winlab-out" / "noise.vhdx"
+    path.write_bytes(data)
+    sha = hashlib.sha256(data).hexdigest()
     t0 = time.perf_counter()
-    found = winlabsession._image_secret_count(text)
+    put = winlabsession.put("winlab-out/noise.vhdx", WINDIR + "noise.vhdx")
+    got = winlabsession.get(WINDIR + "noise.vhdx", "noise-back.vhdx")
     elapsed = time.perf_counter() - t0
-    assert found == 0
-    assert elapsed <= SPEED, "the secret check of 4 MB of random bytes took %.1f s" % elapsed
+    assert put["sha256"] == got["sha256"] == sha
+    assert (lab.root / "noise-back.vhdx").read_bytes() == data
+    assert elapsed <= SPEED, "a put and a get of 4 MB of random bytes took %.1f s" % elapsed
 
 
 SECRETS = [
@@ -167,36 +184,42 @@ SECRETS = [
 
 
 @pytest.mark.parametrize("secret", SECRETS)
-def test_wl_a_known_secret_in_random_noise_is_still_found(secret):
-    assert winlabsession._secret_count(secret) > 0            # the check of today finds it
-    noise = winlabsession._piece_text(os.urandom(256 * 1024))
-    text = noise + "\n" + secret + "\n" + noise
-    assert winlabsession._secret_count(winlabsession._secret_lines(text)) > 0
+def test_wl_a_known_secret_in_random_noise_is_still_found(lab, no_name_check, secret):
+    noise = os.urandom(256 * 1024)
+    path = lab.root / "winlab-out" / "noise.bin"
+    path.write_bytes(noise + b"\n" + secret.encode() + b"\n" + noise)
+    _through(lab, path)
 
 
-def test_wl_a_jwk_with_its_kty_far_from_its_private_part_is_still_found():
-    noise = winlabsession._piece_text(os.urandom(256 * 1024))
-    text = '{"kty": "EC",\n' + noise + '\n"d": "%s"}' % _run(string.ascii_letters + string.digits, 32)
-    assert winlabsession._secret_count(winlabsession._secret_lines(text)) > 0
+def test_wl_a_jwk_with_its_kty_far_from_its_private_part_is_still_found(lab, no_name_check):
+    noise = os.urandom(256 * 1024)
+    private = _run(string.ascii_letters + string.digits, 32)
+    path = lab.root / "winlab-out" / "key.json"
+    path.write_bytes(b'{"kty": "EC",\n' + noise + b'\n"d": "%s"}' % private.encode())
+    _through(lab, path)
 
 
-def test_wl_a_finding_of_the_lines_goes_to_the_whole_check_for_its_count(monkeypatch):
-    noise = winlabsession._piece_text(os.urandom(64 * 1024))
-    text = noise + "\npassword = %s\n%s\n%s\n" % (WORD, KEY_ID, KEY_SECRET) + noise
-    whole = winlabsession._secret_count(text)
-    assert winlabsession._image_secret_count(text) == whole > 1
-    # lines that hold one of the secrets only or one the piece does not hold: the whole piece decides
-    monkeypatch.setattr(winlabsession, "_secret_lines", lambda t: "password = %s" % WORD)
-    assert winlabsession._image_secret_count(text) == whole
-    assert winlabsession._image_secret_count("lab row\n" * 100) == 0
+def test_wl_a_finding_of_the_lines_goes_to_the_whole_check_for_its_count(lab, no_name_check):
+    noise = os.urandom(64 * 1024)
+    path = lab.root / "winlab-out" / "many.bin"
+    path.write_bytes(noise + b"\npassword = %s\n%s\n%s\n" % (WORD.encode(), KEY_ID.encode(), KEY_SECRET.encode())
+                     + noise)
+    # several secrets in one file: the put and the get pass, no count of them is made or reported
+    put = _through(lab, path)
+    assert set(put) == {"machine", "size", "sha256", "resumed", "log"}
+    rows = lab.root / "winlab-out" / "rows.bin"
+    rows.write_bytes(b"lab row\n" * 100)
+    _through(lab, rows)
 
 
 def test_wl_the_log_of_a_put_names_the_check_that_ran(lab, capsys):
     out = lab.root / "winlab-out"
-    _image(out, "lab.vhdx", 0, b"vhdxfile")
+    _image(out, "lab.vhdx", 0, b"vhdxfile", body=HOLDS)
     (out / "notes.txt").write_text("plain lab text\n", encoding="utf-8")
-    assert winlabsession.put("winlab-out/lab.vhdx", WINDIR + "lab.vhdx")["check"] == \
-        "secret check only, disk image vhdx"
-    assert winlabsession.put("winlab-out/notes.txt", WINDIR + "notes.txt")["check"] == "name and secret check"
+    first = winlabsession.put("winlab-out/lab.vhdx", WINDIR + "lab.vhdx")
+    second = winlabsession.put("winlab-out/notes.txt", WINDIR + "notes.txt")
+    assert "check" not in first and "check" not in second
     text = logs(lab.root)
-    assert "whole, secret check only, disk image vhdx" in text and "whole, name and secret check" in text
+    # the log names the size and the SHA-256 of each file and no check: none ran
+    assert "sha256 %s, whole" % first["sha256"] in text and "sha256 %s, whole" % second["sha256"] in text
+    assert "check" not in text and WORD not in text and NAME not in text

@@ -3,7 +3,7 @@
     awb winlab add NAME --port PORT --fingerprint SHA256:... --no-customer-data    owner side: register a machine
         [--account awblab]
     awb winlab open NAME --minutes N|--until HH:MM --project tcp-xxxx              owner side: a window for a project,
-        [--public-image]                                                           or a longer one when it has one
+                                                                                   or a longer one when it has one
     awb winlab extend NAME --minutes N                                             owner side: the open window
                                                                                    ends N minutes from now
     awb winlab close NAME                                                          owner side: end the window now
@@ -30,8 +30,7 @@ the machine or raises WinlabError with one line (unregistered machine, no window
 
 `awb winlab open` for the project that holds the open window of the machine extends it (Q-0009, finding 6 of the UX
 review of 2026-11-18): the new end is now plus --minutes, or --until HH:MM (local host time, today, or tomorrow when
-that time has passed), and never earlier than the end it had; the start stays, --public-image is added when given
-and never taken away. The window of another project is still refused until `close`. Every open and extension leaves
+that time has passed), and never earlier than the end it had; the start stays. The window of another project is still refused until `close`. Every open and extension leaves
 a notice in <shared>/notices/ (winlab-NAME.CODE.json: the machine, the project and the end); the prompt hook of a
 session of that project warns once, in the last WARN_MINUTES minutes, after the window source confirmed that end
 (`window_warnings`), and `awb owner status` lists the window that ends within WARN_MINUTES minutes with the open
@@ -40,8 +39,7 @@ command that extends it (`ending`).
 The registry is winlab.json beside keys.conf, the file of the read-only tenant settings (`AWB_KEYS_CONF`, default
 ~/.config/awb/keys.conf), mode 600, written to a fresh name and renamed. add, open, close and remove are the owner's:
 refused for the work user. add and remove are refused in an assistant session too, as `awb tenant mode` is; open and
-close run in an assistant session of the owner user (UX10, his yes 2026-11-12), but --public-image stays his own
-statement in his own terminal. No network here: nothing is reached,
+close run in an assistant session of the owner user (UX10, his yes 2026-11-12). No network here: nothing is reached,
 nothing is run on a machine. Standard library only; core code, so the owner status needs no module of the platform
 package.
 
@@ -90,8 +88,6 @@ CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
 OWNER_LINE = ("the lab machines are the owner's: he runs awb winlab add and remove in his own terminal, open and "
               "close as the owner user (his terminal or his own assistant session)")
-PUBLIC_IMAGE_LINE = ("--public-image is the owner's own statement: he gives it in his own terminal, never inside an "
-                     "assistant session")
 SCRIPTS = Path(__file__).resolve().parent / "winlab"     # setup.ps1 and remove.ps1, data of the package
 PLACEHOLDER_RE = re.compile(r"@@[A-Z_]+@@")
 ACCOUNT = "awblab"
@@ -276,8 +272,6 @@ def _matches(pattern, value) -> bool:
 def _valid_window(w) -> bool:
     if not isinstance(w, dict) or not _matches(CODE_RE, w.get("project")):
         return False
-    if w.get("public_image", True) is not True:
-        return False
     try:
         return _parse(w["start"]) < _parse(w["end"])
     except (KeyError, ValueError, TypeError):
@@ -390,24 +384,14 @@ def until_end(text: str, now: datetime.datetime, tz=None) -> datetime.datetime:
 
 @_transaction
 def open_(name: str, minutes: int | None, project: str, *, path: Path | None = None,
-          now: datetime.datetime | None = None, public_image: bool = False, until: str | None = None,
+          now: datetime.datetime | None = None, until: str | None = None,
           extend: bool = False) -> str:
-    """Open a window. `public_image` is the owner's statement that the disk images of this window are public
-    images built in the lab (an evaluation image of the vendor): a get of a disk image or of a compressed file then
-    skips the secret check, whose patterns hit the noise of image bytes. The name check of a compressed file
-    stays.
-
-    `until` (HH:MM, local host time) is the end instead of `minutes`; the window still lasts 1 to MINUTES_MAX
+    """Open a window. `until` (HH:MM, local host time) is the end instead of `minutes`; the window still lasts 1 to MINUTES_MAX
     minutes from now. With `extend` (what `awb winlab open` passes) an open window of the same project gets the new
     end, never an earlier one than it had; without it, as for another project, an open window is refused.
 
-    An assistant session of the owner user may open a window (UX10); `public_image` stays his own statement in his
-    own terminal."""
-    from awb import vault
-
+    An assistant session of the owner user may open a window (UX10)."""
     _owner_user()
-    if public_image is True and vault.in_assistant_session():
-        raise WinlabError(PUBLIC_IMAGE_LINE)
     if not CODE_RE.fullmatch(project or ""):
         raise WinlabError("a project code reads like tcp-q7m4")
     if until is not None:
@@ -431,34 +415,29 @@ def open_(name: str, minutes: int | None, project: str, *, path: Path | None = N
     if w and (not extend or w["project"] != project):
         raise WinlabError("%s has an open window for %s until %s: awb winlab close %s first"
                           % (name, w["project"], _shown(w["end"]), name))
-    image = ", public images: no secret check on a get of a disk image" if public_image is True else ""
     if w:
         before = w["end"]
         if end > _parse(before):
             w["end"] = _stamp(end)
-        if public_image is True:
-            w["public_image"] = True
         save(machines, path)
         post_notice(name, project, w["end"])
         events.start("lab", name, project=project, eta=_parse(w["end"]), auto_end=True, now=now)
         if w["end"] == before:
-            return "lab machine %s: window of %s kept until %s, it ended later already%s" % (
-                name, project, _shown(before), image)
-        return "lab machine %s: window of %s extended until %s (was %s)%s" % (
-            name, project, _shown(w["end"]), _shown(before), image)
+            return "lab machine %s: window of %s kept until %s, it ended later already" % (
+                name, project, _shown(before))
+        return "lab machine %s: window of %s extended until %s (was %s)" % (
+            name, project, _shown(w["end"]), _shown(before))
     m["window"] = {"project": project, "start": _stamp(now), "end": _stamp(end)}
-    if public_image is True:
-        m["window"]["public_image"] = True
     save(machines, path)
     post_notice(name, project, m["window"]["end"])
     events.start("lab", name, project=project, eta=end, auto_end=True, now=now)
-    return "lab machine %s: window open for %s until %s (%d min)%s" % (
-        name, project, _shown(m["window"]["end"]), minutes, image)
+    return "lab machine %s: window open for %s until %s (%d min)" % (
+        name, project, _shown(m["window"]["end"]), minutes)
 
 
 def extend(name: str, minutes: int, *, path: Path | None = None, now: datetime.datetime | None = None) -> str:
     """Give the open window of `name` the end `minutes` from now (1 to MINUTES_MAX, as open), never an earlier one
-    than it has; its project and its --public-image statement stay. Refused when no window is open: that is open."""
+    than it has; its project stays. Refused when no window is open: that is open."""
     _owner_user()
     now = now or _now()
     w = open_window(_get(load(path), name), now)
@@ -836,10 +815,6 @@ def main(argv: list[str] | None = None) -> int:
                       help="the end in local host time, today or tomorrow when it has passed (at most %d minutes "
                            "from now)" % MINUTES_MAX)
     o.add_argument("--project", required=True, help="the project code, tcp-xxxx")
-    o.add_argument("--public-image", action="store_true",
-                   help="your statement that the disk images of this window are public images built in the lab: a "
-                        "get of a disk image or a compressed file skips the secret check (the name check of a compressed file "
-                        "stays)")
     e = sub.add_parser("extend", help="give the open window of a machine the end N minutes from now, never an "
                                       "earlier one (owner side, his own terminal)")
     e.add_argument("name")
@@ -897,9 +872,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--machine", help="the machine, when the project holds windows on two")
     s.add_argument("--overwrite", action="store_true", help="replace FILE when it exists")
     s.add_argument("--recheck", action="store_true",
-                   help="check the part a get kept when the name check could not run again, without a transfer")
-    s.add_argument("--check", action="store_true",
-                   help="also run the name check on a disk image, also with --recheck (own lab output gets none by default)")
+                   help="compare the SHA-256 of the part a get kept (a kill or a signal cut it off) and publish it, "
+                        "without a transfer")
     s = sub.add_parser("serve", help="run the lab broker, the one way to the lab machines (root, under its unit)")
     s.add_argument("--socket", help="its Unix socket (default /run/awb-winlab/broker.sock)")
     s.add_argument("--key", help="the host's private key for the lab machines (default /etc/awb/winlab/id_ed25519)")
@@ -924,8 +898,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "add":
             print(add(args.name, args.port, args.fingerprint, args.no_customer_data, account=args.account))
         elif args.command == "open":
-            print(open_(args.name, args.minutes, args.project, public_image=args.public_image,
-                        until=args.until, extend=True))
+            print(open_(args.name, args.minutes, args.project, until=args.until,
+                        extend=True))
         elif args.command == "extend":
             print(extend(args.name, args.minutes))
         elif args.command == "close":

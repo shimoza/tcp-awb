@@ -794,7 +794,7 @@ build_model_mode() {
 }
 
 step_conf() {
-    local web_keys owner_host recheck_tenant recheck_project extract_conf doc_hosts winlab_checks
+    local web_keys owner_host recheck_tenant recheck_project extract_conf doc_hosts
     info "the host file of the Workbench paths: /etc/awb root:awb 751 (a user outside the group may reach a file it"
     info "owns there, awb-owner its secret, and lists nothing), paths.conf and blocklist.txt 640 root:awb"
     run mkdir -p "$CONF_DIR"
@@ -822,10 +822,6 @@ recheck_project = $recheck_project"
     doc_hosts=$(kept_conf doc_hosts "")
     [ -z "$doc_hosts" ] || web_keys="$web_keys
 doc_hosts = $doc_hosts"
-    # winlab_checks is the owner's switch (off: no name or secret check in WinLab, his word of 2026-11-25): kept
-    winlab_checks=$(kept_conf winlab_checks "")
-    [ -z "$winlab_checks" ] || web_keys="$web_keys
-winlab_checks = $winlab_checks"
     write_file "$CONF_FILE" 640 root:"$WORK_GROUP" <<EOF
 # written by seal/setup.sh, read by awb/config.py
 owner = $owner

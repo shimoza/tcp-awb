@@ -5,13 +5,20 @@ Fake transport only: FakeLab below holds the machine's files and jobs in memory 
 script it is sent. No network, no SSH, no PowerShell. The project is the one of tests/test_hooks.py with the fixture
 register; the registry of the machines is winlab.json beside a keys.conf in tmp_path. Every name, code, path and
 secret is invented; the secrets are made at run time.
+
+WinLab runs no name check and no secret check on a command, a put or a get (the owner's word of 2026-11-25: it
+only handles what he downloads from the internet). What the tests hold on to: the guards of the machine itself
+(its own state, a {{secret:NAME}} reference, the whole WINPATH, no overwrite), the SHA-256 compare of a transfer
+and the masking of the output that comes back.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import random
+import re
 import string
 from pathlib import Path
 
@@ -179,22 +186,22 @@ def test_wl_run_returns_3_for_a_command_that_failed_on_the_machine(lab, capsys):
 
 
 def test_wl_a_command_with_a_registered_name_is_refused(lab, capsys):
+    """No name check of a command any more: it is sent as it is, a job, a VM name and a path pass the same way."""
     command = "Get-ADUser -Filter \"Company -eq '%s'\"" % fixtures.CUSTOMER_FORMS[0]
-    assert cli.main(["winlab", "run", MACHINE, "--", command]) == 1
+    assert cli.main(["winlab", "run", MACHINE, "--", command]) == 0
     err = capsys.readouterr().err
-    assert "1 registered name(s): nothing was sent" in err
-    assert lab.sent == []
-    text = logs(lab.root)
-    assert "refused: the command carries 1 registered name(s)" in text
-    fixtures.assert_no_fixture_name(err + text, "refusal and log")
-    # a job, a VM name and a path on the machine pass the same check
-    with pytest.raises(winlab.WinlabError, match="registered name"):
-        winlabsession.start(MACHINE, command)
-    with pytest.raises(winlab.WinlabError, match="registered name"):
-        winlabsession.run(MACHINE, "Get-VM", vm=fixtures.CUSTOMER_FORMS[1])
-    with pytest.raises(winlab.WinlabError, match="registered name"):
-        winlabsession.get(WINDIR + fixtures.CUSTOMER_FORMS[1] + ".txt", "out.txt")
-    assert lab.sent == []
+    assert "registered name" not in err and "nothing was sent" not in err
+    assert len(lab.sent) == 1 and command in lab.sent[-1]
+    assert "refused" not in logs(lab.root)
+    job = winlabsession.start(MACHINE, command)["job"]
+    encoded = re.search(r"FromBase64String\('([^']+)'\)", lab.jobs[job]["script"]).group(1)
+    assert command in base64.b64decode(encoded).decode("utf-8")
+    winlabsession.run(MACHINE, "Get-VM", vm=fixtures.CUSTOMER_FORMS[1])
+    assert "$awbVm = '%s'" % fixtures.CUSTOMER_FORMS[1] in lab.sent[-1]
+    winpath = WINDIR + fixtures.CUSTOMER_FORMS[1] + ".txt"
+    lab.files[winpath.lower()] = bytearray(b"result\n")
+    assert cli.main(["winlab", "get", winpath, "out.txt"]) == 0
+    assert (lab.root / "out.txt").read_bytes() == b"result\n"
 
 
 @pytest.mark.parametrize("command", [
@@ -206,12 +213,12 @@ def test_wl_a_command_with_a_registered_name_is_refused(lab, capsys):
     "aws configure set aws_secret_access_key %s" % KEY_SECRET + "\nak = %s" % KEY_ID,
 ])
 def test_wl_a_command_carrying_a_secret_is_refused(lab, capsys, command):
-    assert cli.main(["winlab", "run", MACHINE, "--", command]) == 1
+    """No secret check of a command any more: it is sent as it is."""
+    assert cli.main(["winlab", "run", MACHINE, "--", command]) == 0
     err = capsys.readouterr().err
-    assert "secret(s): no password and no key goes to a lab machine, nothing was sent" in err
-    assert lab.sent == []
-    assert_no_secret(err + logs(lab.root))
-    assert "refused:" in logs(lab.root)
+    assert "secret(s)" not in err and "nothing was sent" not in err and "exit 0 on lab-1" in err
+    assert len(lab.sent) == 1 and command in lab.sent[-1]
+    assert "refused:" not in logs(lab.root)
 
 
 def test_wl_no_secret_reference_is_filled_and_the_machine_state_is_out_of_reach(lab, capsys):
@@ -233,8 +240,8 @@ def test_wl_the_vm_password_never_passes_through_the_session(lab, capsys):
     assert "Join-Path $env:ProgramData ('awb-winlab\\vm\\' + $awbVm + '.txt')" in script
     assert "$awbVm = 'lab-vm'" in script and "Invoke-Command -VMName $awbVm -Credential $awbCred" in script
     assert "'S-1-5-32-544', 'S-1-5-18'" in script and "AppendChar" in script
-    # the script itself would pass the secret check: no password and no plain text conversion in it
-    assert winlabsession._secret_count(script) == 0 and "AsPlainText" not in script
+    # the script itself holds no password and no plain text conversion
+    assert "AsPlainText" not in script
     assert cli.main(["winlab", "run", MACHINE, "--vm", "lab'vm", "--", "hostname"]) == 1
     assert "--vm takes the name of the VM" in capsys.readouterr().err
 
@@ -381,48 +388,61 @@ def test_wl_a_put_from_input_is_refused(lab, capsys):
 
 
 def test_wl_put_passes_the_file_through_the_name_check_and_the_secret_check(lab, capsys):
+    """No content check of a put any more: a file with a registered name and a file with a secret arrive whole,
+    with their SHA-256."""
     out = lab.root / "winlab-out"
-    (out / "named.txt").write_text("for %s\n" % fixtures.CUSTOMER_FORMS[0], encoding="utf-8")
-    (out / "keyed.ps1").write_text("password = %s\n" % WORD, encoding="utf-8")
-    assert cli.main(["winlab", "put", "winlab-out/named.txt", WINDIR + "named.txt"]) == 1
-    assert "registered name(s): nothing was sent" in capsys.readouterr().err
-    assert cli.main(["winlab", "put", "winlab-out/keyed.ps1", WINDIR + "keyed.ps1"]) == 1
-    assert "secret(s)" in capsys.readouterr().err
-    assert lab.chunks == [] and lab.files == {}
+    named = ("for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
+    keyed = ("password = %s\n" % WORD).encode()
+    (out / "named.txt").write_bytes(named)
+    (out / "keyed.ps1").write_bytes(keyed)
+    assert cli.main(["winlab", "put", "winlab-out/named.txt", WINDIR + "named.txt"]) == 0
+    assert "sha256 matches" in capsys.readouterr().out
+    assert cli.main(["winlab", "put", "winlab-out/keyed.ps1", WINDIR + "keyed.ps1"]) == 0
+    assert "sha256 matches" in capsys.readouterr().out
+    assert bytes(lab.files[(WINDIR + "named.txt").lower()]) == named
+    assert bytes(lab.files[(WINDIR + "keyed.ps1").lower()]) == keyed
+    assert not [path for path in lab.files if path.endswith(winlabsession.PART)]
+    text = logs(lab.root)
+    assert hashlib.sha256(named).hexdigest() in text and hashlib.sha256(keyed).hexdigest() in text
 
 
 def test_wl_put_reads_a_large_file_in_pieces_and_refuses_a_compressed_one(lab, capsys, monkeypatch):
-    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 100)
-    monkeypatch.setattr(winlabsession, "PIECE", 64)
+    """A put sends a file in chunks and nothing opens its bytes: a log with a name across the border of two
+    chunks, a compressed file and a binary file all arrive whole."""
+    monkeypatch.setattr(winlabsession, "CHUNK", 64)
     out = lab.root / "winlab-out"
-    # the name lies across the border of two pieces
-    (out / "big.log").write_bytes(b"\x00\x01" * 28 + ("for %s\nlab row\n" % fixtures.CUSTOMER_FORMS[0]).encode())
-    assert 56 + 4 < winlabsession.PIECE < 56 + 4 + len(fixtures.CUSTOMER_FORMS[0])
-    (out / "big.gz").write_bytes(b"\x1f\x8b\x08\x00" + b"\x00" * 200)
-    (out / "big.bin").write_bytes(bytes(range(256)) * 2)
-    assert cli.main(["winlab", "put", "winlab-out/big.log", WINDIR + "big.log"]) == 1
-    assert "registered name(s): nothing was sent" in capsys.readouterr().err
-    assert cli.main(["winlab", "put", "winlab-out/big.gz", WINDIR + "big.gz"]) == 1
-    assert "cannot open this compressed file" in capsys.readouterr().err
-    assert lab.chunks == []
-    assert cli.main(["winlab", "put", "winlab-out/big.bin", WINDIR + "big.bin"]) == 0
-    assert bytes(lab.files[(WINDIR + "big.bin").lower()]) == bytes(range(256)) * 2
+    named = b"\x00\x01" * 28 + ("for %s\nlab row\n" % fixtures.CUSTOMER_FORMS[0]).encode()
+    packed = b"\x1f\x8b\x08\x00" + b"\x00" * 200
+    binary = bytes(range(256)) * 2
+    assert 56 + 4 < winlabsession.CHUNK < 56 + 4 + len(fixtures.CUSTOMER_FORMS[0])
+    (out / "big.log").write_bytes(named)
+    (out / "big.gz").write_bytes(packed)
+    (out / "big.bin").write_bytes(binary)
+    for file, data in (("big.log", named), ("big.gz", packed), ("big.bin", binary)):
+        lab.chunks.clear()
+        assert cli.main(["winlab", "put", "winlab-out/" + file, WINDIR + file]) == 0, capsys.readouterr().err
+        capsys.readouterr()
+        assert bytes(lab.files[(WINDIR + file).lower()]) == data
+        assert len(lab.chunks) == -(-len(data) // 64)
+    assert not [path for path in lab.files if path.endswith(winlabsession.PART)]
 
 
 def test_wl_get_deletes_a_copy_that_carries_a_registered_name(lab, capsys):
-    lab.files[(WINDIR + "named.txt").lower()] = bytearray(("for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode())
-    assert cli.main(["winlab", "get", WINDIR + "named.txt", "results/named.txt"]) == 1
+    """No name check of a get any more: the copy is published after its SHA-256 and nothing is deleted."""
+    data = ("for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
+    lab.files[(WINDIR + "named.txt").lower()] = bytearray(data)
+    assert cli.main(["winlab", "get", WINDIR + "named.txt", "results/named.txt"]) == 0
     err = capsys.readouterr().err
-    assert "registered name(s): the copy was deleted" in err
-    assert not list((lab.root / "results").iterdir())
-    fixtures.assert_no_fixture_name(err + logs(lab.root), "refusal and log")
+    assert "deleted" not in err and "registered name" not in err
+    assert (lab.root / "results" / "named.txt").read_bytes() == data
+    assert sorted(p.name for p in (lab.root / "results").iterdir()) == ["named.txt"]
+    assert hashlib.sha256(data).hexdigest() in logs(lab.root)
 
 
 def test_wl_a_put_cut_in_the_middle_resumes_and_the_hash_matches(lab, capsys, monkeypatch):
     monkeypatch.setattr(winlabsession, "CHUNK", 1000)
     data = bytes(_R.randrange(256) for _ in range(10500))
     (lab.root / "winlab-out" / "disk.bin").write_bytes(data)
-    monkeypatch.setattr(winlabsession, "check_file", lambda path, size: None)   # the checks have their own tests
     winpath = WINDIR + "disk.bin"
     lab.cut_after = 4
     assert cli.main(["winlab", "put", "winlab-out/disk.bin", winpath]) == winlabsession.EXIT_OFFLINE
@@ -586,15 +606,17 @@ def test_wl_review_checker_errors_do_not_echo_values(lab, monkeypatch, capsys, o
         text, note = winlabsession.landed("plain output")
         assert text is None
         result = note
+    elif operation == "command":
+        # a command no longer asks the checker: it is sent and its empty output needs none
+        assert winlabsession.run(MACHINE, "Get-VM")["exit"] == 0
+        assert len(lab.sent) == 1
+        result = ""
     else:
-        src = lab.root / "winlab-out" / "plain.txt"
-        src.write_text("plain")
-        with pytest.raises(winlab.WinlabError) as err:
-            if operation == "command":
-                winlabsession.run(MACHINE, "Get-VM")
-            else:
-                winlabsession.check_file(src, 5)
-        result = str(err.value)
+        # a put no longer asks the checker: the file arrives
+        (lab.root / "winlab-out" / "plain.txt").write_text("plain")
+        assert cli.main(["winlab", "put", "winlab-out/plain.txt", WINDIR + "plain.txt"]) == 0
+        assert bytes(lab.files[(WINDIR + "plain.txt").lower()]) == b"plain"
+        result = capsys.readouterr().out
     assert WORD not in result + logs(lab.root)
     fixtures.assert_no_fixture_name(result + logs(lab.root), "checker refusal")
 
@@ -619,14 +641,23 @@ def test_wl_review_transport_errors_are_not_output(lab, monkeypatch, capsys, ope
 
 @pytest.mark.parametrize("kind", ["existing", "parent"])
 def test_wl_review_target_path_is_checked_before_echo(lab, kind, capsys):
+    """The path of FILE no longer goes through a name check: an existing file is still never overwritten, a new
+    path (also in a new folder) gets the file."""
     name = fixtures.CUSTOMER_FORMS[0]
     file = name + ".txt" if kind == "existing" else name + "/result.txt"
     if kind == "existing":
         (lab.root / file).write_text("old")
     lab.files[(WINDIR + "a.txt").lower()] = bytearray(b"plain")
-    assert cli.main(["winlab", "get", WINDIR + "a.txt", file]) == 1
+    code = cli.main(["winlab", "get", WINDIR + "a.txt", file])
     out = capsys.readouterr()
-    fixtures.assert_no_fixture_name(out.out + out.err + logs(lab.root), "target path")
+    if kind == "existing":
+        assert code == 1 and "get does not overwrite" in out.err
+        assert (lab.root / file).read_text() == "old"
+        assert not (lab.root / (file + winlabsession.PART)).exists()
+    else:
+        assert code == 0, out.err
+        assert (lab.root / file).read_bytes() == b"plain"
+    assert not list(lab.root.rglob("*" + winlabsession.PART))
 
 
 @pytest.mark.parametrize("kind", ["hardlink", "fifo", "symlink"])
@@ -680,48 +711,47 @@ def test_wl_review_get_never_overwrites_a_concurrent_file(lab, monkeypatch, caps
 
 
 def test_wl_review_large_get_checks_names(lab, monkeypatch, capsys):
-    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
-    lab.files[(WINDIR + "a.txt").lower()] = bytearray(("plain\n" * 10 + fixtures.CUSTOMER_FORMS[0]).encode())
-    assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 1
+    """A get of several chunks with a registered name inside arrives whole: no name check runs."""
+    monkeypatch.setattr(winlabsession, "CHUNK", 16)
+    data = ("plain\n" * 10 + fixtures.CUSTOMER_FORMS[0]).encode()
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(data)
+    assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 0, capsys.readouterr().err
     capsys.readouterr()
-    assert not (lab.root / "result.txt").exists()
+    assert (lab.root / "result.txt").read_bytes() == data
+    assert len([c for c in lab.chunks if c[0] == "get"]) == -(-len(data) // 16)
     assert not (lab.root / "result.txt.awb-part").exists()
 
 
 def test_wl_a_large_compressed_get_gets_the_whole_check_and_no_name_check_per_piece(lab, monkeypatch, capsys):
-    """tcp-bytg 2026-11-17: a 1.78 GB gzip chunk of a disk image took hours, each 4 MiB piece of its bytes some
-    hundred calls of the rate limited name check. A compressed file gets the whole check (it opens the archive) at
-    any size and the fast secret check per piece, never the name check per piece."""
+    """tcp-bytg 2026-11-17: a 1.78 GB gzip chunk of a disk image took hours of rate limited name checks. A get
+    now opens no file and no piece of it: the file is published after its SHA-256 with no check request."""
     import gzip
 
-    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
-    monkeypatch.setattr(winlabsession, "PIECE", 64)
-    lab.files[(WINDIR + "img.vhdx.0.gz").lower()] = bytearray(gzip.compress(b"plain sectors\n" * 200))
-    whole, pieces = [], []
+    monkeypatch.setattr(winlabsession, "CHUNK", 64)
+    data = gzip.compress(b"plain sectors\n" * 200)
+    lab.files[(WINDIR + "img.vhdx.0.gz").lower()] = bytearray(data)
     from awb import hooks
 
-    real = hooks.file_hits
-    monkeypatch.setattr(hooks, "file_hits", lambda path, *a, **k: whole.append(1) or real(path, *a, **k))
-    real_count = winlabsession._name_count
-    # the paths of the command go through the name check as text; a piece of the file's bytes carries newlines
-    monkeypatch.setattr(winlabsession, "_name_count",
-                        lambda text: (pieces.append(1) if "\n" in text else None) or real_count(text))
+    asked = []
+    monkeypatch.setattr(hooks, "file_hits", lambda *a, **k: asked.append("file") or {})
+    monkeypatch.setattr(hooks, "name_hits", lambda *a, **k: asked.append("name") or [])
     assert cli.main(["winlab", "get", WINDIR + "img.vhdx.0.gz", "img.vhdx.0.gz"]) == 0, capsys.readouterr().err
-    assert whole == [1] and pieces == []
-    assert (lab.root / "img.vhdx.0.gz").exists()
+    assert asked == [] and lab.sent == []
+    assert (lab.root / "img.vhdx.0.gz").read_bytes() == data
+    assert hashlib.sha256(data).hexdigest() in logs(lab.root)
 
 
 def test_wl_a_large_compressed_get_with_a_registered_name_inside_is_deleted(lab, monkeypatch, capsys):
+    """A compressed file with a registered name inside is published as any other file."""
     import gzip
 
-    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
-    data = ("plain\n" * 10 + "for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
-    lab.files[(WINDIR + "named.txt.gz").lower()] = bytearray(gzip.compress(data))
-    assert cli.main(["winlab", "get", WINDIR + "named.txt.gz", "named.txt.gz"]) == 1
+    monkeypatch.setattr(winlabsession, "CHUNK", 16)
+    data = gzip.compress(("plain\n" * 10 + "for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode())
+    lab.files[(WINDIR + "named.txt.gz").lower()] = bytearray(data)
+    assert cli.main(["winlab", "get", WINDIR + "named.txt.gz", "named.txt.gz"]) == 0
     err = capsys.readouterr().err
-    assert "registered name(s): the copy was deleted" in err
-    assert not (lab.root / "named.txt.gz").exists()
-    fixtures.assert_no_fixture_name(err + logs(lab.root), "refusal and log")
+    assert "deleted" not in err and "registered name" not in err
+    assert (lab.root / "named.txt.gz").read_bytes() == data
 
 
 def _image_with_a_key() -> bytearray:
@@ -730,57 +760,68 @@ def _image_with_a_key() -> bytearray:
 
 
 def test_wl_a_get_of_a_disk_image_runs_the_secret_check_in_a_plain_window(lab, capsys):
-    """tcp-bytg 2026-11-17: the secret check of a disk image stays on unless the owner opened a public image
-    window."""
-    lab.files[(WINDIR + "r23.vhdx").lower()] = _image_with_a_key()
-    assert cli.main(["winlab", "get", WINDIR + "r23.vhdx", "r23.vhdx"]) == 1
-    assert "secret(s): the copy was deleted" in capsys.readouterr().err
-    assert not (lab.root / "r23.vhdx").exists()
+    """tcp-bytg 2026-11-17, changed 2026-11-25: no secret check of a disk image any more, in any window: it arrives
+    with its SHA-256 and nothing is deleted."""
+    image = _image_with_a_key()
+    lab.files[(WINDIR + "r23.vhdx").lower()] = image
+    assert cli.main(["winlab", "get", WINDIR + "r23.vhdx", "r23.vhdx"]) == 0, capsys.readouterr().err
+    assert "secret(s)" not in capsys.readouterr().err
+    assert (lab.root / "r23.vhdx").read_bytes() == bytes(image)
+    assert hashlib.sha256(bytes(image)).hexdigest() in logs(lab.root)
 
 
 def test_wl_a_public_image_window_of_the_owner_skips_the_secret_check_of_an_image_get(lab, capsys):
-    """tcp-bytg 2026-11-17, the owner's decision: awb winlab open --public-image states that the disk images of the
-    window are public images built in the lab; a get of a disk image skips the secret check, says so in the log,
-    and the name check of a compressed file stays."""
+    """tcp-bytg 2026-11-17, changed 2026-11-25: awb winlab open has no --public-image any more and a get checks no
+    content: an image with a key and a compressed file with a registered name arrive whole; the log says
+    nothing of a skipped check."""
     import gzip
 
     winlab.close(MACHINE)
-    assert "public images" in winlab.open_(MACHINE, 60, CODE, public_image=True)
-    lab.files[(WINDIR + "r23.vhdx").lower()] = _image_with_a_key()
+    assert "public image" not in winlab.open_(MACHINE, 60, CODE)
+    image = _image_with_a_key()
+    lab.files[(WINDIR + "r23.vhdx").lower()] = image
     assert cli.main(["winlab", "get", WINDIR + "r23.vhdx", "r23.vhdx"]) == 0, capsys.readouterr().err
-    assert (lab.root / "r23.vhdx").exists()
-    assert "secret check skipped: a public image window of the owner" in logs(lab.root)
-    named = ("plain\n" * 10 + "for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
-    lab.files[(WINDIR + "named.txt.gz").lower()] = bytearray(gzip.compress(named))
-    assert cli.main(["winlab", "get", WINDIR + "named.txt.gz", "named.txt.gz"]) == 1
-    assert "registered name(s): the copy was deleted" in capsys.readouterr().err
+    assert (lab.root / "r23.vhdx").read_bytes() == bytes(image)
+    assert "skipped" not in logs(lab.root)
+    named = gzip.compress(("plain\n" * 10 + "for %s\n" % fixtures.CUSTOMER_FORMS[0]).encode())
+    lab.files[(WINDIR + "named.txt.gz").lower()] = bytearray(named)
+    assert cli.main(["winlab", "get", WINDIR + "named.txt.gz", "named.txt.gz"]) == 0
+    err = capsys.readouterr().err
+    assert "deleted" not in err and "registered name" not in err
+    assert (lab.root / "named.txt.gz").read_bytes() == named
 
 
 def test_wl_a_public_image_window_keeps_the_secret_check_of_a_plain_file(lab, capsys):
+    """changed 2026-11-25: a plain file with keys is not checked either: it arrives with its SHA-256."""
     winlab.close(MACHINE)
-    winlab.open_(MACHINE, 60, CODE, public_image=True)
-    lab.files[(WINDIR + "keys.txt").lower()] = bytearray(("ak = %s\nsk = %s\n" % (KEY_ID, KEY_SECRET)).encode())
-    assert cli.main(["winlab", "get", WINDIR + "keys.txt", "keys.txt"]) == 1
-    assert "secret(s): the copy was deleted" in capsys.readouterr().err
+    winlab.open_(MACHINE, 60, CODE)
+    data = ("ak = %s\nsk = %s\n" % (KEY_ID, KEY_SECRET)).encode()
+    lab.files[(WINDIR + "keys.txt").lower()] = bytearray(data)
+    assert cli.main(["winlab", "get", WINDIR + "keys.txt", "keys.txt"]) == 0, capsys.readouterr().err
+    assert "secret(s)" not in capsys.readouterr().err
+    assert (lab.root / "keys.txt").read_bytes() == data
+    assert not (lab.root / "keys.txt.awb-part").exists()
 
 
 def test_wl_the_broker_check_carries_the_public_image_statement_and_nothing_else_passes_for_it(lab):
+    """changed 2026-11-25: the answer's public_image field is ignored: a window with it, without it or with any
+    value of it is returned the same; a stored window with it is as valid as one without."""
     machine = {"name": MACHINE, "end": "2026-11-17T18:00:00Z"}
-    assert "public_image" not in winlabsession._broker_machine({"machine": machine}, MACHINE)
-    assert winlabsession._broker_machine({"machine": dict(machine, public_image=True)}, MACHINE)["public_image"]
-    for bad in (False, "yes", 1):
-        with pytest.raises(winlabsession.WinlabError):
-            winlabsession._broker_machine({"machine": dict(machine, public_image=bad)}, MACHINE)
-    assert winlab._valid_window({"project": CODE, "start": "2026-11-17T10:00:00Z", "end": "2026-11-17T18:00:00Z",
-                                 "public_image": True})
-    assert not winlab._valid_window({"project": CODE, "start": "2026-11-17T10:00:00Z",
-                                     "end": "2026-11-17T18:00:00Z", "public_image": "yes"})
+    assert winlabsession._broker_machine({"machine": machine}, MACHINE) == machine
+    for value in (True, False, "yes", 1):
+        found = winlabsession._broker_machine({"machine": dict(machine, public_image=value)}, MACHINE)
+        assert found["name"] == MACHINE and found["end"] == machine["end"]
+    window = {"project": CODE, "start": "2026-11-17T10:00:00Z", "end": "2026-11-17T18:00:00Z"}
+    assert winlab._valid_window(window)
+    for value in (True, "yes"):
+        assert winlab._valid_window(dict(window, public_image=value))
 
 
 def test_wl_review_put_checks_the_bytes_it_sends(lab, monkeypatch, capsys):
+    """The bytes sent are the bytes of the copy the SHA-256 was made of, also when the source changes after it."""
     src = lab.root / "winlab-out" / "a.txt"
     src.write_bytes(b"plain")
-    original = winlabsession.check_file
+    original = winlabsession._sha256
     upload = lab.put_chunk
     sent = bytearray()
 
@@ -790,29 +831,36 @@ def test_wl_review_put_checks_the_bytes_it_sends(lab, monkeypatch, capsys):
 
     monkeypatch.setattr(lab, "put_chunk", captured)
 
-    def changed(path, size):
-        result = original(path, size)
+    def changed(path):
+        result = original(path)
         src.write_text("pass" + "word=" + WORD)
         return result
 
-    monkeypatch.setattr(winlabsession, "check_file", changed)
-    cli.main(["winlab", "put", "winlab-out/a.txt", WINDIR + "a.txt"])
+    monkeypatch.setattr(winlabsession, "_sha256", changed)
+    assert cli.main(["winlab", "put", "winlab-out/a.txt", WINDIR + "a.txt"]) == 0
     capsys.readouterr()
-    assert not sent or sent == b"plain"
+    assert sent == b"plain" and bytes(lab.files[(WINDIR + "a.txt").lower()]) == b"plain"
 
 
 def test_wl_review_forged_transfer_record_does_not_skip_check(lab, capsys):
+    """A transfer record only helps a resume: a forged one (another SHA-256, a `checked` field) changes nothing
+    about what is sent or what the log says: the file arrives whole with the SHA-256 of its own bytes."""
     src = lab.root / "winlab-out" / "a.txt"
-    src.write_text("pass" + "word=" + WORD)
+    data = ("pass" + "word=" + WORD).encode()
+    src.write_bytes(data)
     st = src.stat()
-    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    sha = hashlib.sha256(data).hexdigest()
+    forged = hashlib.sha256(b"other bytes").hexdigest()
     record = winlabsession._record_path(lab.root, "put", MACHINE, WINDIR + "a.txt")
     record.parent.mkdir(parents=True)
     record.write_text(json.dumps({"source": "winlab-out/a.txt", "ident": [st.st_size, st.st_mtime_ns, st.st_ino],
-                                  "winpath": WINDIR + "a.txt", "sha256": sha, "checked": sha}))
-    assert cli.main(["winlab", "put", "winlab-out/a.txt", WINDIR + "a.txt"]) == 1
+                                  "winpath": WINDIR + "a.txt", "sha256": forged, "checked": forged}))
+    assert cli.main(["winlab", "put", "winlab-out/a.txt", WINDIR + "a.txt"]) == 0, capsys.readouterr().err
     capsys.readouterr()
-    assert not lab.chunks
+    assert lab.chunks
+    assert bytes(lab.files[(WINDIR + "a.txt").lower()]) == data
+    text = logs(lab.root)
+    assert sha in text and forged not in text
 
 
 def test_wl_review_receive_refuses_oversized_chunk(lab, monkeypatch):
@@ -931,12 +979,16 @@ def test_wl_review_missing_source_is_a_safe_refusal(lab, capsys):
 
 
 def test_wl_review_downloaded_secret_is_deleted(lab, capsys):
-    lab.files[(WINDIR + "a.txt").lower()] = bytearray(("pass" + "word=" + WORD).encode())
-    assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 1
+    """No secret check of a get any more: the file arrives with its SHA-256, nothing is deleted. The command line
+    and the log still never echo its content."""
+    data = ("pass" + "word=" + WORD).encode()
+    lab.files[(WINDIR + "a.txt").lower()] = bytearray(data)
+    assert cli.main(["winlab", "get", WINDIR + "a.txt", "result.txt"]) == 0
     out = capsys.readouterr()
     assert WORD not in out.out + out.err + logs(lab.root)
-    assert not (lab.root / "result.txt").exists()
+    assert (lab.root / "result.txt").read_bytes() == data
     assert not (lab.root / "result.txt.awb-part").exists()
+    assert hashlib.sha256(data).hexdigest() in logs(lab.root)
 
 
 def test_wl_review_oversized_output_is_withheld_before_truncation(lab, monkeypatch):

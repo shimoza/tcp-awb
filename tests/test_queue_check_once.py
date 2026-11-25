@@ -294,7 +294,7 @@ ALLOWED_CALLERS = frozenset((
     "awb/projects.py", "awb/review.py", "awb/side.py", "awb/tcp/ask.py", "awb/tcp/dataset.py", "awb/tcp/doc.py",
     "awb/tcp/keys_exchange.py", "awb/tcp/lab.py", "awb/tcp/owner.py", "awb/tcp/recheck.py",
     "awb/tcp/web/chat_service.py", "awb/tcp/web/create_api.py", "awb/tcp/web/materials_api.py",
-    "awb/tcp/web/projects_api.py", "awb/tcp/xchg.py", "awb/translate.py", "awb/winlabsession.py",
+    "awb/tcp/web/projects_api.py", "awb/tcp/xchg.py", "awb/translate.py",
     "awb/workqueue.py", "awb/writing.py",
 ))
 """Every module that calls the name check today. The rule (finding 12 of the review of 2026-11-18): customer data is

@@ -1292,7 +1292,6 @@ otherwise."
 ```bash
 awb winlab add lab-1 --port 2201 --fingerprint SHA256:... --no-customer-data
 awb winlab open lab-1 --minutes 60 --project tcp-xxxx
-awb winlab open lab-1 --minutes 240 --project tcp-xxxx --public-image   # binary files of the window (images, programs, Veeam backups) are public: no check on their get
 awb winlab open lab-1 --until 18:30 --project tcp-xxxx   # the same project again: extends its open window to 18:30 local time
 awb winlab extend lab-1 --minutes 120        # the open window now ends 120 minutes from now (never earlier than it did)
 awb winlab close lab-1                       # before its end
@@ -1305,12 +1304,11 @@ base64 characters, as `ssh-keygen -l` prints it), the day of its registration an
 customer data; add refuses a machine without `--no-customer-data`. A window gives one project one machine for 1 to
 1440 minutes and ends by itself at its end. A machine has at most one open window. `open` for the project that
 holds it extends that window: the new end is now plus `--minutes`, or `--until HH:MM` (local host time, today, or
-tomorrow when that time has passed), never earlier than the end it had; `--public-image` is added when given and
-never taken away. A get of a disk image in a window without `--public-image` says so in one line before the transfer: the secret check comes after the whole transfer and a hit deletes the copy. The window of another project is still refused until you close it. An hour before the end the
+tomorrow when that time has passed), never earlier than the end it had. The window of another project is still refused until you close it. An hour before the end the
 project session is told once at its next prompt, with the open command to ask you for, and `awb owner status`
 shows the window as "ends in N min" with `awb winlab open NAME --minutes 60 --project CODE`. The registry is `winlab.json`
-beside keys.conf, mode 600. add, open, close and remove are refused for the work user; add, remove and
-`open --public-image` are refused in an assistant session too, while open and close run there (UX10); list is for
+beside keys.conf, mode 600. add, open, close and remove are refused for the work user; add and remove
+are refused in an assistant session too, while open and close run there (UX10); list is for
 anyone. The later parts ask `winlab.allowed(NAME, CODE)`, which returns the machine or refuses with one
 line: an unregistered machine, no window, an expired window or another project. `awb owner status` lists every open
 window with its project, its end and `awb winlab close NAME`, and every registered machine that is online (its
@@ -1354,14 +1352,15 @@ awb winlab put winlab-out/setup-lab.ps1 C:\lab\setup-lab.ps1
 awb winlab put winlab-out/setup-lab.ps1 C:\lab\setup-lab.ps1 --overwrite   # replaces the file there
 awb winlab get C:\lab\export.csv results/export.csv --overwrite            # replaces results/export.csv
 awb winlab get C:\lab\export.csv results/export.csv
-awb winlab get C:\lab\disk.vhdx results/disk.vhdx           # own lab output: no name check
-awb winlab get C:\lab\disk.vhdx results/disk.vhdx --check   # the name check too, over its unique text
-awb winlab get C:\lab\disk.vhdx results/disk.vhdx --recheck   # the checks again over a kept part, no transfer
+awb winlab get C:\lab\disk.vhdx results/disk.vhdx           # an image, a program, a backup: the same get, no check
+awb winlab get C:\lab\disk.vhdx results/disk.vhdx --recheck   # the SHA-256 compare and the publication of a kept part, no transfer
 ```
 
-A refusal sends nothing. A command goes out only after four checks: no `{{secret:NAME}}` reference (nothing is
-filled in for a lab machine), nothing that names the machine's own state (`awb-winlab`, the ssh keys), no registered
-name and no secret (a password, a key of the cloud, a token). A VM guest password never passes through the session:
+A refusal sends nothing. A command goes out only after three guards: it is not empty, it has no `{{secret:NAME}}`
+reference (nothing is filled in for a lab machine) and nothing in it names the machine's own state (`awb-winlab`, the
+ssh keys). No name check and no secret check runs on a command, a put or a get (the owner's word of 2026-11-25: WinLab
+is used only from his lab laptop and only with images downloaded from the internet, so no customer data can be there;
+the checks of the main work laptop, `awb intake`, `awb doc fetch` and the commit gate, stay). A VM guest password never passes through the session:
 `--vm VM` names the VM and the laptop reads the credential from `%ProgramData%\awb-winlab\vm\<VM>.txt`, which you
 write there yourself (first line the user, second the password; the command refuses a file anyone but
 Administrators and SYSTEM may read). The CLIXML progress records of powershell.exe are stripped, the output lands
@@ -1373,37 +1372,22 @@ command, put and get do not. A command with no Format or Out command gets `| Out
 (several statements go in a script block first), so a bare `Get-VM` prints its table. Output over 2000 lines is
 printed as the first 1000 and the last 1000 lines with one line that says how many were cut; the log of the project
 keeps all of it. A VM whose credential file is missing gives one plain line. put and get never replace a file unless
-you give `--overwrite` (get replaces it only after every check passed). A run, a transfer and a job record their start
+you give `--overwrite` (get replaces it only once the SHA-256 matched). A run, a transfer and a job record their start
 and their end time.
-put takes files of the project's `winlab-out/` only, after the name check and the secret check; get writes into
-the project, never into `input/`. A disk image built in the lab is our own output and gets the secret check only,
-over all of its bytes and at the speed of the transfer (about 1 s per 4 MB of random bytes): a file whose name ends
-in .vhdx, .vhd, .vmdk, .qcow2 or .iso and whose bytes carry the signature of that format; also a raw .img of
-whole sectors of 512 bytes. A file with such a name and no signature gets both checks. Customer material is checked once,
-at its entry with `awb intake`. The log line of each put names the check that ran ("secret check only, disk image
-vhdx" or "name and secret check"). Both go in chunks, resume when you run the same command again after a break,
+put takes files of the project's `winlab-out/` only and sends them as they are; get writes into
+the project, never into `input/`. Both go in chunks, resume when you run the same command again after a break,
 compare the SHA-256 of both sides at the end and never overwrite a file. They are built for 12 GB; a large file
 belongs in a folder git ignores. Disk images (.vhdx, .vhd, .qcow2, .vmdk, .img, .iso, .raw, .ova in any case) and
 the `.awb-part` of a transfer are ignored in every project by its `.git/info/exclude` (spawn and `awb projects sync`).
-A received file is checked in place: a name or a secret deletes it. When the name check cannot run (the vault is
-locked, the rate limit wait ran out) the get keeps the file unpublished as `FILE.awb-part` with its SHA-256 and how
-far the checks got; the same get with `--recheck` checks it again from there, without a transfer and without an open
-window, and a part changed since the get is deleted. A complete transfer is never deleted for a check that did not
-run: a SIGTERM or SIGHUP during the checks (a tool call that ran out of time) ends the get with one state line
-("kept unpublished as FILE.awb-part (checked to X of Y) ... --recheck goes on from there"), a get killed outright
-leaves its file under the private name its record names and the next get or `--recheck` gives it its part name back,
-and a machine that gave no SHA-256 keeps the part for the same get again, without a transfer. A check over 64 MB
-prints a progress line every minute.
-A disk image that get brings from a lab machine is our own lab output and gets no name check: after the transfer and
-the SHA-256 compare it gets the secret check (none in a public image window) and is published, and the run log and
-the project ledger get one line with the file, size, SHA-256 and "own lab output, no name check". The rule is to check
-once at entry: a customer image enters only through `awb intake`. Every other file from a lab machine (logs, text,
-archives) keeps its checks. `--check` runs the name check on a disk image too. A plain `--recheck` of a kept image
-follows the same default: it verifies the size and the SHA-256 of the transfer, writes the same lines and publishes
-it; `--recheck --check` runs the name check. An image over 2 GB is too large for the whole name check, which reads the file into memory: it gets the name
-check over the unique text runs of its bytes (ASCII and UTF-8, UTF-16 in both byte orders; zero blocks and repeats
-dropped) in requests of 400,000 characters paced under the byte budget of the vault daemon, with a progress line
-every minute and a resume mark at least every 512 MB.
+A received file is published once its SHA-256 matches the one of the machine; a part that does not match is deleted.
+A complete transfer is never deleted for a SHA-256 the machine did not give: a SIGTERM or SIGHUP after the transfer
+(a tool call that ran out of time) ends the get with one state line ("kept unpublished as FILE.awb-part ...
+--recheck compares it without a transfer"), a get killed outright leaves its file under the private name its record
+names; the next get or `awb winlab get WINPATH FILE --recheck` gives it its part name back, compares its SHA-256
+with the one the get recorded and publishes it, without a transfer and without an open window; a part changed since
+the get is deleted. A machine that gave no SHA-256 keeps the part for the same get again, without a transfer.
+A large image is published right after the SHA-256 compare: no request goes to a check and no progress line is
+printed.
 
 Part 4 is the lab broker (`awb winlab serve`, `awb/tcp/winbroker.py`), the same pattern as the key service: a
 project session never holds a key. Root runs it under its unit (the seal part of the steering session: the system

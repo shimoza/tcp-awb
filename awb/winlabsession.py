@@ -19,13 +19,13 @@ and never holds a key. Without the broker's socket `connect` refuses ("no transp
 tests put a fake in its place. On a sealed host the session cannot read the owner's registry: the window check
 (`_allowed`) and the machine of a put or get (`_pick`) then ask the broker.
 
-What goes out. The PowerShell text of the session passes four checks before it goes out (a refusal sends
-nothing): no `{{secret:NAME}}` reference (nothing is filled in for a lab machine), nothing that names the machine's
-own state (awb-winlab, the ssh folder of ProgramData, administrators_authorized_keys), the name check (a registered
-name refuses) and the secret check (the gate's secret classes, the passwords, keys and tokens of awb/labsecrets.py
-and a password typed into ConvertTo-SecureString or a -Password argument). No key of the cloud and no password of
-the session goes to the machine. A VM guest password never passes through the session either: `--vm VM` runs the
-command in the VM with PowerShell Direct and the machine side reads the credential from
+What goes out. The PowerShell text of the session passes three guards before it goes out (a refusal sends
+nothing): it is not empty, no `{{secret:NAME}}` reference (nothing is filled in for a lab machine) and nothing that
+names the machine's own state (awb-winlab, the ssh folder of ProgramData, administrators_authorized_keys). No name
+check and no secret check of a command, a put or a get runs: WinLab is used only from the owner's lab laptop and
+only with images downloaded from the internet, so no customer data can be there (his word of 2026-11-25); the checks
+stay on the path of the main work laptop (awb intake, doc fetch, the commit gate). A VM guest password never passes through the
+session: `--vm VM` runs the command in the VM with PowerShell Direct and the machine side reads the credential from
 %ProgramData%\\awb-winlab\\vm\\<VM>.txt (first line the user, second the password; refused unless only
 Administrators and SYSTEM may read it).
 
@@ -36,17 +36,15 @@ not logged). Every command, its output, every job and every transfer is logged i
 <date>-<machine>.log, a job's log in jobs/<JOB>.log. A refusal is logged with its reason, never the text.
 
 Files. put takes a regular file of the project's winlab-out/ only (no link, no hard link, no file of input/, the
-vault or the shared folders) and passes it through the name check and the secret check first. A disk image built in
-the lab (`disk_image`: .vhdx, .vhd, .vmdk, .qcow2, .iso with the signature of its format, a raw .img of whole
-sectors) is our own output and gets the secret check only, at transfer speed (`_image_secret_count`; the owner's
-decision of 2026-11-06, B-040); customer material is checked once at its entry (awb intake). get writes into the
-project, never into input/ or .git, never over a file. Both go in chunks to WINPATH.awb-part or FILE.awb-part and
-resume after a break: the same command again goes on from the size of the part when the record of the transfer
-(notes/winlab/transfers/) still matches the file. At the end the SHA-256 of both sides is compared; a mismatch
-deletes the part and fails. Neither overwrites a file on the other side. Built for 12 GB: nothing is held whole in
-memory, three breaks in a row are taken again after a pause before the command gives up.
+vault or the shared folders) and sends it as it is. get writes into the project, never into input/ or .git, never
+over a file. Both go in chunks to WINPATH.awb-part or FILE.awb-part and resume after a break: the same command again
+goes on from the size of the part when the record of the transfer (notes/winlab/transfers/) still matches the file.
+At the end the SHA-256 of both sides is compared; a mismatch deletes the part and fails. A get that was killed or
+stopped after the transfer keeps the received file under a private name: `awb winlab get --recheck` compares its
+SHA-256 and publishes it without the machine. Neither overwrites a file on the other side. Built for 12 GB: nothing
+is held whole in memory, three breaks in a row are taken again after a pause before the command gives up.
 
-Standard library only. Nothing here prints a secret or a text a check refused.
+Standard library only. Nothing here prints a secret.
 """
 from __future__ import annotations
 
@@ -85,47 +83,11 @@ WINPATH_MAX = 240
 CHUNK = 4 * 1024 * 1024
 RETRIES = 3
 RUN_TIMEOUT = 300
-CHECK_WHOLE_MAX = 64 * 1024 * 1024
-"""The largest file the name check reads whole (it opens office files and archives); a larger one goes in pieces."""
-CHECK_READ_MAX = 2 * 1024 ** 3
-"""The largest disk image the whole name check reads: it reads the file into memory, and a 21.9 GB image of tcp-bytg
-(2026-11-19) ended in Unavailable. A larger image gets the name check per piece of its bytes, which resumes."""
-PIECE = 4 * 1024 * 1024
-OVERLAP = 512
-RUNS_MIN = 256 * 1024 ** 2
-"""A disk image over this size that the whole check does not read gets the name check over the unique text runs of
-its bytes (_TextRuns) instead of over every piece: a piece cost the byte budget of the vault daemon (16 MB a minute
-per uid), and 444 MB of a 21.9 GB image of tcp-bytg took 70 minutes (2026-11-20)."""
-RUN_MIN = 3
-"""Characters a text run needs besides its spaces to be checked: a registered form has three or more."""
-RUN_OVERLAP = 4096
-"""Bytes of the piece before that are read again with the next one, so a run across the cut is seen whole."""
-RUN_BATCH = 400_000
-"""Characters of unique runs per name check call: one request of the check socket (under vault_client.CHECK_CHUNK
-with room for the decoded views of base64 blocks, under MAX_REQUEST with every character escaped)."""
-RUN_MARK = 512 * 1024 ** 2
-"""Bytes of the image between two resume marks at most: the runs read so far are checked and `checked` is written."""
-RUN_SEEN_MAX = 4_000_000
-"""Distinct runs kept to drop repeats; the set starts again when it is full (a run is then checked once more)."""
-RUN_SEEN_CHARS = 256 * 1024 ** 2
-RUN_PACE_BYTES = 14 * 1024 ** 2
-RUN_PACE_WINDOW = 60.0
-"""Request bytes the run check sends per window: under the daemon's RATE_BYTES (16 MB a minute per uid), so the hooks
-of the same user keep 2 MB a minute and no request comes back as "rate"."""
-PROGRESS_EVERY = 60.0
-"""Seconds between two progress lines of the run check on stderr."""
 STAGED_RE = re.compile(r"^\.winlab-[0-9a-f]{32}(?:\.[A-Za-z0-9]{1,16})?$")
-"""The private name a received file has while it is checked (_check_and_publish); the record keeps it as `staged`."""
-KEPT_LINE = ("the received file is kept unpublished as %s (checked to %s of %s): %s; `awb winlab get %s %s --recheck` "
-             "goes on from there without a transfer")
-"""The state line of a received file that is complete and not published yet: where it is, how far the checks got,
-why and the command that finishes them."""
+"""The private name a received file has while its SHA-256 is compared (_publish); the record keeps it as `staged`."""
 AGAIN_LINE = ("the received file is kept unpublished as %s (%s, complete): %s; `awb winlab get %s %s` again, while the "
-              "window is open, compares it without a transfer and runs the checks")
+              "window is open; the same command with --recheck compares it without a transfer")
 """The state line of a complete received file whose SHA-256 was not compared yet."""
-DISK_IMAGES = {".vhdx": "vhdx", ".vhd": "vhd", ".vmdk": "vmdk", ".qcow2": "qcow2", ".iso": "iso", ".img": "img"}
-"""The suffix of a disk image and its kind."""
-SECTOR = 512
 LOG_READ = 4 * 1024 * 1024
 """The most of a job's log one `awb winlab log` fetches."""
 PRINT_MAX = 2000
@@ -141,29 +103,10 @@ BROKER_MAX_ANSWER = 64 * 1024 * 1024
 NO_TRANSPORT = ("there is no transport to a lab machine yet for this user: the socket of the lab broker "
                 "(awb-winlab.service) is not there or not open to it; nothing was sent")
 EXIT_OK, EXIT_REFUSED, EXIT_REMOTE, EXIT_OFFLINE = 0, 1, 3, 4
-NAME_CLASSES = ("name", "path")
 
 SECRET_REF_RE = re.compile(r"\{\{\s*secret\s*:", re.I)
 STATE_RE = re.compile(r"awb-winlab|programdata[\\/]+ssh\b|administrators_authorized_keys", re.I)
-def _binary(path) -> bool:
-    """True when the first 64 KiB of the file hold a NUL byte: no text file of a lab machine does."""
-    with open(path, "rb") as fh:
-        return b"\x00" in fh.read(65536)
 
-
-_PROGRAM = (b"\x7fELF", b"MZ")
-"""The first bytes of a program: ELF (Linux) and PE (Windows)."""
-
-_PS_PLAIN_RE = re.compile(
-    r"(?i)ConvertTo-SecureString\b(?=[^\n;|)]*-AsPlainText)(?=[^\n;|)]*[\"'][^\"'\n]{3,}[\"'])"
-    r"|[\"'][^\"'\n]{3,}[\"']\s*\|\s*ConvertTo-SecureString\b"
-    r"|(?<![\w-])-(?:Password|Passwd|Pwd|Kennwort)\s+[\"'][^\"'\n]+[\"']")
-"""A password typed into the text: a quoted value for ConvertTo-SecureString or a -Password argument. The
-ConvertTo-SecureString part ends at a closing bracket too, so a quoted -Description after (ConvertTo-SecureString $pw
--AsPlainText -Force) is not taken for the password."""
-_COMPRESSED = (b"PK\x03\x04", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c", b"\xfd7zXZ\x00", b"BZh", b"MSCF", b"Rar!",
-               b"\x28\xb5\x2f\xfd")
-"""Containers whose text no piece of the file shows: refused when the check cannot open them."""
 
 _CLIXML_MARK_RE = re.compile(r"(?m)^#< CLIXML\r?(?:\n|$)")
 _OBJS = r"<Objs\b[^>]*xmlns=\"http://schemas\.microsoft\.com/powershell/2004/04\"[^>]*>"
@@ -181,7 +124,7 @@ class Offline(Exception):
 class Stopped(BaseException):
     """SIGTERM or SIGHUP during a get (a tool call that ran out of time, a closed session): a BaseException, so no
     `except Exception` takes it and every finally gives the received file back under its part name (tcp-bytg ask 11:
-    ten complete transfers of disk images were lost when the check was cut off)."""
+    ten complete transfers of disk images were lost when the end of the get was cut off)."""
 
 
 class Transport:
@@ -349,7 +292,7 @@ def _broker_names(answer: dict) -> list[str]:
         raise WinlabError("the lab broker returned an invalid machine list")
     for name in names:
         winlab._check_name(name)
-        check_own(name, "the machine name")
+        guard_text(name, "the machine name")
     return names
 
 
@@ -357,8 +300,7 @@ def _broker_machine(answer: dict, name: str) -> dict:
     machine = answer.get("machine")
     try:
         if (not isinstance(machine, dict) or machine.get("name") != name
-                or winlab._stamp(winlab._parse(machine["end"])) != machine["end"]
-                or machine.get("public_image", True) is not True):
+                or winlab._stamp(winlab._parse(machine["end"])) != machine["end"]):
             raise ValueError()
     except (ValueError, KeyError, TypeError):
         raise WinlabError("the lab broker returned an invalid window") from None
@@ -454,7 +396,7 @@ def _read_json(path: Path) -> dict | None:
 
 def log_path(root: Path, machine: str) -> Path:
     winlab._check_name(machine)
-    check_own(machine, "the machine name")
+    guard_text(machine, "the machine name")
     return root / LOG_FOLDER / ("%s-%s.log" % (_now().strftime("%Y-%m-%d"), machine))
 
 
@@ -537,51 +479,10 @@ def log(root: Path, machine: str, title: str, lines: list[str]) -> Path:
 # --------------------------------------------------------------------------- what goes out
 
 
-def _secret_count(text: str) -> int:
-    from awb import hooks, labsecrets
-
-    counts = labsecrets.shorten(text)[1]
-    return (len(hooks._secret_hits(text)) + sum(n for kind, n in counts.items() if kind != "login")
-            + len(_PS_PLAIN_RE.findall(text)))
-
-
-def _name_count(text: str) -> int:
-    from awb import hooks
-
-    try:
-        return len([h for h in hooks.name_hits(text) if h.get("cls") in NAME_CLASSES])
-    except hooks.Unavailable:
-        raise WinlabError("the name check did not run: nothing was sent") from None
-
-
-CHECKS_KEY = "winlab_checks"
-
-
-def content_checks() -> bool:
-    """False when the host file says `winlab_checks = off`: the owner's word of 2026-11-25 ("WinLab работает
-    исключительно с образами, которые мы качаем с интернета ... железобетонно не может быть никаких файлов
-    заказчика ... Убери там абсолютно все проверки"). Then no name check and no secret check runs on what goes to a
-    lab machine (a command, a put) or comes back (a get); a get keeps only its SHA-256 compare. The guards of the
-    machine itself stay: no {{secret:}} reference is filled in, no command reaches the machine's own state (its ssh
-    keys), a path stays a plain whole path, and logs keep their secret masking. Without the line the checks run."""
-    from awb import config
-
-    return config.host_conf().get(CHECKS_KEY, "on").strip().lower() != "off"
-
-
-def check_text(text: str, what: str = "the command") -> None:
-    """Refuse `text` before it goes to a lab machine: a {{secret:}} reference, the machine's own state, a registered
-    name or a secret. The refusal names the class and the count, never the text."""
-    _check_own(text, what, names=True)
-
-
-def check_own(text: str, what: str) -> None:
-    """check_text without the name check, for text the Workbench generated itself (a lab machine name, a window
-    line): the material was checked for names once when it entered, generated text gets the secret check only."""
-    _check_own(text, what, names=False)
-
-
-def _check_own(text: str, what: str, names: bool) -> None:
+def guard_text(text: str, what: str = "the command") -> None:
+    """Refuse `text` before it goes to a lab machine when it is empty, carries a {{secret:NAME}} reference or names
+    the machine's own state. These guard the machine itself; no name check and no secret check of the content runs
+    (the owner's word of 2026-11-25: WinLab only handles what he downloads from the internet)."""
     if not text.strip():
         raise WinlabError("%s is empty" % what)
     if SECRET_REF_RE.search(text):
@@ -590,15 +491,6 @@ def _check_own(text: str, what: str, names: bool) -> None:
     if STATE_RE.search(text):
         raise WinlabError("%s names the machine's own state (awb-winlab, the ssh keys): no session command reaches "
                           "it, nothing was sent" % what)
-    if not content_checks():
-        return
-    found = _name_count(text) if names else 0
-    if found:
-        raise WinlabError("%s carries %d registered name(s): nothing was sent" % (what, found))
-    found = _secret_count(text)
-    if found:
-        raise WinlabError("%s carries %d secret(s): no password and no key goes to a lab machine, nothing was sent"
-                          % (what, found))
 
 
 def check_winpath(winpath: str) -> None:
@@ -611,7 +503,7 @@ def check_winpath(winpath: str) -> None:
         raise WinlabError("WINPATH must name a file, not a Windows device")
     if winpath.lower().endswith(PART):
         raise WinlabError("WINPATH may not end in %s" % PART)
-    check_text(winpath, "WINPATH")
+    guard_text(winpath, "WINPATH")
 
 
 def check_vm(vm: str | None) -> None:
@@ -619,7 +511,7 @@ def check_vm(vm: str | None) -> None:
         return
     if not VM_RE.fullmatch(vm):
         raise WinlabError("--vm takes the name of the VM: letters, digits, space, dot, - and _, at most 64")
-    check_text(vm, "the VM name")
+    guard_text(vm, "the VM name")
 
 
 def _ps(value: str) -> str:
@@ -868,7 +760,7 @@ def _print_cut(text: str, where: str, stream=None) -> None:
 def _session(name: str, root: Path | None, started: str | None = None) -> tuple[Path, str, dict]:
     root = root or _root()
     winlab._check_name(name)
-    check_own(name, "the machine name")
+    guard_text(name, "the machine name")
     code = _code(root)
     # Refuse unsafe log storage before contacting a machine.
     path = log_path(root, name)
@@ -911,7 +803,7 @@ def run(name: str, text: str, vm: str | None = None, timeout: float = RUN_TIMEOU
     try:
         root, code, machine = _session(name, root)
         check_vm(vm)
-        check_text(text)
+        guard_text(text)
     except WinlabError as err:
         _refused(root, name, "run on %s" % name, err)
         raise
@@ -999,7 +891,7 @@ def start(name: str, text: str, vm: str | None = None, root: Path | None = None)
     try:
         root, code, machine = _session(name, root)
         check_vm(vm)
-        check_text(text)
+        guard_text(text)
     except WinlabError as err:
         _refused(root, name, "start on %s" % name, err)
         raise
@@ -1246,235 +1138,6 @@ def source(root: Path, file: str) -> Path:
     return real
 
 
-def _piece_text(data: bytes) -> str:
-    """The text a piece of a file shows: UTF-8 where it decodes, every other byte and control character a newline."""
-    text = data.decode("utf-8", "replace")
-    return re.sub(r"[\x00-\x08\x0b-\x1f\x7f\ufffd]+", "\n", text)
-
-
-def disk_image(path: Path, size: int, suffix: str | None = None) -> str | None:
-    """The kind of disk image the file at `path` is (None for any other file). Its name ends in the suffix of the
-    kind (any case) and its first bytes carry the format's own signature: vhdx "vhdxfile", vhd "conectix" at offset 0
-    or in the footer of the last 512 bytes, vmdk "KDMV" or the text descriptor, qcow2 "QFI\\xfb", iso "CD001" at
-    offset 0x8001. A raw .img has no signature: it is one by its name when its size is a whole number of sectors."""
-    kind = DISK_IMAGES.get((path.suffix if suffix is None else suffix).lower())
-    if kind is None:
-        return None
-    if kind == "img":
-        return kind if size % SECTOR == 0 else None
-    with open(path, "rb") as fh:
-        head = fh.read(0x8006)
-        fh.seek(max(0, size - SECTOR))
-        foot = fh.read(SECTOR)
-    signed = {"vhdx": head.startswith(b"vhdxfile"),
-              "vhd": head.startswith(b"conectix") or foot.startswith(b"conectix"),
-              "vmdk": head.startswith((b"KDMV", b"# Disk DescriptorFile")),
-              "qcow2": head.startswith(b"QFI\xfb"),
-              "iso": head[0x8001:0x8006] == b"CD001"}
-    return kind if signed[kind] else None
-
-
-# The secret check of a disk image. On 4 MB of random bytes the check of _secret_count takes about 27 s: no pattern
-# backtracks, but some 45 patterns of the gate and of awb/labsecrets.py each scan every position of the piece's
-# text (0.2 to 1.2 s apiece), the table and key pair rules walk a million short lines in Python and shorten and
-# _secret_hits both run the gate's detectors. Noise has no secret, so _image_secret_count runs the same check over
-# the lines that can carry one with the lines around them. Only when that finds any does the whole piece go
-# through it again, for the count and to stay exactly as strict. A line can carry a secret when it holds a word of
-# a secret key or a secret pattern (case folded and without the separators the gate's key rule drops), a run of
-# 15 characters without a space (every token, key, hash and pgpass line of the gate), a literal of the flag and
-# URL patterns on a line long enough for its value or a table row with a value cell. A key word of two letters
-# (ak, sk, pw) counts on a line of 9 characters or more: a value of 16 for it on a later line is such a run
-# itself; a table row has its own rule.
-_CONTEXT = 3
-"""Lines kept before and after a seed line, blank lines not counted: the gate takes a value up to three lines below
-its key and a key pair two lines apart; the separator of a password may stand on a line of its own."""
-_SHORT_ATOM_LINE = 9
-_LONG_LINE_RE = re.compile(r"[^\n]{%d,}" % _SHORT_ATOM_LINE)
-_RUN_RE = re.compile(r"\S{15}")
-_CELL_RE = re.compile(r"\S{8}")
-_SEED_WORDS = ("pwd", "kennwort", "access", "signature", "bearer", "identifiedby", "converttosecurestring",
-               "begin", "privatelines", "парол")
-"""The words of the secret patterns of the gate, labsecrets and _PS_PLAIN_RE beside the gate's key words, case
-folded and squeezed (identified by, ConvertTo-SecureString, Private-Lines)."""
-_SEED_LITERALS = (("-p", 21), ("-u", 13), ("--creds", 13), ("://", 14), ('"kty"', 0))
-"""A literal of a pattern without a key word and the shortest line that holds it with its secret: a -p flag with
-a quoted value, -u with a user and a password, the userinfo of a URL and the "kty" a JWK needs anywhere in the text."""
-_SEEDS: list = []
-
-
-def _seed_atoms() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    """(words, words of two letters, characters squeezed out) for _seed_lines."""
-    if not _SEEDS:
-        from awb import gate
-
-        words = set(gate._SECRET_PARTS) | {w.replace("_", "") for w in gate._SECRET_WORDS} | set(_SEED_WORDS)
-        squeezed = tuple(sorted({chr(c) for c in range(0x110000) if chr(c).isspace()} - {"\n"})) + tuple("_.:-")
-        _SEEDS.append((tuple(sorted(w for w in words if len(w) > 2)), tuple(sorted(w for w in words if len(w) <= 2)),
-                       squeezed))
-    return _SEEDS[0]
-
-
-def _squeezed(text: str, chars: tuple[str, ...]) -> str:
-    # (?i) takes the dotless i and the dotted capital I for an i; casefold makes the second i and a combining dot
-    folded = text.casefold().replace("ı", "i").replace("i̇", "i")
-    for ch in chars:
-        folded = folded.replace(ch, "")
-    return folded
-
-
-def _found_lines(text: str, word: str, out: set[int]) -> None:
-    """The line of every place `word` stands in `text`, into `out`."""
-    line, last = 0, 0
-    at = text.find(word)
-    while at >= 0:
-        line += text.count("\n", last, at)
-        last = at
-        out.add(line)
-        at = text.find(word, at + 1)
-
-
-def _seed_lines(text: str, lines: list[str]) -> set[int]:
-    """The lines of `text` that can carry a secret (see above)."""
-    from awb import gate
-
-    words, short, chars = _seed_atoms()
-    folded = _squeezed(text, chars)
-    seeds: set[int] = set()
-    for word in words:
-        _found_lines(folded, word, seeds)
-    for literal, shortest in _SEED_LITERALS:
-        found: set[int] = set()
-        _found_lines(text, literal, found)
-        seeds.update(i for i in found if len(lines[i]) >= shortest)
-    i, last = 0, 0
-    for m in _LONG_LINE_RE.finditer(text):
-        i += text.count("\n", last, m.start())
-        last = m.start()
-        line = m.group(0)
-        if i in seeds:
-            continue
-        if (len(line) >= 15 and _RUN_RE.search(line)) \
-                or (any(d in line for d in gate._TABLE_DELIMITERS) and _CELL_RE.search(line)):
-            seeds.add(i)
-        else:
-            low = _squeezed(line, chars)
-            if any(w in low for w in short):
-                seeds.add(i)
-    return seeds
-
-
-def _secret_lines(text: str) -> str:
-    """The seed lines of `text` with _CONTEXT lines around each and, for a line with a table delimiter, the whole
-    run of such lines it stands in and the line on either side (where the gate's table rule starts again). Each
-    stretch in between becomes one empty line."""
-    from awb import gate
-
-    lines = text.split("\n")
-    n = len(lines)
-    keep = bytearray(n)
-
-    def table(i: int) -> bool:
-        return any(d in lines[i] for d in gate._TABLE_DELIMITERS)
-
-    run_end = -1
-    for seed in sorted(_seed_lines(text, lines)):
-        keep[seed] = 1
-        for step in (-1, 1):
-            i, left = seed, _CONTEXT
-            while left and 0 <= i + step < n:
-                i += step
-                keep[i] = 1
-                if lines[i].strip():
-                    left -= 1
-        if seed > run_end and table(seed):
-            lo = seed
-            while lo > 0 and table(lo - 1):
-                lo -= 1
-            run_end = seed
-            while run_end + 1 < n and table(run_end + 1):
-                run_end += 1
-            a, b = max(0, lo - 1), min(n, run_end + 2)
-            keep[a:b] = b"\x01" * (b - a)
-    out: list[str] = []
-    a = keep.find(1)
-    while a >= 0:
-        b = keep.find(0, a)
-        b = n if b < 0 else b
-        if out:
-            out.append("")
-        out.extend(lines[a:b])
-        a = keep.find(1, b)
-    return "\n".join(out)
-
-
-def _image_secret_count(text: str) -> int:
-    """_secret_count of a piece of a disk image at transfer speed: over its _secret_lines first and over the whole
-    piece only when they carry a secret."""
-    lines = _secret_lines(text)
-    if lines == text:
-        return _secret_count(text)
-    return _secret_count(text) if _secret_count(lines) else 0
-
-
-def check_kind(path: Path, size: int) -> str:
-    """Which check a put of the file at `path` runs, for its log line."""
-    if not content_checks():
-        return "no check (winlab_checks = off, the owner's word of 2026-11-25)"
-    image = disk_image(path, size)
-    return "secret check only, disk image %s" % image if image else "name and secret check"
-
-
-def check_file(path: Path, size: int) -> str:
-    """The name check and the secret check over the file at `path` before it goes to a lab machine; returns
-    check_kind. A file up to CHECK_WHOLE_MAX goes whole to the name check, which opens office files and archives.
-    Every file but a plain text goes to it again in pieces of its text (a binary file can come back clean from the
-    whole check); a compressed file the check cannot open is refused. The secret check reads the pieces of every
-    file. A disk image (disk_image) skips the name check and gets the secret check of _image_secret_count.
-    With winlab_checks = off (the owner's word of 2026-11-25) nothing is checked."""
-    from awb import hooks
-
-    if not content_checks():
-        return check_kind(path, size)
-
-    image = disk_image(path, size)
-    opaque, plain = True, False
-    if size <= CHECK_WHOLE_MAX and not image:
-        try:
-            hits = hooks.file_hits(path)
-        except hooks.Unavailable:
-            raise WinlabError("the name check did not run: nothing was sent") from None
-        names = [h for h in hits if h.get("cls") in NAME_CLASSES]
-        if names:
-            raise WinlabError("the file carries %d registered name(s): nothing was sent" % len(names))
-        opaque = any(h.get("cls") == "opaque" for h in hits)
-        data = path.read_bytes()
-        try:
-            plain = b"\x00" not in data[:8192] and bool(data.decode("utf-8"))
-        except UnicodeDecodeError:
-            plain = False
-    with open(path, "rb") as fh:
-        if opaque and fh.read(8).startswith(_COMPRESSED):
-            raise WinlabError("the check cannot open this compressed file: put the files in it one by one")
-        fh.seek(0)
-        tail = ""
-        while True:
-            data = fh.read(PIECE)
-            if not data:
-                break
-            text = tail + _piece_text(data)
-            # the name check read a plain text whole; any other file it reads again in the pieces of its text
-            if not plain and not image:
-                names = _name_count(text)
-                if names:
-                    raise WinlabError("the file carries %d registered name(s): nothing was sent" % names)
-            found = _image_secret_count(text) if image else _secret_count(text)
-            if found:
-                raise WinlabError("the file carries %d secret(s): no password and no key goes to a lab machine, "
-                                  "nothing was sent" % found)
-            tail = text[-OVERLAP:]
-    return check_kind(path, size)
-
-
 def _size(n: int) -> str:
     for unit, div in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
         if n >= div:
@@ -1512,14 +1175,13 @@ def _pick(root: Path, machine: str | None) -> str:
 def put(file: str, winpath: str, machine: str | None = None, root: Path | None = None,
         overwrite: bool = False) -> dict:
     """The file `file` of winlab-out/ to `winpath` on the machine of the project's window. Returns {"machine",
-    "size", "sha256", "resumed", "check", "log"}. Raises WinlabError (refused or failed), Offline (broken: run it
+    "size", "sha256", "resumed", "log"}. Raises WinlabError (refused or failed), Offline (broken: run it
     again). A file at `winpath` is replaced with `overwrite`, else refused."""
     root = root or _root()
     try:
         machine = _pick(root, machine)
         root, _code_, found = _session(machine, root)
         src = source(root, file)
-        check_text(src.relative_to(os.path.realpath(root)).as_posix(), "the name of FILE")
         check_winpath(winpath)
     except WinlabError as err:
         _refused(root, machine or NO_WINDOW, "put to %s" % (machine or "a lab machine"), err)
@@ -1553,9 +1215,7 @@ def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str,
     record = _read_json(rpath) or {}
     same = record.get("source") == rel and record.get("ident") == ident and record.get("winpath") == winpath
     sha = _sha256(snapshot)
-    checked = check_kind(snapshot, size)
-    check_file(snapshot, size)
-    record ={"source": rel, "ident": ident, "winpath": winpath, "sha256": sha, "checked": sha, "size": size}
+    record = {"source": rel, "ident": ident, "winpath": winpath, "sha256": sha, "size": size}
     _write_json(rpath, record)
     part = winpath + PART
     title = "put %s to %s" % (rel, name)
@@ -1588,10 +1248,9 @@ def _put_snapshot(root: Path, name: str, machine: dict, src: Path, winpath: str,
         transport.close()
     _unlink(rpath)
     path = log(root, name, title, ["to %s" % winpath, "started %s, ended %s" % (began, _stamp()),
-                                   "%s, sha256 %s, %s, %s" % (_size(size), sha, "resumed at %s" % _size(resumed)
-                                                              if resumed else "whole", checked)])
-    return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "check": checked,
-            "log": path.relative_to(root)}
+                                   "%s, sha256 %s, %s" % (_size(size), sha, "resumed at %s" % _size(resumed)
+                                                          if resumed else "whole")])
+    return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "log": path.relative_to(root)}
 
 
 def _part_size(transport: Transport, part: str) -> int:
@@ -1639,7 +1298,6 @@ def target(root: Path, file: str, overwrite: bool = False) -> Path:
     rel = (parent / path.name).relative_to(os.path.realpath(root))
     if rel.parts[:1] in (("input",), (".git",)) or not rel.parts:
         raise WinlabError("get never writes into input/ (customer material comes through awb intake) or .git")
-    check_text(rel.as_posix(), "the name of FILE")
     try:
         with winlab._parent(path):
             pass
@@ -1653,20 +1311,18 @@ def target(root: Path, file: str, overwrite: bool = False) -> Path:
             raise WinlabError("%s is a folder or a link: --overwrite replaces a regular file only" % rel.as_posix())
     if path.name.endswith(PART):
         raise WinlabError("FILE may not end in %s" % PART)
-    check_text(path.name, "the name of FILE")
     return parent / path.name
 
 
 @_serial
-def get(winpath: str, file: str, machine: str | None = None, root: Path | None = None, check: bool = False,
+def get(winpath: str, file: str, machine: str | None = None, root: Path | None = None,
         overwrite: bool = False) -> dict:
     """`winpath` of the machine of the project's window into the project as `file`. Returns {"machine", "size",
-    "sha256", "resumed", "file", "log"}. Raises WinlabError, Offline (broken: run it again). A disk image is our own
-    lab output and gets no name check after the SHA-256 compare (OWN_IMAGE); `check` runs it. `overwrite` replaces
-    an existing FILE once the received file passed every check."""
-    # every module the checks and the log need is loaded before the transfer: a deploy during an hour of transfer
-    # replaces the installed tree, and a module first imported at the end then fails (tcp-bytg 2026-11-25)
-    from awb import config, gate, hooks, labsecrets, lablog, ledger  # noqa: F401
+    "sha256", "resumed", "file", "log"}. Raises WinlabError, Offline (broken: run it again). The file is published
+    once its SHA-256 matches the machine's: no content check runs. `overwrite` replaces an existing FILE then."""
+    # every module the log needs is loaded before the transfer: a deploy during an hour of transfer replaces the
+    # installed tree, and a module first imported at the end then fails (tcp-bytg 2026-11-25)
+    from awb import config, gate, lablog  # noqa: F401
     root = root or _root()
     try:
         machine = _pick(root, machine)
@@ -1677,7 +1333,7 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
         _refused(root, machine or NO_WINDOW, "get from %s" % (machine or "a lab machine"), err)
         raise
     try:
-        return _get(root, found["name"], found, winpath, dst, check, overwrite)
+        return _get(root, found["name"], found, winpath, dst, overwrite)
     except WinlabError as err:
         log(root, machine, "get from %s" % machine, ["from %s" % winpath, "failed: %s" % err])
         raise
@@ -1687,17 +1343,14 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
         raise
 
 
-def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path, check: bool = False,
-         overwrite: bool = False) -> dict:
-    # Keep the destination directory pinned through transfer, checks and publication.
+def _get(root: Path, name: str, machine: dict, winpath: str, dst: Path, overwrite: bool = False) -> dict:
+    # Keep the destination directory pinned through transfer, compare and publication.
     with winlab._parent(dst, create=True) as folder:
-        return _get_at(root, name, machine, winpath, dst, folder, check, overwrite)
+        return _get_at(root, name, machine, winpath, dst, folder, overwrite)
 
 
-def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folder: int, check: bool = False,
+def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folder: int,
             overwrite: bool = False) -> dict:
-    from awb import hooks
-
     rel = dst.relative_to(os.path.realpath(root)).as_posix()
     part = dst.name + PART
     rpath = _record_path(root, "get", name, winpath)
@@ -1712,10 +1365,6 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
         if not isinstance(st, dict) or type(st.get("size")) is not int or st["size"] < 0:
             raise WinlabError("the machine returned an invalid file size")
         size = st["size"]
-        if not _public_window(machine) and _disk_suffix(winpath, dst):
-            # a disk image of a window without --public-image gets the secret check after the whole transfer, and a
-            # hit deletes it: said before the transfer starts (tcp-bytg 2026-11-22: 10.3 GB for 15 minutes, deleted)
-            print(DISK_NOTE % (winpath, name), file=sys.stderr, flush=True)
         same = (record.get("winpath") == winpath and record.get("file") == rel and record.get("size") == size
                 and record.get("mtime") == st.get("mtime"))
         _reclaim(folder, record, part, size)
@@ -1740,200 +1389,27 @@ def _get_at(root: Path, name: str, machine: dict, winpath: str, dst: Path, folde
     expected = str(final.get("sha256", "")).lower() if final and final.get("size") == size else None
     if expected is not None and not re.fullmatch(r"[0-9a-f]{64}", expected):
         expected = None                     # no SHA-256 from the machine: kept, never deleted (tcp-bytg ask 11)
-    public_window = _public_window(machine)
-    rec = dict(record if same else {}, winpath=winpath, file=rel, size=size, mtime=st.get("mtime"), machine=name)
-    rec.pop("overwrite", None)
+    rec = dict(winpath=winpath, file=rel, size=size, mtime=st.get("mtime"), machine=name)
     if overwrite:
         rec["overwrite"] = True
     mismatch = "the SHA-256 of the copy does not match %s on %s" % (winpath, name)
-    own = not check and _own_image(folder, part, dst, size)
-    sha, public = _check_and_publish(rpath, rec, folder, part, dst, size, expected, public_window, mismatch,
-                                      names=not own)
+    sha = _publish(rpath, rec, folder, part, dst, size, expected, mismatch)
     _unlink(rpath)
     path = log(root, name, title, ["from %s" % winpath, "started %s, ended %s" % (began, _stamp()),
                                    "%s, sha256 %s, %s" % (_size(size), sha, "resumed at %s" % _size(resumed)
-                                                          if resumed else "whole")]
-               + (["secret check skipped: a public image window of the owner"] if public else [])
-               + ([OWN_IMAGE] if own else []))
-    if own:
-        _ledger_own(root, rel, size, sha)
+                                                          if resumed else "whole")])
     return {"machine": name, "size": size, "sha256": sha, "resumed": resumed, "file": rel,
             "log": path.relative_to(root)}
 
 
-DISK_NOTE = ("note: %s is a disk image and the window of %s was opened without --public-image: after the whole "
-             "transfer it gets the secret check, and a secret in it deletes the copy. For a public image built in the "
-             "lab the owner opens the window with `awb winlab open NAME --minutes N --project CODE --public-image` in "
-             "his own terminal; stop with Ctrl-C now to do that first")
-"""The line before the transfer of a disk image in a window without --public-image (tcp-bytg 2026-11-22)."""
-
-
-def _public_window(machine: dict) -> bool:
-    return machine.get("public_image") is True or (machine.get("window") or {}).get("public_image") is True
-
-
-def _disk_suffix(winpath: str, dst: Path) -> bool:
-    """True when the Windows path or the target ends in a disk image suffix (DISK_IMAGES, any case)."""
-    tail = winpath.replace("\\", "/").rsplit("/", 1)[-1]
-    return any(n.lower().endswith(tuple(DISK_IMAGES)) for n in (tail, dst.name))
-
-
-OWN_IMAGE = "disk image from the lab machine: own lab output, no name check (owner decision 2026-11-20)"
-"""The log and ledger line of a disk image a get published without the name check (the secret check stays unless
-the window is a public image window). The rule is to check once at entry: customer images enter through awb intake,
-and an image the lab built is our own output. `awb winlab get --check` runs the name check too."""
-
-
-def _own_image(folder: int, part: str, dst: Path, size: int) -> bool:
-    """True when the received part is a disk image (disk_image: the suffix of `dst` and the signature of its
-    format)."""
-    return disk_image(Path("/proc/self/fd/%d" % folder) / part, size, dst.suffix) is not None
-
-
-def _ledger_own(root: Path, rel: str, size: int, sha: str) -> None:
-    """One ledger line of the project; a ledger that cannot be written leaves the get as it is (the log has it)."""
-    try:
-        from awb import ledger
-
-        ledger.add("other", "%s, %s, sha256 %s: %s" % (rel, _size(size), sha, OWN_IMAGE), project=_code(root))
-    except Exception as exc:
-        print("awb winlab: the ledger line was not written (%s)" % type(exc).__name__, file=sys.stderr)
-
-
-def _piece_names(text: str) -> int:
-    """The registered names in a piece of a received file; raises hooks.Unavailable when the check cannot run."""
-    from awb import hooks
-
-    return len([h for h in hooks.name_hits(text) if h.get("cls") in NAME_CLASSES])
-
-
-# The name check of a large disk image. A name in an image is text: UTF-8 (ASCII included) or UTF-16 (Windows keeps
-# its strings in UTF-16LE). _text_runs cuts every run of text characters out of the bytes, in C speed, with tab, line
-# end and space inside a run so a name over two words or two lines stays whole. Zero blocks and binary noise give no
-# run of RUN_MIN; the same string in thousands of system files is checked once (_TextRuns keeps a set), and the
-# unique runs go to the name check in calls of RUN_BATCH characters, paced under the daemon's byte budget.
-_RUN_UTF8 = bytes(b if b in (9, 10, 13) or 32 <= b != 127 else 0 for b in range(256))
-"""Every control byte but tab and line end becomes NUL; bytes of 0x80 and up stay for the UTF-8 decode."""
-_RUN_HI0 = bytes(255 if b == 0 else 0 for b in range(256))
-_RUN_HI1 = bytes(255 if b == 1 else 0 for b in range(256))
-_RUN_LO = bytes(255 if b in (9, 10, 13) or 32 <= b < 127 or b >= 0xA0 else 0 for b in range(256))
-"""A UTF-16 character of text: U+0009, U+000A, U+000D, U+0020 to U+007E, U+00A0 to U+00FF and U+0100 to U+01FF."""
-
-
-def _mask(op, a: bytes, b: bytes) -> bytes:
-    n = len(a)
-    return op(int.from_bytes(a, "little"), int.from_bytes(b, "little")).to_bytes(n, "little")
-
-
-def _collapse(text, nul):
-    for k in (256, 16, 4, 2, 2, 2):
-        text = text.replace(nul * k, nul)
-    return text
-
-
-def _text_runs(data: bytes) -> list[str]:
-    """Every run of text in `data`: UTF-8 (every valid sequence, an invalid byte cuts) and UTF-16 little and big
-    endian at both alignments. A run may be empty or short; the caller drops those."""
-    text = _collapse(data.translate(_RUN_UTF8), b"\0").decode("utf-8", "replace")
-    out = text.replace("�", "\0").split("\0")
-    for a in (0, 1):
-        x, y = data[a::2], data[a + 1::2]
-        x = x[:len(y)]
-        for lo, hi in ((x, y), (y, x)):
-            keep = _mask(int.__or__, _mask(int.__and__, hi.translate(_RUN_HI0), lo.translate(_RUN_LO)),
-                         hi.translate(_RUN_HI1))
-            if b"\xff\xff\xff" not in keep:
-                continue
-            buf = bytearray(2 * len(keep))
-            buf[0::2] = _mask(int.__and__, lo, keep)
-            buf[1::2] = _mask(int.__and__, hi, keep)
-            out.extend(_collapse(buf.decode("utf-16-le"), "\0").split("\0"))
-    return out
-
-
-class _TextRuns:
-    """The unique text runs of a disk image and their name check. `feed` takes the bytes of a piece (with the last
-    RUN_OVERLAP bytes of the one before), `flush` sends what waits in calls of RUN_BATCH characters, `progress` is
-    the line for stderr. Raises WinlabError on a registered name, hooks.Unavailable when the check cannot run."""
-
-    def __init__(self, size: int):
-        self.size = size
-        self.seen: set[str] = set()
-        self.seen_chars = 0
-        self.waiting: list[str] = []
-        self.chars = 0
-        self.requests = 0
-        self.sent = 0
-        self.unique = 0
-        self.window: list[tuple[float, int]] = []
-
-    def feed(self, data: bytes) -> None:
-        if not data or data.count(0) == len(data):
-            return
-        new = set(_text_runs(data))
-        new.difference_update(self.seen)
-        if len(self.seen) + len(new) > RUN_SEEN_MAX or self.seen_chars > RUN_SEEN_CHARS:
-            self.seen.clear()
-            self.seen_chars = 0
-        self.seen.update(new)
-        for run in new:
-            self.seen_chars += len(run)
-            if len(run.strip()) >= RUN_MIN:
-                self.waiting.append(run)
-                self.chars += len(run) + 1
-                self.unique += len(run) + 1
-
-    def full(self) -> bool:
-        return self.chars >= RUN_BATCH
-
-    def flush(self) -> None:
-        batch, size = [], 0
-        for run in self.waiting:
-            if batch and size + len(run) + 1 > RUN_BATCH:
-                self._send(batch)
-                batch, size = [], 0
-            batch.append(run)
-            size += len(run) + 1
-        if batch:
-            self._send(batch)
-        self.waiting, self.chars = [], 0
-
-    def _send(self, batch: list[str]) -> None:
-        text = "\n".join(batch)
-        cost = len(json.dumps(text)) + 32
-        self._pace(cost)
-        self.requests += 1
-        self.sent += cost
-        if _piece_names(text):
-            raise WinlabError("the file carries registered name(s): the copy was deleted")
-
-    def _pace(self, cost: int) -> None:
-        """Wait until `cost` more request bytes fit into RUN_PACE_BYTES of the last RUN_PACE_WINDOW seconds."""
-        now = time.monotonic()
-        self.window = [(t, n) for t, n in self.window if t > now - RUN_PACE_WINDOW]
-        while self.window and sum(n for _, n in self.window) + cost > RUN_PACE_BYTES:
-            t, _ = self.window.pop(0)
-            wait = t + RUN_PACE_WINDOW - time.monotonic()
-            if wait > 0:
-                _pause(wait)
-        self.window.append((time.monotonic(), cost))
-
-    def progress(self, at: int) -> str:
-        return ("name check of the disk image: read %s of %s, %d check request(s), %s of unique text, no name so far"
-                % (_size(at), _size(self.size), self.requests, _size(self.unique)))
-
-
-def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path, size: int, expected: str | None,
-                       public_window: bool, mismatch: str, names: bool = True) -> tuple[str, bool]:
-    """Check the received part in place and publish it as `dst`. Returns (sha256, whether the secret check was
-    skipped for a public image). A name or a secret hit and a SHA-256 other than `expected` delete the part and the
-    record `rpath`. When the name check cannot run (hooks.Unavailable) the part stays under its private part name
-    and the record keeps the SHA-256 and how far the checks got: `awb winlab get WINPATH FILE --recheck` goes on
-    from there without a transfer (tcp-bytg 2026-11-19: a 21.9 GB image was deleted after 1 h 45 of transfer)."""
-    from awb import hooks
-
-    # The part is renamed to a private name for the checks, so nothing can replace it while they run. A copy did
-    # the same at twice the disk: a 21.9 GB image of tcp-bytg (2026-11-19) filled the host and ended in OSError.
+def _publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path, size: int, expected: str | None,
+             mismatch: str) -> str:
+    """Compare the SHA-256 of the received part with `expected` and publish it as `dst`. Returns the SHA-256. A
+    SHA-256 other than `expected` deletes the part and the record `rpath`. No content check runs: WinLab only handles
+    what the owner downloads from the internet (his word of 2026-11-25). The part is renamed to a private name first,
+    so nothing can replace it meanwhile. A kill (SIGKILL, no finally) leaves it there and the record names it: `awb
+    winlab get WINPATH FILE --recheck` or the same get again gives it back and compares it without a transfer
+    (tcp-bytg 2026-11-19: a 21.9 GB image was deleted after 1 h 45 of transfer)."""
     if expected is None:
         # a complete transfer is never deleted for a SHA-256 the machine did not give (tcp-bytg ask 11)
         raise WinlabError(AGAIN_LINE % (rec["file"] + PART, _size(size), "the machine gave no SHA-256 to compare",
@@ -1959,106 +1435,8 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
             back = False
             _unlink(rpath)
             raise WinlabError("%s: the part was deleted, nothing kept" % mismatch)
-        done = rec.get("checked")
-        start = done if rec.get("sha256") == sha and type(done) is int and 0 < done <= size else 0
-        rec.update(sha256=sha, public=public_window, checked=start)
+        rec.update(sha256=sha)
         _write_json(rpath, rec)
-        try:
-            # A compressed file or a disk image shows no name in the pieces of its bytes, and a piece costs some
-            # hundred calls of the rate limited name check (hours for a chunk of an image): it gets the whole
-            # check alone, which opens the archive (B-040; tcp-bytg 2026-11-17). A disk image over CHECK_READ_MAX
-            # cannot be read whole: it gets the name check per piece, which resumes where it stopped.
-            with open(snapshot, "rb") as fh:
-                head = fh.read(8)
-            compressed = head.startswith(_COMPRESSED)
-            image = disk_image(snapshot, size) is not None
-            packed = compressed or image
-            # the owner's statement on the window (awb winlab open --public-image): public images built in the lab,
-            # and vendor programs of the lab machine (an ELF or PE file, tcp-bytg 2026-11-25: the Veeam extract
-            # binary carries key-like byte runs); the name check stays for both
-            program = head.startswith(_PROGRAM)
-            public = (packed or program) and public_window
-            whole = size <= CHECK_WHOLE_MAX or compressed or (image and size <= CHECK_READ_MAX)
-            piece_names = not packed or not whole
-            # a disk image of the lab is own output (OWN_IMAGE): without `names` it gets the secret check alone
-            own = image and not names
-            if own:
-                piece_names, whole = False, False
-            # the owner's word of 2026-11-25 ("железобетонно сделать, чтобы при передаче таких файлов ничего не
-            # проверялось"): in a window he opened with --public-image a binary file (a NUL byte in its first
-            # 64 KiB: a disk image, a program, a Veeam backup .vbk/.vib/.vbm) gets no name and no secret check; only
-            # the SHA-256 compare stays. A text file and a compressed archive (zip, gzip, 7z: it may carry documents)
-            # keep their checks.
-            bare = not content_checks() or (public_window and not compressed and _binary(snapshot))
-            if bare:
-                public, whole, piece_names = True, False, False
-            # A large disk image gets the name check over the unique text runs of its bytes: a few thousand calls
-            # for 22 GB instead of some hundred per piece. `checked` then moves only when every run read before it
-            # was checked (a mark at least every RUN_MARK bytes), RUN_OVERLAP before the end of what was read.
-            runs = _TextRuns(size) if image and not own and not whole and not bare and size > RUNS_MIN else None
-            if runs is not None:
-                piece_names = False
-            if whole and not start:
-                names = [h for h in hooks.file_hits(snapshot) if h.get("cls") in NAME_CLASSES]
-                if names:
-                    raise WinlabError("the file carries %d registered name(s): the copy was deleted" % len(names))
-            with open(snapshot, "rb") as fh:
-                at = max(0, start - OVERLAP)
-                fh.seek(at)
-                tail, before, marked, shown = "", b"", at, time.monotonic()
-                if runs is not None and start:
-                    print("name check of the disk image: resumed at %s of %s" % (_size(start), _size(size)),
-                          file=sys.stderr, flush=True)
-                elif start:
-                    print("checks of the received file: resumed at %s of %s" % (_size(start), _size(size)),
-                          file=sys.stderr, flush=True)
-                while not bare and (data := fh.read(PIECE)):
-                    text = tail + _piece_text(data)
-                    if piece_names and _piece_names(text):
-                        raise WinlabError("the file carries registered name(s): the copy was deleted")
-                    if runs is not None:
-                        runs.feed(before + data)
-                        before = data[-RUN_OVERLAP:]
-                    if not public and (_image_secret_count(text) if packed else _secret_count(text)):
-                        raise WinlabError("the file carries secret(s): the copy was deleted")
-                    tail = text[-OVERLAP:]
-                    at += len(data)
-                    if runs is None:
-                        if size > CHECK_WHOLE_MAX:
-                            rec["checked"] = at
-                            _write_json(rpath, rec)
-                            if time.monotonic() - shown >= PROGRESS_EVERY:
-                                print("checks of the received file: read %s of %s, nothing found so far; it stays "
-                                      "unpublished until they end" % (_size(at), _size(size)), file=sys.stderr,
-                                      flush=True)
-                                shown = time.monotonic()
-                        continue
-                    if runs.full() or at - marked >= RUN_MARK:
-                        runs.flush()
-                        marked = at
-                        rec["checked"] = max(start, at - RUN_OVERLAP) if at < size else size
-                        _write_json(rpath, rec)
-                    if time.monotonic() - shown >= PROGRESS_EVERY:
-                        print(runs.progress(at), file=sys.stderr, flush=True)
-                        shown = time.monotonic()
-                if runs is not None:
-                    runs.flush()
-                    print(runs.progress(at), file=sys.stderr, flush=True)
-        except hooks.Unavailable as exc:
-            # back stays True: the part keeps its private name, the record its SHA-256 and the progress
-            raise WinlabError("the name check did not run (%s): the received file is kept unpublished as %s "
-                              "(checked to %s of %s); the same get with --recheck checks it again without a "
-                              "transfer" % (exc, rec["file"] + PART, _size(rec.get("checked") or 0), _size(size))
-                              ) from None
-        except Stopped:
-            # a signal cut the checks off (tcp-bytg ask 11): the file is complete, kept, and the checks resume
-            raise WinlabError(KEPT_LINE % (rec["file"] + PART, _size(rec.get("checked") or 0), _size(size),
-                                           "the checks were stopped by a signal", rec["winpath"], rec["file"])
-                              ) from None
-        except WinlabError:
-            back = False
-            _unlink(rpath)
-            raise
         # Hard-link publication cannot replace a destination another writer created.
         if rec.get("overwrite") is True:
             # a second private name is linked first and renamed over FILE: the old file stays until then
@@ -2082,11 +1460,11 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
                 os.unlink(staged, dir_fd=folder)
         except FileNotFoundError:
             pass
-    return sha, public
+    return sha
 
 
 def _reclaim(folder: int, rec: dict, part: str, size: int) -> bool:
-    """The received file back under its part name when a get or a recheck was killed while it was checked under its
+    """The received file back under its part name when a get or a recheck was killed while it was compared under its
     private name (`staged` of the record; tcp-bytg ask 11). A complete file replaces a shorter part a later get
     began; a shorter one is left where it is. True when it moved."""
     staged = rec.get("staged")
@@ -2115,12 +1493,10 @@ def _reclaim(folder: int, rec: dict, part: str, size: int) -> bool:
 
 
 @_serial
-def recheck(winpath: str, file: str, machine: str | None = None, root: Path | None = None,
-            check: bool = False) -> dict:
-    """The checks of a get again over the part a get kept when the name check could not run, without a transfer
-    and without the machine. Returns {"machine", "size", "sha256", "file", "log"}. Raises WinlabError. A kept disk
-    image follows the default of get (owner decision 2026-11-20): its size and SHA-256 are verified, it gets no name
-    check (OWN_IMAGE) and is published; `check` runs the name check."""
+def recheck(winpath: str, file: str, machine: str | None = None, root: Path | None = None) -> dict:
+    """The part a get kept (a kill or a signal cut it off after the transfer), compared with the SHA-256 the get
+    recorded and published, without a transfer and without the machine. Returns {"machine", "size", "sha256",
+    "file", "log"}. Raises WinlabError. No content check runs."""
     root = root or _root()
     title = "get --recheck %s" % file
     name = machine
@@ -2149,20 +1525,14 @@ def recheck(winpath: str, file: str, machine: str | None = None, root: Path | No
             if have != rec["size"]:
                 raise WinlabError("the kept part of %s is %s, the get received %s: run the get again"
                                   % (rel, _size(have), _size(rec["size"])))
-            own = not check and _own_image(folder, part, dst, rec["size"])
-            sha, public = _check_and_publish(rpath, rec, folder, part, dst, rec["size"], rec["sha256"],
-                                              rec.get("public") is True,
-                                              "the kept part of %s changed since the get" % rel, names=not own)
+            sha = _publish(rpath, rec, folder, part, dst, rec["size"], rec["sha256"],
+                           "the kept part of %s changed since the get" % rel)
     except WinlabError as err:
         log(root, name, "get %s from %s" % (rel, name), ["from %s" % winpath, "recheck failed: %s" % err])
         raise
     _unlink(rpath)
-    path = log(root, name, "get %s from %s" % (rel, name), ["from %s" % winpath, "%s, sha256 %s, checked again "
-                                                             "without a transfer" % (_size(rec["size"]), sha)]
-               + (["secret check skipped: a public image window of the owner"] if public else [])
-               + ([OWN_IMAGE] if own else []))
-    if own:
-        _ledger_own(root, rel, rec["size"], sha)
+    path = log(root, name, "get %s from %s" % (rel, name), ["from %s" % winpath, "%s, sha256 %s, compared again "
+                                                             "without a transfer" % (_size(rec["size"]), sha)])
     return {"machine": name, "size": rec["size"], "sha256": sha, "file": rel, "log": path.relative_to(root)}
 
 
@@ -2183,7 +1553,7 @@ def _kept(root: Path, winpath: str, rel: str, machine: str | None) -> tuple[str,
             continue
         found.append((name, path, rec))
     if not found:
-        raise WinlabError("no get kept a part of %s from %s: nothing to check again" % (rel, winpath))
+        raise WinlabError("no get kept a part of %s from %s: nothing to compare again" % (rel, winpath))
     if len(found) > 1:
         raise WinlabError("gets from %s machines kept a part of %s: name one with --machine" % (len(found), rel))
     return found[0]
@@ -2307,12 +1677,11 @@ def _stoppable(fn, args) -> int:
 def _get_command(args) -> int:
     """`awb winlab get` and `get --recheck`; the errors go to main."""
     if getattr(args, "recheck", False):
-        result = recheck(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False))
-        print("awb winlab: checked %s of %s from %s again, sha256 %s, published as %s" % (
+        result = recheck(args.winpath, args.file, machine=args.machine)
+        print("awb winlab: compared %s of %s from %s again, sha256 %s, published as %s" % (
             _size(result["size"]), args.winpath, result["machine"], result["sha256"][:12], result["file"]))
         return EXIT_OK
-    result = get(args.winpath, args.file, machine=args.machine, check=getattr(args, "check", False),
-                 overwrite=getattr(args, "overwrite", False))
+    result = get(args.winpath, args.file, machine=args.machine, overwrite=getattr(args, "overwrite", False))
     print("awb winlab: got %s into %s from %s, sha256 matches%s" % (
         _size(result["size"]), result["file"], result["machine"],
         ", resumed at %s" % _size(result["resumed"]) if result["resumed"] else ""))

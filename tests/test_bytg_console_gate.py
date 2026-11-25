@@ -30,7 +30,7 @@ def test_bytg_the_gate_finds_no_secret_in_a_console_link_but_in_the_same_token_e
 
 def test_bytg_a_console_link_passes_the_winlab_put_check_and_the_own_text_whole(monkeypatch):
     monkeypatch.setattr(hooks, "name_hits", lambda text, *a, **k: [])     # no vault in a test
-    assert wls._secret_count("Start-Process '%s'\n" % LINK) == 0
+    wls.guard_text("Start-Process '%s'\n" % LINK)           # WinLab sends it as it is: no secret check of a command
     clean, n = paste.own_text("console: %s\n" % LINK)
     assert LINK in clean and n == 0
 

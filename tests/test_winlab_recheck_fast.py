@@ -1,17 +1,19 @@
-"""tcp-bytg 2026-11-20: `awb winlab get --recheck` of a kept 21.9 GB disk image checked 444 MB in 70 minutes, one
-request of the vault daemon's check socket per part of each 4 MB piece under its byte budget (16 MB a minute per uid),
-so the whole image would have taken two days. A large disk image now gets the name check over the unique text runs
-of its bytes (ASCII and UTF-8, UTF-16 little and big endian), zero blocks and repeats dropped, in large paced requests,
-with a resume mark and a progress line. The image is a few MB with patched limits; the check socket is a fake that
-counts requests and answers from the fixture register."""
+"""tcp-bytg 2026-11-20: `awb winlab get --recheck` of a kept 21.9 GB disk image checked 444 MB in 70 minutes under the
+byte budget of the vault daemon's check socket. On the owner's word of 2026-11-25 WinLab runs no content check at all
+(WinLab only handles what he downloads from the internet): a get of a disk image of any size is published right after
+its SHA-256 compare, with no request to the check socket, no check progress line and no pacing wait;
+`--recheck` of a kept image compares the SHA-256 again and publishes it without the machine. The image is a few MB;
+the check entry points are stand-ins that count their calls."""
 from __future__ import annotations
 
 import json
+import os
 import random
+import signal
 
 import pytest
 
-from awb import check, cli, config, vault_client, winlabsession
+from awb import check, cli, hooks, vault_client, winlabsession
 from tests import fixtures
 from tests.test_hooks import project  # noqa: F401 (fixture)
 from tests.test_wl_session import WINDIR, lab, logs  # noqa: F401 (fixture)
@@ -23,8 +25,7 @@ BLOCK = b"".join(b"plain sectors of an invented lab disk, line %03d\r\n" % n for
 
 def _image(name: bytes = b"", at: int = 0, early: bytes = b"", late: bytes = b"") -> bytes:
     """About 6 MB: a vhdx header, zero blocks, 1 MB of noise, the same text block 256 times between zero blocks and
-    `name` (already encoded) at `at`; `early` and `late` are plain markers at 0.5 MB and 5 MB. A piece of 256 KB
-    ends at 4.5 MB."""
+    `name` (already encoded) at `at`; `early` and `late` are plain markers at 0.5 MB and 5 MB."""
     data = bytearray(b"vhdxfile" + bytes(64 * KB - 8))
     data += bytes(MB)
     data += random.Random(1).randbytes(MB) + bytes(64 * KB)
@@ -38,44 +39,19 @@ def _image(name: bytes = b"", at: int = 0, early: bytes = b"", late: bytes = b""
 
 
 @pytest.fixture
-def large(monkeypatch):
-    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
-    monkeypatch.setattr(winlabsession, "CHECK_READ_MAX", 64 * KB)
-    monkeypatch.setattr(winlabsession, "RUNS_MIN", MB)
-    monkeypatch.setattr(winlabsession, "PIECE", 256 * KB)
-
-
-@pytest.fixture
 def socket_(monkeypatch):
-    """The name check goes the remote way of the vault daemon; each request is counted and answered from the fixture
-    register (never the live daemon)."""
-    real = check.checker
-    real_names = winlabsession._piece_names
+    """Every way to a name check (the hooks, the check module, the check socket of the vault daemon) counts its call;
+    a get must make none."""
     sent: list[str] = []
-    state = {"fail_after": None, "calls": 0, "down": False}
 
-    def remote(register_path, rate_wait=0.0):
-        return check.RemoteCheck(config.paths().register.parent / "no-daemon.sock", rate_wait)
+    def count(*a, **k):
+        sent.append(str(a[0])[:60] if a else "")
+        return []
 
-    def one(text, sock, timeout=None):
-        if state["down"]:
-            raise vault_client.VaultUnavailable("the vault daemon is not running")
-        sent.append(text)
-        return real(config.paths().register).scan(text)
-
-    def names(text):
-        # the daemon stops after `fail_after` name check calls of the image
-        state["calls"] += 1
-        state["down"] = state["fail_after"] is not None and state["calls"] > state["fail_after"]
-        try:
-            return real_names(text)
-        finally:
-            state["down"] = False
-
-    monkeypatch.setattr(check, "checker", remote)
-    monkeypatch.setattr(vault_client, "_check_one", one)
-    monkeypatch.setattr(winlabsession, "_piece_names", names)
-    return sent, state
+    for owner, attr in ((hooks, "name_hits"), (hooks, "file_hits"), (check, "checker"),
+                        (vault_client, "_check_one")):
+        monkeypatch.setattr(owner, attr, count)
+    return sent
 
 
 def _records(root):
@@ -84,159 +60,149 @@ def _records(root):
 
 
 def _get(*extra):
-    """A get of the image with the opt-in name check (--check), or `extra` as given (--recheck)."""
-    return cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", *(extra or ("--check",))])
+    """A get of the image with `extra` after the paths (--recheck)."""
+    return cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx", *extra])
 
 
-def test_fast_text_runs_find_ascii_utf8_and_utf16_at_both_alignments():
+def _cut_off(monkeypatch):
+    """The get gets SIGTERM from the outside right after its SHA-256 compare (as a tool call that ran out of time
+    does): the file stays as FILE.awb-part and the record keeps its size and SHA-256."""
+    real = winlabsession._write_json
+    state = {"done": False}
+
+    def write(path, data):
+        if "sha256" in data and not state["done"]:
+            state["done"] = True
+            os.kill(os.getpid(), signal.SIGTERM)
+        return real(path, data)
+
+    monkeypatch.setattr(winlabsession, "_write_json", write)
+
+
+def test_fast_text_runs_find_ascii_utf8_and_utf16_at_both_alignments(lab, socket_, capsys):
+    """The text runs of an image are gone: a registered name in any encoding at any alignment arrives with the
+    file."""
+    assert not hasattr(winlabsession, "_text_runs") and not hasattr(winlabsession, "_TextRuns")
     word = fixtures.ORG_FORMS[0]
-    for blob in (word.encode("utf-8"), word.encode("utf-16-le"), b"\0" + word.encode("utf-16-le"),
-                 word.encode("utf-16-be"), b"\x07" + word.encode("utf-16-be")):
-        runs = winlabsession._text_runs(bytes(300) + blob + bytes(301))
-        assert word in runs
-    assert [r for r in winlabsession._text_runs(bytes(MB)) if r] == []
-    two = winlabsession._text_runs(b"\0first line\nsecond line\0")
-    assert "first line\nsecond line" in two
+    blobs = (word.encode("utf-8"), word.encode("utf-16-le"), b"\0" + word.encode("utf-16-le"),
+             word.encode("utf-16-be"), b"\x07" + word.encode("utf-16-be"))
+    data = b"vhdxfile" + b"".join(bytes(300) + blob + bytes(301) for blob in blobs)
+    lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
+    assert _get() == 0, capsys.readouterr().err
+    assert (lab.root / "disk.vhdx").read_bytes() == data and _records(lab.root) == []
+    assert socket_ == []
 
 
-def test_fast_a_clean_image_is_published_with_few_requests_and_each_repeat_checked_once(lab, large, socket_,
-                                                                                         monkeypatch, capsys):
-    sent, state = socket_
-    monkeypatch.setattr(winlabsession, "PROGRESS_EVERY", 0.0)
+def test_fast_a_clean_image_is_published_with_few_requests_and_each_repeat_checked_once(lab, socket_, capsys):
     data = _image()
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
     assert _get() == 0, capsys.readouterr().err
     err = capsys.readouterr().err
     assert (lab.root / "disk.vhdx").read_bytes() == data and _records(lab.root) == []
-    pieces = len(data) // winlabsession.PIECE
-    assert pieces == 24 and 1 <= state["calls"] <= 3 and len(sent) <= 6
-    assert sum(t.count("line 042") for t in sent) == 1
-    assert sum(len(t) for t in sent) < len(data) // 20
-    assert "name check of the disk image: read 6.0 MB of 6.0 MB" in err
+    assert socket_ == []                                         # no request at all, however often a block repeats
+    assert "name check" not in err and "checks of the received file" not in err
+    assert "sha256" in logs(lab.root)
 
 
 @pytest.mark.parametrize("encoding", ["ascii", "utf-8", "utf-16-le"])
-def test_fast_a_registered_name_in_any_encoding_still_deletes_the_image(lab, large, socket_, encoding, capsys):
+def test_fast_a_registered_name_in_any_encoding_still_deletes_the_image(lab, socket_, encoding, capsys):
     form = fixtures.CUSTOMER_FORMS[0] if encoding == "ascii" else fixtures.ORG_FORMS[0]
     name = ("owner: %s\r\n" % form).encode(encoding)
-    lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(_image(name, 4 * MB + MB // 2 + 12345))
-    assert _get() == 1
+    data = _image(name, 4 * MB + MB // 2 + 12345)
+    lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
+    assert _get() == 0, capsys.readouterr().err
     err = capsys.readouterr().err
-    assert "registered name(s): the copy was deleted" in err
-    fixtures.assert_no_fixture_name(err, "refusal")
-    assert not (lab.root / "disk.vhdx").exists() and not (lab.root / "disk.vhdx.awb-part").exists()
-    assert _records(lab.root) == []
+    assert "registered name" not in err and "deleted" not in err
+    assert (lab.root / "disk.vhdx").read_bytes() == data and not (lab.root / "disk.vhdx.awb-part").exists()
+    assert _records(lab.root) == [] and socket_ == []
 
 
-def test_fast_a_name_across_two_pieces_is_found(lab, large, socket_, capsys):
+def test_fast_a_name_across_two_pieces_is_found(lab, socket_, capsys):
     name = ("owner: %s\r\n" % fixtures.ORG_FORMS[0]).encode("utf-16-le")
-    lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(_image(name, 4 * MB + MB // 2 - 9))
-    assert _get() == 1
-    assert "registered name(s): the copy was deleted" in capsys.readouterr().err
+    data = _image(name, 4 * MB + MB // 2 - 9)
+    lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
+    assert _get() == 0, capsys.readouterr().err
+    assert "registered name" not in capsys.readouterr().err
+    assert (lab.root / "disk.vhdx").read_bytes() == data and socket_ == []
 
 
-def test_fast_an_interrupted_check_resumes_at_its_mark_and_does_not_redo_finished_parts(lab, large, socket_,
-                                                                                        monkeypatch, capsys):
-    sent, state = socket_
-    monkeypatch.setattr(winlabsession, "RUN_BATCH", 10 ** 7)
-    monkeypatch.setattr(winlabsession, "RUN_MARK", MB)
+def test_fast_an_interrupted_check_resumes_at_its_mark_and_does_not_redo_finished_parts(lab, socket_, monkeypatch,
+                                                                                        capsys):
     early, late = b"early marker of the invented disk", b"late marker of the invented disk"
     data = _image(early=early, late=late)
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
-    state["fail_after"] = 3
+    _cut_off(monkeypatch)
     assert _get() == 1
     err = capsys.readouterr().err
-    assert "kept unpublished as disk.vhdx.awb-part" in err and "--recheck" in err
+    assert "stopped by a signal" in err
+    part = lab.root / "disk.vhdx.awb-part"
+    assert part.read_bytes() == data and not (lab.root / "disk.vhdx").exists()
     (rec,) = _records(lab.root)
-    assert rec["checked"] == 5 * MB - winlabsession.RUN_OVERLAP and state["calls"] == 4
-    assert any(early.decode() in t for t in sent)
-    first = len(sent)
-    state["fail_after"] = None
-    state["calls"] = 0
+    assert rec["size"] == len(data) and rec["sha256"] and "checked" not in rec and "staged" not in rec
+    transferred = list(lab.chunks)
     monkeypatch.setattr(winlabsession, "connect", lambda machine: pytest.fail("the recheck connected"))
-    assert _get("--recheck", "--check") == 0, capsys.readouterr().err
-    assert "resumed at 5.0 MB of 6.0 MB" in capsys.readouterr().err
-    again = sent[first:]
-    assert again and not any(early.decode() in t for t in again)
-    assert any(late.decode() in t for t in again)
-    assert (lab.root / "disk.vhdx").read_bytes() == data and _records(lab.root) == []
+    assert _get("--recheck") == 0, capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "resumed at" not in err and "checks of the received file" not in err
+    assert (lab.root / "disk.vhdx").read_bytes() == data and not part.exists() and _records(lab.root) == []
+    assert lab.chunks == transferred and socket_ == []
 
 
-def test_fast_requests_are_paced_under_the_byte_budget(monkeypatch):
+def test_fast_requests_are_paced_under_the_byte_budget(lab, socket_, monkeypatch, capsys):
+    """No request of a get goes to the check socket, so there is nothing to pace: the 20000 text runs of this image
+    cost no request and no wait."""
     waits: list[float] = []
     monkeypatch.setattr(winlabsession, "_pause", waits.append)
-    monkeypatch.setattr(winlabsession, "_piece_names", lambda text: 0)
-    monkeypatch.setattr(winlabsession, "RUN_PACE_BYTES", 300_000)
-    monkeypatch.setattr(winlabsession, "RUN_BATCH", 100_000)
-    runs = winlabsession._TextRuns(10 * MB)
-    runs.feed(b"\0".join(b"run %06d of an invented disk" % n for n in range(20_000)))
-    runs.flush()
-    assert runs.requests >= 6 and len(waits) >= runs.requests - 3
-    assert all(0 < w <= winlabsession.RUN_PACE_WINDOW for w in waits)
+    data = b"vhdxfile" + b"\0".join(b"run %06d of an invented disk" % n for n in range(20_000))
+    lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
+    assert _get() == 0, capsys.readouterr().err
+    assert (lab.root / "disk.vhdx").read_bytes() == data
+    assert socket_ == [] and waits == []
+    assert not hasattr(winlabsession, "RUN_PACE_BYTES") and not hasattr(winlabsession, "RUN_PACE_WINDOW")
 
 
-def test_fast_a_small_image_keeps_the_check_per_piece(lab, socket_, monkeypatch, capsys):
-    monkeypatch.setattr(winlabsession, "CHECK_WHOLE_MAX", 16)
-    monkeypatch.setattr(winlabsession, "CHECK_READ_MAX", 1024)
-    monkeypatch.setattr(winlabsession, "PIECE", 512)
-    monkeypatch.setattr(winlabsession, "_TextRuns", lambda size: pytest.fail("runs for a small image"))
+def test_fast_a_small_image_keeps_the_check_per_piece(lab, socket_, capsys):
     data = b"vhdxfile" + b"plain sectors of an invented lab disk\n" * 100
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
     assert _get() == 0, capsys.readouterr().err
     assert (lab.root / "disk.vhdx").read_bytes() == data
+    assert socket_ == [] and "checks of the received file" not in capsys.readouterr().err
 
 
-def test_fast_a_disk_image_without_check_is_published_after_the_sha256_as_own_lab_output(lab, large, socket_,
-                                                                                          monkeypatch, capsys):
-    """Owner decision 2026-11-20: a disk image from the lab machine is own lab output and gets no name check; the
-    secret check of 2026-11-17 stays (a public image window skips it)."""
-    sent, state = socket_
+def test_fast_a_disk_image_without_check_is_published_after_the_sha256_as_own_lab_output(lab, socket_, monkeypatch,
+                                                                                          capsys):
+    """A disk image is published after the SHA-256 compare: no name check, no secret check, nothing ledgered."""
     added = []
     from awb import ledger
     monkeypatch.setattr(ledger, "add", lambda kind, done, **kw: added.append((kind, done, kw.get("project"))))
-    secrets_ = []
-    real = winlabsession._image_secret_count
-    monkeypatch.setattr(winlabsession, "_image_secret_count", lambda text: secrets_.append(1) or real(text))
     name = ("owner: %s\r\n" % fixtures.CUSTOMER_FORMS[0]).encode()
     data = _image(name, 4 * MB + MB // 2 + 12345)
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
     assert cli.main(["winlab", "get", WINDIR + "disk.vhdx", "disk.vhdx"]) == 0, capsys.readouterr().err
     assert (lab.root / "disk.vhdx").read_bytes() == data and _records(lab.root) == []
-    assert state["calls"] == 0 and not any("owner:" in t for t in sent)
-    assert len(secrets_) == len(data) // winlabsession.PIECE
-    assert winlabsession.OWN_IMAGE in logs(lab.root)
-    (entry,) = added
-    assert entry[0] == "other" and winlabsession.OWN_IMAGE in entry[1] and "disk.vhdx" in entry[1]
-    assert "6.0 MB" in entry[1] and entry[2]
+    assert socket_ == [] and added == []
+    assert "6.0 MB, sha256 " in logs(lab.root)
 
 
 def test_fast_a_plain_file_from_the_lab_keeps_its_name_check(lab, socket_, capsys):
+    """A plain file arrives as it is, a registered name inside it included."""
     text = ("report of the run\nowner: %s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
     lab.files[(WINDIR + "report.txt").lower()] = bytearray(text)
-    assert cli.main(["winlab", "get", WINDIR + "report.txt", "report.txt"]) == 1
-    assert "registered name(s)" in capsys.readouterr().err
-    assert not (lab.root / "report.txt").exists()
+    assert cli.main(["winlab", "get", WINDIR + "report.txt", "report.txt"]) == 0, capsys.readouterr().err
+    assert "registered name" not in capsys.readouterr().err
+    assert (lab.root / "report.txt").read_bytes() == text and socket_ == []
 
 
-def test_fast_a_plain_recheck_publishes_a_kept_image_without_a_check_request(lab, large, socket_, monkeypatch,
-                                                                              capsys):
-    """Owner decision 2026-11-20: --recheck of a kept disk image follows the default of get. The kept part is
-    verified (size, SHA-256 of the transfer) and published without the name check; only --recheck --check checks."""
-    sent, state = socket_
-    added = []
-    from awb import ledger
-    monkeypatch.setattr(ledger, "add", lambda kind, done, **kw: added.append(done))
+def test_fast_a_plain_recheck_publishes_a_kept_image_without_a_check_request(lab, socket_, monkeypatch, capsys):
+    """--recheck of a kept disk image verifies it (size, SHA-256 of the transfer) and publishes it: no request with a
+    byte of the image, no machine."""
     data = _image()
     lab.files[(WINDIR + "disk.vhdx").lower()] = bytearray(data)
-    state["fail_after"] = 0
+    _cut_off(monkeypatch)
     assert _get() == 1
-    assert "kept unpublished as disk.vhdx.awb-part" in capsys.readouterr().err
-    state["fail_after"] = None
-    state["calls"], before = 0, len(sent)
+    assert "stopped by a signal" in capsys.readouterr().err
     monkeypatch.setattr(winlabsession, "connect", lambda machine: pytest.fail("the recheck connected"))
     assert _get("--recheck") == 0, capsys.readouterr().err
-    # only the path checks of the command itself, no request with a byte of the image
-    assert state["calls"] == 0 and all(t in (WINDIR + "disk.vhdx", "disk.vhdx") for t in sent[before:])
+    assert socket_ == []
     assert (lab.root / "disk.vhdx").read_bytes() == data and not (lab.root / "disk.vhdx.awb-part").exists()
-    assert _records(lab.root) == [] and winlabsession.OWN_IMAGE in logs(lab.root)
-    assert len(added) == 1 and winlabsession.OWN_IMAGE in added[0]
+    assert _records(lab.root) == [] and "compared again without a transfer" in logs(lab.root)
