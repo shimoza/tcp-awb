@@ -141,6 +141,9 @@ NAME_CLASSES = ("name", "path")
 
 SECRET_REF_RE = re.compile(r"\{\{\s*secret\s*:", re.I)
 STATE_RE = re.compile(r"awb-winlab|programdata[\\/]+ssh\b|administrators_authorized_keys", re.I)
+_PROGRAM = (b"\x7fELF", b"MZ")
+"""The first bytes of a program: ELF (Linux) and PE (Windows)."""
+
 _PS_PLAIN_RE = re.compile(
     r"(?i)ConvertTo-SecureString\b(?=[^\n;|)]*-AsPlainText)(?=[^\n;|)]*[\"'][^\"'\n]{3,}[\"'])"
     r"|[\"'][^\"'\n]{3,}[\"']\s*\|\s*ConvertTo-SecureString\b"
@@ -1818,11 +1821,15 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
             # check alone, which opens the archive (B-040; tcp-bytg 2026-11-17). A disk image over CHECK_READ_MAX
             # cannot be read whole: it gets the name check per piece, which resumes where it stopped.
             with open(snapshot, "rb") as fh:
-                compressed = fh.read(8).startswith(_COMPRESSED)
+                head = fh.read(8)
+            compressed = head.startswith(_COMPRESSED)
             image = disk_image(snapshot, size) is not None
             packed = compressed or image
-            # the owner's statement on the window (awb winlab open --public-image): public images built in the lab
-            public = packed and public_window
+            # the owner's statement on the window (awb winlab open --public-image): public images built in the lab,
+            # and vendor programs of the lab machine (an ELF or PE file, tcp-bytg 2026-11-25: the Veeam extract
+            # binary carries key-like byte runs); the name check stays for both
+            program = head.startswith(_PROGRAM)
+            public = (packed or program) and public_window
             whole = size <= CHECK_WHOLE_MAX or compressed or (image and size <= CHECK_READ_MAX)
             piece_names = not packed or not whole
             # a disk image of the lab is own output (OWN_IMAGE): without `names` it gets the secret check alone
