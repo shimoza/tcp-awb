@@ -55,6 +55,39 @@ KEEP_IP = ("169.254.", "100.125.", "100.64.", "0.0.0.0", "127.", "10.", "192.168
 range of RFC 2544 (198.18.0.0/15, where the platform keeps a system route) and multicast (224.0.0.0/4)."""
 _KEEP_172 = re.compile(r"^172\.(1[6-9]|2\d|3[01])\.")
 
+RESERVED_TLDS = ("example", "test", "invalid", "localhost", "local")
+"""Reserved test names (RFC 2606, RFC 6761, and .local of RFC 6762): a made-up lab forest never belongs to a
+customer. A host that is one of them or ends in one of them is no structured data in a project's own files."""
+_PRIVATE_NETS = tuple(ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fd00::/8"))
+_URL_HOST_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*://)?(?:[^/@\s]*@)?(\[[^\]]*\]|[^/:?#\s]+)")
+
+
+def reserved_value(value: str, cls: str) -> bool:
+    """True when a hit of class `cls` ("url" for a host or a web address, "ip") is only a reserved test domain or a
+    private lab address: example, test, invalid, localhost, local and their suffixes; 10/8, 172.16/12, 192.168/16,
+    100.64/10 and fd00::/8. Everything else, a public address and a real looking domain included, is False."""
+    if cls == "ip":
+        addr = value.strip().split("/")[0].strip("[]")
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            octets = _octets(value)
+            if octets is None:
+                return False
+            ip = ipaddress.ip_address(".".join(str(o) for o in octets))
+        return any(ip in net for net in _PRIVATE_NETS if net.version == ip.version)
+    if cls == "url":
+        m = _URL_HOST_RE.match(_DEFANG_RE.sub(".", value.strip()))
+        if not m:
+            return False
+        host = m.group(1).lower().rstrip(".").lstrip("*.")
+        if host.startswith("["):
+            return reserved_value(host, "ip")
+        return host.rsplit(".", 1)[-1] in RESERVED_TLDS
+    return False
+
+
 # --------------------------------------------------------------------------- hosts
 
 _CC_TLDS = (

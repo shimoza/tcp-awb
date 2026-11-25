@@ -760,6 +760,7 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 | `awb migrate map [--region eu-de]` | each machine to the nearest TCP flavor that is not smaller, from the live price API, into `migration/mapping.tsv` with a status: ok, flag, needs-input, manual, no-fit |
 | `awb migrate estimate [--term PAYG] [--hours N]` | the price per month (720 hours unless `--hours` says other) of every mapped row by its OS, into `migration/estimate-TERM.tsv`, the total recorded by `awb calc` |
 | `awb migrate done PHASE` | the gate of a phase; a phase whose files change later turns stale with every phase after it |
+| `awb state rotate [--keep N] [--project DIR]` | keeps STATE.md short: the dated layers (a heading of level 2 to 4 that starts with `YYYY-MM-DD`, with what is under it) older than the last N dates (default 3) move to `history/STATE-YYYY-MM-DD.md`; the title, `Status:`, `Next:` and every other heading stay. A line marked `pinned: Kind: text` (Kind: Language, Limit, Deliverable or Chain) becomes an entry of the `## Pinned` block, made when missing; the marked line stays, so a second run changes nothing. A marked line of another kind is refused and nothing is written. The start hook no longer withholds STATE.md or OPEN.md for a reserved test domain (example, test, invalid, localhost, local and their suffixes) or a private address (10/8, 172.16/12, 192.168/16, 100.64/10, fd00::/8); a public address and a real looking domain stay withheld |
 | `awb calc "20 * 8"` | exact decimal arithmetic, recorded in `calc/calc.tsv` of the project as K-N (R-005); a side session records into the same file of its project, so no K id is given twice. `--let hours=730`, `--places 2`, `--label TEXT`, `--project DIR`, `--dry`; functions sum, min, max, abs, round, ceil, floor, pct. `awb calc list`, `awb calc show K-N` |
 | `awb review pass deliverables/FILE` | l0 and, for tier 3, the lens results; writes `record.json` with the counts per lens, the claims by verdict, the agent runs and the open points |
 | `awb review status` | valid, stale or missing record for every deliverable (the stop hook uses this) |
@@ -1442,6 +1443,12 @@ the record state of one deliverable and its final check (FX) when there is one
 run the calibration set through the script steps of the review
 - `--json`: print the result as JSON
 - `--lenses PROJECT`: score the lens files the workflows wrote for the workflow cases in PROJECT
+
+### `awb state rotate [--keep N] [--project PROJECT]`
+
+move the dated layers older than the last N to history/STATE-DATE.md and write the pinned block from the lines marked pinned:
+- `--keep N`: dated layers that stay (default 3)
+- `--project PROJECT`
 
 ### `awb calc EXPRESSION [--let NAME=EXPRESSION] [--places PLACES] [--label LABEL] [--project PROJECT] [--dry]`
 

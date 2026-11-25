@@ -442,6 +442,29 @@ def name_hits(text: str, p: config.Paths | None = None) -> list[dict]:
     return [h for h in hits if isinstance(h, dict)]
 
 
+def _without_reserved(text: str, hits: list[dict]) -> list[dict]:
+    """`hits` of the name check without the web addresses and IPs that are only a reserved test domain (example.test,
+    *.local) or a private lab address (RFC 1918, 100.64/10, fd00::/8). Names and every other class stay. A hit that
+    cannot be read back in the text stays too."""
+    mod = _module("patterns")
+    if mod is None or not hasattr(mod, "reserved_value"):
+        return hits
+    try:
+        from awb import check, normalize
+
+        view = normalize.normalize(check.with_hidden_views(text)).text
+    except Exception:
+        return hits
+    kept = []
+    for h in hits:
+        cls, start, length = h.get("cls"), h.get("start"), h.get("length")
+        if cls in ("url", "ip") and isinstance(start, int) and isinstance(length, int) and length > 0 \
+                and start + length <= len(view) and mod.reserved_value(view[start:start + length], cls):
+            continue
+        kept.append(h)
+    return kept
+
+
 def _secret_hits(text: str) -> list[dict]:
     """Hits of the gate's secret classes in `text` as {start, length, cls}; nothing when the gate is absent."""
     mod = _module("gate")
@@ -1820,6 +1843,8 @@ def _section(root: Path, name: str, max_lines: int | None, notes: list[str], dow
     if names:
         return ("## %s\n\n(withheld: it carries %d registered names. Run `awb check %s` and replace them with "
                 "codes.)\n" % (title, len(names), name))
+    if name in ("STATE.md", "OPEN.md"):
+        hits = _without_reserved(checked, hits)
     if hits:
         notes.append("%s carries structured data (%s), replace it with codes" % (name, _counts(hits)))
         return ("## %s\n\n(withheld: it carries structured data (%s). Run `awb check %s` and replace it with "
@@ -1861,6 +1886,8 @@ def _pinned_section(root: Path, down: list[str] | None = None, names: bool = Tru
             down.append(str(exc))
         return ("%s\n\n(withheld: the name check did not run. Read the Status: and Next: lines and the %s block "
                 "of STATE.md yourself once the check is back.)\n" % (PIN_TITLE, status.PIN_HEADING))
+    if not any(h.get("cls") == "name" for h in hits):
+        hits = _without_reserved(block, hits)
     if hits:
         return ("%s\n\n(withheld: it carries %s. Run `awb check STATE.md` and replace it with codes.)\n"
                 % (PIN_TITLE, _counts(hits)))

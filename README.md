@@ -427,7 +427,7 @@ Under the two lines `STATE.md` keeps a pinned block, the heading `## Pinned` wit
 in its checks. Before a compaction the PreCompact hook (`awb hook compact`) hands the two status lines and the block
 to the summary as plain text and the start after the compaction (source `compact`) prints them again before every
 file, so the session neither asks him again nor switches language. Both are checked like `STATE.md`: a name, other
-structured data, a bidi override or a name check that cannot run withholds the block with one line. The block stays
+structured data, a bidi override or a name check that cannot run withholds the block with one line. A reserved test domain (`example`, `test`, `invalid`, `localhost`, `local` and their suffixes) or a private lab address (10/8, 172.16/12, 192.168/16, 100.64/10, fd00::/8) is no structured data in `STATE.md` and `OPEN.md` at the start (a public address or a real looking domain still is). `awb state rotate [--keep N]` moves the dated layers (`### YYYY-MM-DD ...`) older than the last N dates (3) to `history/STATE-YYYY-MM-DD.md`, leaves the top and writes the lines marked `pinned: Kind: text` into the block; a second run changes nothing. The block stays
 within the first 40 lines, at most 12 lines and 1500 characters with every entry of one of the four kinds; the stop
 hook holds a reply whose block breaks that, with the counts. The owner's own PreCompact hook (`pre-compact`, the
 hand-over below) is a separate command, so the managed settings never run it twice. `awb board show` turns the status of every active project into
