@@ -37,3 +37,22 @@ def test_a_backup_file_keeps_its_checks_in_a_plain_window(lab, capsys):
     assert cli.main(["winlab", "get", WINDIR + "agent2.vbk", "agent2.vbk"]) == 1
     assert "the copy was deleted" in capsys.readouterr().err
     assert not (lab.root / "agent2.vbk").exists()
+
+
+def test_with_the_checks_off_a_text_file_with_a_key_passes_get_and_put(lab, capsys, tmp_path, monkeypatch):
+    """The owner's word of 2026-11-25: winlab_checks = off in the host file turns every name and secret check of
+    WinLab off; the SHA-256 compare of a get stays."""
+    from awb import winlabsession
+
+    conf = tmp_path / "paths.conf"
+    conf.write_text("winlab_checks = off\n")
+    monkeypatch.setenv("AWB_CONF", str(conf))
+    assert winlabsession.content_checks() is False
+    body = ("ak = %s\nsk = %s\nfor %s\n" % (KEY_ID, KEY_SECRET, fixtures.CUSTOMER_FORMS[0])).encode()
+    lab.files[(WINDIR + "keys.txt").lower()] = bytearray(body)
+    assert cli.main(["winlab", "get", WINDIR + "keys.txt", "keys.txt"]) == 0, capsys.readouterr().err
+    assert (lab.root / "keys.txt").read_bytes() == body
+    winlabsession.check_text("echo %s" % KEY_SECRET)
+    assert "no check" in winlabsession.check_file(lab.root / "keys.txt", len(body))
+    conf.write_text("winlab_checks = on\n")
+    assert winlabsession.content_checks() is True

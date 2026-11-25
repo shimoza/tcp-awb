@@ -554,6 +554,21 @@ def _name_count(text: str) -> int:
         raise WinlabError("the name check did not run: nothing was sent") from None
 
 
+CHECKS_KEY = "winlab_checks"
+
+
+def content_checks() -> bool:
+    """False when the host file says `winlab_checks = off`: the owner's word of 2026-11-25 ("WinLab работает
+    исключительно с образами, которые мы качаем с интернета ... железобетонно не может быть никаких файлов
+    заказчика ... Убери там абсолютно все проверки"). Then no name check and no secret check runs on what goes to a
+    lab machine (a command, a put) or comes back (a get); a get keeps only its SHA-256 compare. The guards of the
+    machine itself stay: no {{secret:}} reference is filled in, no command reaches the machine's own state (its ssh
+    keys), a path stays a plain whole path, and logs keep their secret masking. Without the line the checks run."""
+    from awb import config
+
+    return config.host_conf().get(CHECKS_KEY, "on").strip().lower() != "off"
+
+
 def check_text(text: str, what: str = "the command") -> None:
     """Refuse `text` before it goes to a lab machine: a {{secret:}} reference, the machine's own state, a registered
     name or a secret. The refusal names the class and the count, never the text."""
@@ -575,6 +590,8 @@ def _check_own(text: str, what: str, names: bool) -> None:
     if STATE_RE.search(text):
         raise WinlabError("%s names the machine's own state (awb-winlab, the ssh keys): no session command reaches "
                           "it, nothing was sent" % what)
+    if not content_checks():
+        return
     found = _name_count(text) if names else 0
     if found:
         raise WinlabError("%s carries %d registered name(s): nothing was sent" % (what, found))
@@ -1401,6 +1418,8 @@ def _image_secret_count(text: str) -> int:
 
 def check_kind(path: Path, size: int) -> str:
     """Which check a put of the file at `path` runs, for its log line."""
+    if not content_checks():
+        return "no check (winlab_checks = off, the owner's word of 2026-11-25)"
     image = disk_image(path, size)
     return "secret check only, disk image %s" % image if image else "name and secret check"
 
@@ -1410,8 +1429,12 @@ def check_file(path: Path, size: int) -> str:
     check_kind. A file up to CHECK_WHOLE_MAX goes whole to the name check, which opens office files and archives.
     Every file but a plain text goes to it again in pieces of its text (a binary file can come back clean from the
     whole check); a compressed file the check cannot open is refused. The secret check reads the pieces of every
-    file. A disk image (disk_image) skips the name check and gets the secret check of _image_secret_count."""
+    file. A disk image (disk_image) skips the name check and gets the secret check of _image_secret_count.
+    With winlab_checks = off (the owner's word of 2026-11-25) nothing is checked."""
     from awb import hooks
+
+    if not content_checks():
+        return check_kind(path, size)
 
     image = disk_image(path, size)
     opaque, plain = True, False
@@ -1966,7 +1989,7 @@ def _check_and_publish(rpath: Path, rec: dict, folder: int, part: str, dst: Path
             # 64 KiB: a disk image, a program, a Veeam backup .vbk/.vib/.vbm) gets no name and no secret check; only
             # the SHA-256 compare stays. A text file and a compressed archive (zip, gzip, 7z: it may carry documents)
             # keep their checks.
-            bare = public_window and not compressed and _binary(snapshot)
+            bare = not content_checks() or (public_window and not compressed and _binary(snapshot))
             if bare:
                 public, whole, piece_names = True, False, False
             # A large disk image gets the name check over the unique text runs of its bytes: a few thousand calls
