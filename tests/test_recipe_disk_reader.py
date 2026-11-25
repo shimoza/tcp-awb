@@ -384,35 +384,49 @@ def test_a_value_outside_its_pattern_is_refused_before_any_call(cloud, project, 
 # --------------------------------------------------------------------------- the user_data
 
 
-def decoded(fake) -> str:
-    return base64.b64decode(reader_body(fake)["user_data"]).decode("utf-8")
+REFS = ("{{secret:obs-ak}}", "{{secret:obs-sk}}")
+
+
+def script_text(fake) -> str:
+    """The user data the run sent: the plain text of user_data_text, the key service fills the references and makes
+    the base64 user_data of it."""
+    server = reader_body(fake)
+    assert "user_data" not in server and "agency_name" not in server
+    return server["user_data_text"]
 
 
 def test_the_user_data_carries_no_secret_and_nothing_from_a_public_bucket(cloud, project):
     code, lines, errors = go(cloud)
     assert code == lab.EXIT_OK
-    text = decoded(cloud)
+    text = script_text(cloud)
+    # the text names the two reserved secrets once each and holds no key; the key service fills them
+    assert [text.count(r) for r in REFS] == [1, 1]
+    bare = text
+    for ref in REFS:
+        bare = bare.replace(ref, "")
     for detector in ("secret", "token", "private-key"):
-        assert not gate.DETECTORS[detector](text), detector
-    assert "{{" not in text and "adminPass" not in text and "password" not in text.lower()
-    # the only address it names is the metadata service of the ECS; the bucket and region come from the run
-    assert re.findall(r"https?://[^\s\"')]+", text) == ["http://169.254.169.254/openstack/latest/securitykey"]
+        assert not gate.DETECTORS[detector](bare), detector
+    assert "{{" not in bare and "adminPass" not in text and "password" not in text.lower()
+    # no address at all: no metadata service, no public bucket; the bucket and region come from the run
+    assert re.findall(r"https?://[^\s\"')]+", text) == []
+    assert "169.254" not in text and "securitykey" not in text and "x-obs-security-token" not in text
     assert "github" not in text and "s3.amazonaws" not in text
     cfg = json.loads(re.search(r"CFG = json\.loads\((.*)\)\n", text).group(1).encode().decode("unicode_escape")
                      if False else json.loads(re.search(r"CFG = json\.loads\((.*)\)\n", text).group(1)))
     assert cfg["bucket"] == next(iter(cloud.buckets)) and cfg["region"] == "eu-de" and cfg["volume"] == VOLUME
     assert cfg["files"][:len(diskreader.FIXED)] == list(diskreader.FIXED)
     compile(text, "reader", "exec")
-    # no plain text of a key anywhere in what the run sent or wrote
+    # no plain text of a key anywhere in what the run sent or wrote: the evidence and the output carry no script
     sent = json.dumps(cloud.calls)
-    assert "securitytoken" not in sent.replace("securitykey", "")
-    assert "BEGIN" not in sent
+    assert "securitytoken" not in sent and "BEGIN" not in sent
+    shown = evidence(project) + "\n".join(lines)
+    assert "obs-ak" not in shown and "obs-sk" not in shown and "AWB-READER" not in shown and "CFG" not in shown
 
 
 def test_the_user_data_carries_the_files_of_the_parameter(cloud, project):
     code, lines, errors = go(cloud, ["files=Windows/Panther/setupact.log:Windows/Temp/x.log"])
     assert code == lab.EXIT_OK
-    text = decoded(cloud)
+    text = script_text(cloud)
     cfg = json.loads(json.loads(re.search(r"CFG = json\.loads\((.*)\)\n", text).group(1)))
     assert cfg["files"][-2:] == ["Windows/Panther/setupact.log", "Windows/Temp/x.log"]
 
@@ -443,9 +457,17 @@ def test_the_script_is_not_made_from_a_value_that_is_not_one(bucket, region, vol
 # --------------------------------------------------------------------------- the reader script itself
 
 
-def load_script(tmp_path, monkeypatch):
-    """The rendered script with its main() cut off, run as a module whose mount point is a folder of the test."""
+def load_script(tmp_path, monkeypatch, key=None):
+    """The rendered script with its main() cut off, run as a module whose mount point is a folder of the test. With
+    `key` (ak, sk) the references are filled the way the key service fills them."""
+    from awb.tcp import keys
+
     text = diskreader.render("tcp-ab2c-lab-20261125-abcd", "eu-de", VOLUME, "Windows/Panther/setupact.log")
+    if key:
+        body, filled = keys.with_user_data({"server": {"user_data_text": text}}, "POST", "ecs",
+                                           "/v1/{project_id}/cloudservers", key)
+        assert filled
+        text = base64.b64decode(body["server"]["user_data"]).decode("utf-8")
     assert text.rstrip().endswith("main()")
     ns: dict = {"__name__": "reader"}
     exec(compile(text.rstrip()[:-len("main()")], "reader", "exec"), ns)
@@ -473,8 +495,9 @@ def test_the_script_signs_a_put_the_obs_way_and_never_sends_the_secret_key(tmp_p
     import hashlib
     import hmac
 
-    ns = load_script(tmp_path, monkeypatch)
-    ns["CRED"].update(at=ns["time"].time(), ak="AKINVENTED", sk="SKINVENTED", token="TOKINVENTED")
+    # the key service fills the two references with the key of the call; the script then signs with that key only
+    ns = load_script(tmp_path, monkeypatch, {"ak": "AKINVENTED", "sk": "SKINVENTED"})
+    assert ns["AK"] == "AKINVENTED" and ns["SK"] == "SKINVENTED"
     sent = {}
 
     class Conn:
@@ -505,9 +528,8 @@ def test_the_script_signs_a_put_the_obs_way_and_never_sends_the_secret_key(tmp_p
     h = sent["headers"]
     assert sent["host"] == "tcp-ab2c-lab-20261125-abcd.obs.eu-de.otc.t-systems.com"
     assert sent["method"] == "PUT" and sent["path"] == "/manifest.json" and sent["body"] == b"{}"
-    assert h["x-obs-security-token"] == "TOKINVENTED" and h["Authorization"].startswith("OBS AKINVENTED:")
-    canon = "x-obs-security-token:" + "TOKINVENTED" + "\n"
-    text = "PUT\n\n%s\n%s\n%s/tcp-ab2c-lab-20261125-abcd/manifest.json" % (h["Content-Type"], h["Date"], canon)
+    assert "x-obs-security-token" not in h and h["Authorization"].startswith("OBS AKINVENTED:")
+    text = "PUT\n\n%s\n%s\n/tcp-ab2c-lab-20261125-abcd/manifest.json" % (h["Content-Type"], h["Date"])
     sig = base64.b64encode(hmac.new(b"SKINVENTED", text.encode(), hashlib.sha1).digest()).decode()
     assert h["Authorization"] == "OBS AKINVENTED:" + sig
     assert "SKINVENTED" not in json.dumps(sent, default=str)

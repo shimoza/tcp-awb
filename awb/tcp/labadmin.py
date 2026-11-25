@@ -1107,7 +1107,11 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         reason = keep_reason(req.get("keep"))
         _keep_check(svc, project, alias, rows, anchored)
     drawn: list[str] = []
+    with_key = False
+    # obs-ak and obs-sk of a user_data_text: the write key of a customer tenant, else the lab key of the tenant
+    pair = login if "ak" in login else (tenant.get("roles") or {}).get("lab")
     if isinstance(body, (dict, list)):
+        body, with_key = keys.with_user_data(body, method, service, path, pair)
         body = keys.fill(body, tenant.get("secrets", {}), drawn=drawn)
     signer = auth(svc, alias, login, region)
     tagged = None
@@ -1166,8 +1170,12 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
             mark_listed_removed(p, run, removed_listed)
         run["calls"] = int(run.get("calls") or 0) + 1
         save(p, run)
-    svc._log(uid, alias, "admin", method, service, region, status, project)
-    answer = {"ok": True, "run": run["id"], "status": status, "headers": rh, "data": data, "text": text, "cut": cut,
+    svc._log(uid, alias, "admin", method, service, region,
+             "%s %s" % (status, keys.USER_DATA_LOG) if with_key else status, project)
+    # the user data of a server never comes back, the key of the tenant may be in it: a note of its length instead
+    answer = {"ok": True, "run": run["id"], "status": status, "headers": rh,
+              "data": keys.without_user_data(data, keys.user_data_note),
+              "text": keys.text_without_user_data(text, keys.user_data_note), "cut": cut,
               "path": expanded, "created": [m["label"] for m in made]}
     if tagged:
         answer["tagged"] = tagged
@@ -1177,6 +1185,7 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         answer["listed_removed"] = [{"handle": g["handle"], "id": g["id"], "label": g["label"]}
                                     for g in removed_listed]
     shown, hidden = masks(login)
+    hidden = hidden + ([pair["ak"], pair["sk"]] if with_key and pair else [])
     return shorten_answer(answer, shown, svc.lab.values() + [v for c in creds for v in c] + tokens, drawn + hidden)
 
 

@@ -158,6 +158,11 @@ holds the files it read. A create whose answer is lost is still looked up by its
 server. The dry run shows `<user_data of diskreader>`. A value the script is not made from stops the run as a recipe
 error.
 
+`${usertext:diskreader}` is the same script as plain text, for `user_data_text` of a server create: it carries
+`{{secret:obs-ak}}` and `{{secret:obs-sk}}`, which the key service fills with the key of the call (the lab key of the
+tenant) and sends as base64 `user_data`. The two names are no tenant secrets, so the run does not ask for them and they
+are allowed nowhere else. No answer of the run carries the user data of a server: a read shows a note of its length.
+
 A step or a teardown entry may carry `"confirm"`: the note that its API shape is not proven by a live call yet. The
 dry run, the list and the evidence show these notes, so the first live run says which shapes held.
 
@@ -293,16 +298,15 @@ confirm live". It reads the server with a GET on `cloudservers/ID` of the ECS se
 run is refused before its first create), the AZ, the system volume (the first of
 `os-extended-volumes:volumes_attached`, `bootIndex` 0) with its device name and the VPC and the `os-interface` path
 under it for the subnet. It then makes the bucket, a security group without an inbound rule and the reader (`adminPass`
-is `{{random:password}}`, nobody logs in; `agency_name` is the parameter `agency`; `user_data` is
-`${userdata:diskreader}`), detaches the volume with a DELETE on `detachvolume`, attaches it to the reader with a POST on
+is `{{random:password}}`, nobody logs in; `user_data_text` is
+`${usertext:diskreader}`), detaches the volume with a DELETE on `detachvolume`, attaches it to the reader with a POST on
 `attachvolume`, waits with a HEAD for `manifest.json` in the bucket, reads it (`result` must be `read`) and gives the
 volume back with the same two calls and `device` in the attach body. The reader writes `files/<path in the volume>` for
 the fixed files (`Windows/INF/setupapi*.log`, `Windows/System32/winevt/Logs/System.evtx` and `Application.evtx`,
 `Windows/System32/config/SYSTEM` and `SOFTWARE`) and for the colon separated parameter `files` and `manifest.json`
 last, after the unmount. What to look at in the first live run: whether the platform takes `adminPass` with
-`user_data`; whether the agency exists (the owner makes it once: a cloud service agency for ECS with OBS write rights,
-the lab key cannot write IAM); whether a reader without an EIP reaches the OBS endpoint of the region and the metadata
-service answers its `securitykey` path; whether `ntfs-3g` is on the image or installs from its repository; whether the
+`user_data`; whether the lab key of the tenant lets the reader put into the bucket (the owner's word of 2026-11-25: no IAM
+agency, no extra key); whether a reader without an EIP reaches the OBS endpoint of the region; whether `ntfs-3g` is on the image or installs from its repository; whether the
 call operation parses the JSON of the manifest for the check `read-ok`; and the device name the attach of a system
 volume takes. The files stay in the bucket named after the project and the run (its row says kept and the expiry tag
 ends it); `awb lab obs get` reads one while a lab run of the project is open.

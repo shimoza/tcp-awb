@@ -171,7 +171,7 @@ USER_DATA_LOG = "user data with the tenant key"
 _SERVER_CREATE_RE = re.compile(r"^/v1(?:\.1)?/[^/]+/cloudservers\Z")
 _TENANT_KEY_REF_RE = re.compile(r"\{\{secret:(obs-ak|obs-sk)\}\}")
 _USER_DATA_KEY_RE = re.compile(r"[^a-z0-9]")
-_USER_DATA_PAIR_RE = re.compile(r'(?i)"[A-Za-z0-9_.:-]*user[_-]?data"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|null)')
+_USER_DATA_PAIR_RE = re.compile(r'(?i)("[A-Za-z0-9_.:-]*user[_-]?data"\s*:\s*)("(?:[^"\\]|\\.)*"?|null)')
 RANDOM_PASSWORD = "{{random:password}}"
 _RANDOM_SPECIAL = "!@%^-_=+"
 """The special characters a drawn password takes: those both the ECS and the RDS password rules allow."""
@@ -382,25 +382,52 @@ def with_user_data(body, method: str, service: str, path: str, pair: dict | None
     return dict(body, server=out), filled != text
 
 
-def without_user_data(obj):
-    """The parsed answer with every user data field (`user_data`, `OS-EXT-SRV-ATTR:user_data`) left out."""
+USER_DATA_NOTE = "[boot script withheld, %d characters]"
+"""What a lab run answer shows in place of the user data of a server (the note of awb/labclient.py, which tests/
+test_keys_userdata_secret.py holds equal)."""
+
+
+def user_data_note(value) -> str:
+    """The note for a user data value, as long as the value itself when it is long enough, so that the run log of the
+    client, which notes the length of a boot script, shows this same note and not a note of the note."""
+    n = len(value if isinstance(value, str) else json.dumps(value))
+    note = USER_DATA_NOTE % n
+    return note.ljust(n) if len(note) <= n else "*" * n
+
+
+def without_user_data(obj, note=None):
+    """The parsed answer with every user data field (`user_data`, `OS-EXT-SRV-ATTR:user_data`) left out or with
+    its value replaced by `note(value)` when `note` is given (an empty value stays)."""
     if isinstance(obj, dict):
-        return {k: without_user_data(v) for k, v in obj.items()
-                if _USER_DATA_KEY_RE.sub("", str(k).rsplit(":", 1)[-1].lower()) != "userdata"}
+        out = {}
+        for k, v in obj.items():
+            if _USER_DATA_KEY_RE.sub("", str(k).rsplit(":", 1)[-1].lower()) == "userdata":
+                if note is not None:
+                    out[k] = note(v) if v not in (None, "") else v
+            else:
+                out[k] = without_user_data(v, note)
+        return out
     if isinstance(obj, list):
-        return [without_user_data(v) for v in obj]
+        return [without_user_data(v, note) for v in obj]
     return obj
 
 
-def _text_without_user_data(text):
-    """The text of an answer without its user data: a JSON text is parsed and written again, a cut one has the
-    fields taken out by pattern."""
+def text_without_user_data(text, note=None):
+    """The text of an answer without its user data (or with the note): a JSON text is parsed and written again, a
+    cut one has the fields taken out by pattern."""
     if not isinstance(text, str) or not _USER_DATA_PAIR_RE.search(text):
         return text
     try:
-        return json.dumps(without_user_data(json.loads(text)), ensure_ascii=False)
+        return json.dumps(without_user_data(json.loads(text), note), ensure_ascii=False)
     except ValueError:
-        return _USER_DATA_PAIR_RE.sub("", text)
+        def one(m):
+            value = m.group(2)
+            if note is None:
+                return ""
+            if not value.startswith('"') or value == '""':
+                return m.group(0)
+            return m.group(1) + json.dumps(note(value[1:-1] if value.endswith('"') and len(value) > 1 else value[1:]))
+        return _USER_DATA_PAIR_RE.sub(one, text)
 
 
 class Service:
@@ -1806,7 +1833,7 @@ class Service:
     def _mask(self, answer: dict, tenant: dict, drawn: list[str] = ()) -> dict:
         # a server's user data never goes back: a script may hold the key of the tenant (with_user_data)
         if "text" in answer:
-            answer = dict(answer, text=_text_without_user_data(answer["text"]))
+            answer = dict(answer, text=text_without_user_data(answer["text"]))
         answer = without_user_data(answer)
         text = json.dumps(answer, ensure_ascii=False)
         values = [v for pair in tenant.get("roles", {}).values() for v in pair.values()]

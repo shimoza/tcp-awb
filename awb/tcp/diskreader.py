@@ -14,10 +14,12 @@ ntfs-3g and `ro`, puts these files and writes `manifest.json` last, after the un
 Every object goes to `files/<path inside the volume>` of the bucket. The manifest says per file put, missing or
 failed, with the size and the SHA-256 and for the whole run `result` read or failed with its reason.
 
-The script holds no secret and fetches nothing from a public bucket. It signs its puts the V2 way of OBS
-(awb/obs.py) with the temporary credential of the agency of the reader, which the metadata service of the ECS hands
-out (`/openstack/latest/securitykey`); the credential never leaves the reader. Standard library only, on our side and
-on the reader's (python3 of the image).
+The text holds no key, only two references: `{{secret:obs-ak}}` and `{{secret:obs-sk}}` (the owner's word of
+2026-11-25: no IAM agency, no extra lab keys). The recipe sends the text as `server.user_data_text`; the key service
+fills the references with the key of the call (the lab key of the tenant), sends the result as base64 user_data and
+never returns it (tcp-bytg ask 2026-11-25-tcp-bytg-6). The script fetches nothing from a public bucket and signs its
+puts the V2 way of OBS (awb/obs.py) with that key; the key never leaves the reader. Standard library only, on our side
+and on the reader's (python3 of the image).
 """
 from __future__ import annotations
 
@@ -78,6 +80,15 @@ def config_of(bucket: str, region: str, volume: str, files: str = "", wait_minut
             "prefix": PREFIX, "manifest": MANIFEST, "wait_minutes": int(wait_minutes)}
 
 
+def usertext(env: dict) -> str:
+    """The script as plain text for the values of a lab run (`name` is the bucket, `region`, `sys_volume` the id of
+    the volume the recipe read from the server and `files` the parameter): the text of `server.user_data_text`."""
+    for k in ("name", "region", "sys_volume"):
+        if not env.get(k):
+            raise ReaderError("no value for %s" % k)
+    return render(env["name"], env["region"], env["sys_volume"], env.get("files", ""))
+
+
 def render(bucket: str, region: str, volume: str, files: str = "", wait_minutes: int = WAIT_MINUTES) -> str:
     """The script as text: a python3 script that cloud-init runs at the first boot of the reader."""
     cfg = config_of(bucket, region, volume, files, wait_minutes)
@@ -87,15 +98,12 @@ def render(bucket: str, region: str, volume: str, files: str = "", wait_minutes:
 def userdata(env: dict) -> str:
     """The base64 of the script for the values of a lab run: `name` is the bucket, `region`, `sys_volume` the id of
     the volume the recipe read from the server and `files` the parameter."""
-    for k in ("name", "region", "sys_volume"):
-        if not env.get(k):
-            raise ReaderError("no value for %s" % k)
-    text = render(env["name"], env["region"], env["sys_volume"], env.get("files", ""))
-    return base64.b64encode(text.encode("utf-8")).decode("ascii")
+    return base64.b64encode(usertext(env).encode("utf-8")).decode("ascii")
 
 
 SCRIPT = r'''#!/usr/bin/env python3
-# awb disk reader: reads a system volume read-only and puts files into a lab bucket. No secret is in this text.
+# awb disk reader: reads a system volume read-only and puts files into a lab bucket. The two references below are
+# filled with the key of the tenant by the key service before the server is made.
 import datetime
 import email.utils
 import fnmatch
@@ -109,13 +117,13 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.request
 import base64
 
 CFG = json.loads(@@CONFIG@@)
 MOUNT = "/mnt/awb-win"
 LOG = "/var/log/awb-disk-reader.log"
-CRED = {"at": 0.0, "ak": "", "sk": "", "token": ""}
+AK = "{{secret:obs-ak}}"
+SK = "{{secret:obs-sk}}"
 
 
 def say(text):
@@ -136,24 +144,6 @@ def run(argv, timeout=300):
         return 1, ""
 
 
-def credential():
-    """The temporary credential of the agency, from the metadata service; renewed every ten minutes."""
-    if CRED["ak"] and time.time() - CRED["at"] < 600:
-        return CRED
-    url = "http://169.254.169.254/openstack/latest/securitykey"
-    last = None
-    for _ in range(6):
-        try:
-            with urllib.request.urlopen(url, timeout=10) as r:
-                c = json.loads(r.read().decode("utf-8"))["credential"]
-            CRED.update(at=time.time(), ak=c["access"], sk=c["secret"], token=c["securitytoken"])
-            return CRED
-        except Exception as exc:
-            last = type(exc).__name__
-            time.sleep(5)
-    raise RuntimeError("no credential from the metadata service (%s)" % last)
-
-
 def safe_key(rel):
     key = "".join(ch if (ch.isalnum() and ch.isascii()) or ch in "._/-" else "_" for ch in rel)
     return CFG["prefix"] + key.strip("/")
@@ -165,12 +155,10 @@ def put(key, path=None, data=b""):
     size = os.path.getsize(path) if path else len(data)
     last = 0
     for attempt in range(4):
-        c = credential()
         date = email.utils.formatdate(usegmt=True)
         ctype = "application/octet-stream"
-        canon = "x-obs-security-token:%s\n" % c["token"]
-        text = "PUT\n\n%s\n%s\n%s/%s/%s" % (ctype, date, canon, CFG["bucket"], key)
-        sig = base64.b64encode(hmac.new(c["sk"].encode(), text.encode(), hashlib.sha1).digest()).decode()
+        text = "PUT\n\n%s\n%s\n/%s/%s" % (ctype, date, CFG["bucket"], key)
+        sig = base64.b64encode(hmac.new(SK.encode(), text.encode(), hashlib.sha1).digest()).decode()
         conn = http.client.HTTPSConnection(host, timeout=300)
         try:
             conn.putrequest("PUT", "/" + key)
@@ -178,8 +166,7 @@ def put(key, path=None, data=b""):
             conn.putheader("Date", date)
             conn.putheader("Content-Type", ctype)
             conn.putheader("Content-Length", str(size))
-            conn.putheader("x-obs-security-token", c["token"])
-            conn.putheader("Authorization", "OBS %s:%s" % (c["ak"], sig))
+            conn.putheader("Authorization", "OBS %s:%s" % (AK, sig))
             conn.endheaders()
             if path:
                 with open(path, "rb") as f:

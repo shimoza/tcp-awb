@@ -85,6 +85,10 @@ Things a recipe may do that take, keep or render something (recipe `disk-reader`
   named in `keep` are not deleted, because deleting a server that still holds the volume would delete the volume.
 - `${userdata:NAME}` is the base64 of a script of the Workbench (awb/tcp/diskreader.py) made for the values of the
   run, for the user_data of a server. The script holds no secret.
+- `${usertext:NAME}` is the same script as plain text, for `server.user_data_text` of a server create: it carries
+  `{{secret:obs-ak}}` and `{{secret:obs-sk}}`, which the key service fills with the key of the call (the lab key of the
+  tenant) and sends as base64 user_data. The two names are no tenant secrets: the run does not ask for them. The
+  answers of the run never carry the user data of a server, only a note of its length.
 - A preflight may read one object: without `list` its `field` is a path in the answer and `equals` the value it must
   hold (the state of a server that must be stopped).
 
@@ -203,7 +207,7 @@ def load(path: Path) -> dict:
 def _refs(obj) -> set[str]:
     if isinstance(obj, str):
         return {m.group(1).split(":", 1)[-1] if m.group(1).startswith(("base64:", "int:")) else m.group(1)
-                for m in _REF_RE.finditer(obj) if not m.group(1).startswith(("tags:", "userdata:"))}
+                for m in _REF_RE.finditer(obj) if not m.group(1).startswith(("tags:", "userdata:", "usertext:"))}
     if isinstance(obj, dict):
         return set().union(*(_refs(v) for v in obj.values())) if obj else set()
     if isinstance(obj, list):
@@ -654,7 +658,9 @@ def secrets_of(r: dict, env: dict[str, str]) -> list[str]:
     for t in r["teardown"].values():
         calls += [t["call"], t["gone"]["call"]]
     text = json.dumps([expand(c, dict(env, id="<id>"), loose=True) for c in calls if c])
-    return sorted(set(_SECRET_REF_RE.findall(text)))
+    from awb.tcp import keys
+
+    return sorted(set(_SECRET_REF_RE.findall(text)) - set(keys.TENANT_KEY_NAMES))    # the key service fills those two
 
 
 def disks_of(r: dict, env: dict[str, str]) -> list[tuple[str, str]]:
@@ -847,6 +853,21 @@ def userdata_of(name: str, env: dict[str, str], loose: bool) -> str:
         raise Stop("the script %s cannot be made: %s" % (name, exc)) from None
 
 
+def usertext_of(name: str, env: dict[str, str], loose: bool) -> str:
+    """The plain text of the script NAME for the values of `env` (the key references stay in it); the dry run shows
+    the same placeholder as userdata_of."""
+    if name not in USERDATA:
+        raise Stop("no script of that name")
+    if loose:
+        return "<user_data of %s>" % name
+    from awb.tcp import diskreader
+
+    try:
+        return diskreader.usertext(env)
+    except diskreader.ReaderError as exc:
+        raise Stop("the script %s cannot be made: %s" % (name, exc)) from None
+
+
 def expand(obj, env: dict[str, str], *, loose: bool = False, depth: int = 0):
     """Fill ${var}, ${base64:var}, a whole ${int:var} (a number) and a whole ${tags:FORM} value; a value that
     holds ${...} itself is filled too.
@@ -875,6 +896,8 @@ def expand(obj, env: dict[str, str], *, loose: bool = False, depth: int = 0):
         ref = m.group(1)
         if ref.startswith("userdata:"):
             return userdata_of(ref.split(":", 1)[1], env, loose)
+        if ref.startswith("usertext:"):
+            return usertext_of(ref.split(":", 1)[1], env, loose)
         var = ref.split(":", 1)[1] if ref.startswith("base64:") else ref
         if var not in env:
             if loose:

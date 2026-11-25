@@ -1,7 +1,7 @@
 {
   "name": "disk-reader",
   "question": "Can the system volume of a stopped server in ${az} (${region}) be read read-only by a Linux reader ECS, its files put into the run's bucket and be attached back to the server as its system volume with the same device name?",
-  "about": "Reads Windows state (setupapi*.log, System.evtx, Application.evtx, the registry hives SYSTEM and SOFTWARE and the files of the parameter files) of a STOPPED server. The run refuses a server that is not SHUTOFF before it makes anything. It reads the server (system volume, device name, VPC, subnet), makes a bucket named after the project, a security group without an inbound rule and a small Linux reader ECS (no EIP) in the server's subnet and AZ, detaches the system volume of the server, attaches it to the reader and waits for manifest.json in the bucket. The reader (awb/tcp/diskreader.py, the user_data) mounts the volume with ntfs-3g and ro, puts the files under files/ and writes manifest.json last. Then the run detaches the volume from the reader and attaches it back to the server with the same device name. The teardown always gives the volume back first, after a failure too (restore), proves it back with a read and only then deletes the reader and the security group; when the volume is not back the reader stays and the command exits 4. The bucket stays (keep): it holds the files and its expiry tag ends it. The reader needs an IAM agency (param agency) that lets an ECS write to the bucket; the temporary credential comes from the metadata service of the reader, never from the user_data.",
+  "about": "Reads Windows state (setupapi*.log, System.evtx, Application.evtx, the registry hives SYSTEM and SOFTWARE and the files of the parameter files) of a STOPPED server. The run refuses a server that is not SHUTOFF before it makes anything. It reads the server (system volume, device name, VPC, subnet), makes a bucket named after the project, a security group without an inbound rule and a small Linux reader ECS (no EIP) in the server's subnet and AZ, detaches the system volume of the server, attaches it to the reader and waits for manifest.json in the bucket. The reader (awb/tcp/diskreader.py, the user_data) mounts the volume with ntfs-3g and ro, puts the files under files/ and writes manifest.json last. Then the run detaches the volume from the reader and attaches it back to the server with the same device name. The teardown always gives the volume back first, after a failure too (restore), proves it back with a read and only then deletes the reader and the security group; when the volume is not back the reader stays and the command exits 4. The bucket stays (keep): it holds the files and its expiry tag ends it. The reader uploads with the key of the tenant (the owner's word of 2026-11-25: no IAM agency, no extra keys): the user data is sent as user_data_text with {{secret:obs-ak}} and {{secret:obs-sk}}, which the key service fills with the key of the call; the run never sees the key or the filled script.",
   "params": {
     "server_id": {"default": "00000000-0000-0000-0000-000000000000",
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -15,9 +15,7 @@
     "image": {"default": "Standard_Ubuntu_22.04_latest", "pattern": "^[A-Za-z0-9_.-]{3,80}$",
               "help": "the name of a public Linux image with python3; ntfs-3g is installed from the image's repository when it is missing"},
     "flavor": {"default": "s3.medium.1", "pattern": "^(s2|s3|c4|m3|t2)\\.(medium|large)\\.[1248]$",
-               "help": "the flavor of the reader; the pattern keeps it small"},
-    "agency": {"default": "awb-disk-reader", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{1,63}$",
-               "help": "the name of the IAM agency of the reader (a cloud service agency for ECS with write rights on the bucket of the run); the owner makes it once, the lab key cannot"}
+               "help": "the flavor of the reader; the pattern keeps it small"}
   },
   "budget": {"minutes": 45, "teardown_minutes": 20},
   "guard": {"resources": 3, "lifetime_minutes": 70},
@@ -71,7 +69,7 @@
                                   "vpcid": "${vpc}", "nics": [{"subnet_id": "${subnet}"}],
                                   "security_groups": [{"id": "${sg}"}], "root_volume": {"volumetype": "SAS"},
                                   "availability_zone": "${az}", "adminPass": "{{random:password}}",
-                                  "agency_name": "${agency}", "user_data": "${userdata:diskreader}",
+                                  "user_data_text": "${usertext:diskreader}",
                                   "server_tags": "${tags:kv}", "count": 1}}},
      "id_field": "serverIds.0",
      "find": {"call": {"method": "GET", "service": "ecs", "path": "/v1/{project_id}/cloudservers/detail",
@@ -80,7 +78,7 @@
      "name": "${name}-r",
      "resource": {"kind": "ecs", "type": "ecs reader server with its system disk", "cost": "small"},
      "tags": "body",
-     "confirm": "the create body as in ecs-boot-ssh with agency_name, the user_data of awb/tcp/diskreader.py and a random password nobody logs in with (adminPass); whether the platform takes adminPass and user_data together; whether the agency exists and lets the reader write to the bucket; whether the reader reaches the OBS endpoint of the region without an EIP"},
+     "confirm": "the create body as in ecs-boot-ssh with the user_data_text of awb/tcp/diskreader.py and a random password nobody logs in with (adminPass); whether the platform takes adminPass and user_data together; whether the lab key of the tenant lets the reader put into the bucket of the run; whether the reader reaches the OBS endpoint of the region without an EIP"},
     {"id": "reader-up", "do": "wait", "says": "the reader boots",
      "call": {"method": "GET", "service": "ecs", "path": "/v1/{project_id}/cloudservers/${reader}"},
      "until": {"field": "server.status", "equals": "ACTIVE"}, "fail_on": ["ERROR"], "within": 600, "every": 10},

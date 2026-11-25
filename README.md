@@ -238,14 +238,15 @@ the event logs System.evtx and Application.evtx, the registry hives SYSTEM and S
 server that is not stopped or not in its AZ before it makes anything. It makes a bucket named after the project, a
 security group with no inbound rule and a small Linux reader ECS (no EIP) in the subnet and AZ of the server, detaches
 the system volume of the server, attaches it to the reader, which mounts it read-only with ntfs-3g and puts the files
-into the bucket (the script is `awb/tcp/diskreader.py`, the user_data; it holds no secret and fetches nothing from a
-public bucket, it signs its puts with the credential of the reader's IAM agency, param `agency`), then attaches the
+into the bucket (the script is `awb/tcp/diskreader.py`, the user_data; it fetches nothing from a public bucket and signs its puts with
+the key of the tenant: the run sends it as `user_data_text` with `{{secret:obs-ak}}` and `{{secret:obs-sk}}` and the key
+service fills them, no IAM agency and no extra key), then attaches the
 volume back to the server with the same device name and deletes the reader. The teardown always gives the volume back
 first, also after a failed step or a signal (`restore` in the recipe), proves it back with a read and only then deletes
 the reader; a volume that is not proven back keeps the reader alive and the command exits 4 with the line to put it
 back by hand. The bucket stays (a create step with `keep`: its row says kept, its expiry tag ends it) because it holds
 the files. The engine gained a wait on the status of an answer, `keep`, `restore`, a preflight on one object and
-`${userdata:diskreader}`; `recipes/README.md` describes them.
+`${userdata:diskreader}` and `${usertext:diskreader}`; `recipes/README.md` describes them.
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 
@@ -1259,7 +1260,8 @@ the key the call itself uses (the lab key of a test tenant) and only inside `ser
 the filled text into `server.user_data` and sends it; the log line of that call says "user data with the tenant key".
 Anywhere else the two names are refused and no other reference is allowed in that text. An answer never carries the
 user data of a server (`user_data`, `OS-EXT-SRV-ATTR:user_data`), so a session cannot read the script back with the key
-in it. The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is
+in it; a lab run (`lab_call`) fills the same two names with the lab key of the tenant (the write key of a customer
+tenant) and shows a note of the length of the data in its place. The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is
 logged on the owner's side without its path or body.
 
 `awb tenant snapshot` records what runs on each tenant every day, so that `awb tenant at test-1 2026-09-30` tells
