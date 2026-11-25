@@ -1253,7 +1253,13 @@ with the size of the whole answer. An answer is read up to 16 MiB, a larger one 
 under the rules of the other types (untagged, expired or not in RESOURCES.md), with one call per bucket for its tags.
 
 A request body may name a secret only as the whole value of a password field, `{"admin_pass": "{{secret:NAME}}"}`.
-The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is
+Two names are reserved for every tenant and role, `{{secret:obs-ak}}` and `{{secret:obs-sk}}`: the service fills them with
+the key the call itself uses (the lab key of a test tenant) and only inside `server.user_data_text` of a POST on ECS
+`cloudservers` (v1 and v1.1), the plain text of the script of a helper ECS that uploads to OBS. The service base64-encodes
+the filled text into `server.user_data` and sends it; the log line of that call says "user data with the tenant key".
+Anywhere else the two names are refused and no other reference is allowed in that text. An answer never carries the
+user data of a server (`user_data`, `OS-EXT-SRV-ATTR:user_data`), so a session cannot read the script back with the key
+in it. The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is
 logged on the owner's side without its path or body.
 
 `awb tenant snapshot` records what runs on each tenant every day, so that `awb tenant at test-1 2026-09-30` tells

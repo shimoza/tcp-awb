@@ -60,7 +60,12 @@ nowhere else, so that no secret is put into a field the session can read back. A
 `{{random:password}}` for a resource that needs a password nobody logs in with later (fact-check design D3): the
 service draws a throw-away value at call time that meets the platform's password rules (16 characters, upper and
 lower case, a digit and one of !@%^-_=+), sends it, takes it out of the answer like a secret and forgets it; it is
-never returned, never logged. The answer carries the status and
+never returned, never logged. Two names are reserved per tenant and role, `{{secret:obs-ak}}` and `{{secret:obs-sk}}`:
+the service fills them from the key the call itself uses (the lab key of a test tenant) and only inside the text
+`server.user_data_text` of a POST on ECS cloudservers (v1 and v1.1), a helper ECS that uploads to OBS with the real
+key; the service base64-encodes the filled text into `server.user_data`, sends it and logs the call as "user data
+with the tenant key". Anywhere else the two names are refused. Every answer leaves out the user data of a server
+(`user_data`, `OS-EXT-SRV-ATTR:user_data`), so a session never reads the script back. The answer carries the status and
 the parsed body with every key and secret of the tenant replaced by <secret>, also in base64 and JSON-escaped
 form. Every call is logged to `<vault>/log/cloud-YYYY-MM.tsv` with time, peer uid, tenant, role, method, service,
 region, status and project; never a path, a body or a value.
@@ -158,6 +163,15 @@ _REF_RE = re.compile(r"^\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}\Z")
 _SECRET_FIELD_RE = re.compile(r"(?i)^(?:admin_?pass(?:word)?|password|passwd|user_?password|root_?password"
                               r"|db_?password|login_?password)\Z")
 MASK = "<secret>"
+TENANT_KEY_NAMES = ("obs-ak", "obs-sk")
+"""Reserved secret names per tenant and role: the service fills them from the key the call itself uses and only inside
+the `user_data_text` of a server create (a helper ECS that uploads to OBS with the real key of the tenant)."""
+USER_DATA_TEXT = "user_data_text"
+USER_DATA_LOG = "user data with the tenant key"
+_SERVER_CREATE_RE = re.compile(r"^/v1(?:\.1)?/[^/]+/cloudservers\Z")
+_TENANT_KEY_REF_RE = re.compile(r"\{\{secret:(obs-ak|obs-sk)\}\}")
+_USER_DATA_KEY_RE = re.compile(r"[^a-z0-9]")
+_USER_DATA_PAIR_RE = re.compile(r'(?i)"[A-Za-z0-9_.:-]*user[_-]?data"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|null)')
 RANDOM_PASSWORD = "{{random:password}}"
 _RANDOM_SPECIAL = "!@%^-_=+"
 """The special characters a drawn password takes: those both the ECS and the RDS password rules allow."""
@@ -324,12 +338,69 @@ def fill(obj, secrets: dict[str, str], key: str | None = None, drawn: list[str] 
         m = _REF_RE.match(obj)
         if not m:
             raise Refused("a secret reference must be the whole value: {{secret:NAME}}")
+        if m.group(1) in TENANT_KEY_NAMES:
+            raise Refused("%s fills the user_data_text of a server create only" % m.group(1))
         if key is None or not _SECRET_FIELD_RE.match(key):
             raise Refused("a secret may only fill a password field (admin_pass, password, user_password ...)")
         if m.group(1) not in secrets:
             raise Refused("the tenant has no secret of that name")
         return secrets[m.group(1)]
     return obj
+
+
+def _holds_key(obj, name: str) -> int:
+    """How often `name` is a key anywhere in a parsed body."""
+    if isinstance(obj, dict):
+        return sum((k == name) + _holds_key(v, name) for k, v in obj.items())
+    if isinstance(obj, list):
+        return sum(_holds_key(v, name) for v in obj)
+    return 0
+
+
+def with_user_data(body, method: str, service: str, path: str, pair: dict | None):
+    """(body, filled): a server create body whose `server.user_data_text` carries `{{secret:obs-ak}}` and
+    `{{secret:obs-sk}}` gets the text with the two keys of the call filled in, base64-encoded as `server.user_data`,
+    and the text field taken out. `filled` is true when the text held a key. The field is allowed in a POST on ECS
+    cloudservers (v1 and v1.1) only and takes no other reference; the body is left alone when it holds no such field."""
+    if not _holds_key(body, USER_DATA_TEXT):
+        return body, False
+    server = body.get("server") if isinstance(body, dict) else None
+    if not (method == "POST" and service == "ecs" and isinstance(path, str) and _SERVER_CREATE_RE.match(path)
+            and isinstance(server, dict) and _holds_key(body, USER_DATA_TEXT) == 1 and USER_DATA_TEXT in server):
+        raise Refused("user_data_text belongs in the server of a server create (POST ecs cloudservers) only")
+    text = server[USER_DATA_TEXT]
+    if not isinstance(text, str) or "user_data" in server:
+        raise Refused("user_data_text is a text and comes without user_data")
+    if "{{secret" in _TENANT_KEY_REF_RE.sub("", text) or "{{random" in text:
+        raise Refused("user_data_text takes {{secret:obs-ak}} and {{secret:obs-sk}} only")
+    if not pair:
+        raise Refused("the key of the call is not there to fill the user data")
+    given = {"obs-ak": pair["ak"], "obs-sk": pair["sk"]}
+    filled = _TENANT_KEY_REF_RE.sub(lambda m: given[m.group(1)], text)
+    out = {k: v for k, v in server.items() if k != USER_DATA_TEXT}
+    out["user_data"] = base64.b64encode(filled.encode("utf-8")).decode("ascii")
+    return dict(body, server=out), filled != text
+
+
+def without_user_data(obj):
+    """The parsed answer with every user data field (`user_data`, `OS-EXT-SRV-ATTR:user_data`) left out."""
+    if isinstance(obj, dict):
+        return {k: without_user_data(v) for k, v in obj.items()
+                if _USER_DATA_KEY_RE.sub("", str(k).rsplit(":", 1)[-1].lower()) != "userdata"}
+    if isinstance(obj, list):
+        return [without_user_data(v) for v in obj]
+    return obj
+
+
+def _text_without_user_data(text):
+    """The text of an answer without its user data: a JSON text is parsed and written again, a cut one has the
+    fields taken out by pattern."""
+    if not isinstance(text, str) or not _USER_DATA_PAIR_RE.search(text):
+        return text
+    try:
+        return json.dumps(without_user_data(json.loads(text)), ensure_ascii=False)
+    except ValueError:
+        return _USER_DATA_PAIR_RE.sub("", text)
 
 
 class Service:
@@ -1346,9 +1417,11 @@ class Service:
             raise Refused("a query is an object of strings")
         body = req.get("body")
         drawn: list[str] = []
+        with_key = False
         if body is not None:
             if not isinstance(body, (dict, list)) or len(json.dumps(body)) > MAX_BODY:
                 raise Refused("a body is a JSON object of at most %d bytes" % MAX_BODY)
+            body, with_key = with_user_data(body, method, service, path, pair)
             body = fill(body, tenant.get("secrets", {}), drawn=drawn)
         extra = call_headers(req)
         keys = obs.Keys(pair["ak"], pair["sk"])
@@ -1363,7 +1436,8 @@ class Service:
                       "cut": r.cut}
         except cloud.CloudError as err:
             answer = {"ok": True, "status": err.status or 0, "data": None, "text": str(err)}
-        self._log(uid, alias, role, method, service, region, answer["status"], project)
+        self._log(uid, alias, role, method, service, region,
+                  "%s %s" % (answer["status"], USER_DATA_LOG) if with_key else answer["status"], project)
         if tagged and 200 <= int(answer["status"] or 0) < 300:
             answer["tagged"] = self._tag_after(client, alias, project, service, path, answer.get("data"), tagged)
         return self._mask(answer, tenant, drawn)
@@ -1570,6 +1644,8 @@ class Service:
         if body is not None:
             if not isinstance(body, (dict, list)) or len(json.dumps(body)) > MAX_BODY:
                 raise Refused("a body is a JSON object of at most %d bytes" % MAX_BODY)
+            if _holds_key(body, USER_DATA_TEXT):
+                raise Refused("user_data_text belongs in the server of a server create on a test tenant only")
             body = fill(body, {}, drawn=drawn)
         used: list[str] = list(drawn)
         extra = call_headers(req)
@@ -1728,6 +1804,10 @@ class Service:
                 "sk": cred["secret"], "token": cred["securitytoken"], "expires_at": cred.get("expires_at")}
 
     def _mask(self, answer: dict, tenant: dict, drawn: list[str] = ()) -> dict:
+        # a server's user data never goes back: a script may hold the key of the tenant (with_user_data)
+        if "text" in answer:
+            answer = dict(answer, text=_text_without_user_data(answer["text"]))
+        answer = without_user_data(answer)
         text = json.dumps(answer, ensure_ascii=False)
         values = [v for pair in tenant.get("roles", {}).values() for v in pair.values()]
         values += list(tenant.get("secrets", {}).values()) + list(drawn)
