@@ -36,6 +36,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - `awb build check` (Q-0031): the host is an x1.2xlarge.4 with 8 vCPU and 32 GB since 2026-11-23, so the suite unit runs eight test files at a time (was four) under `CPUQuota=800%` (was 400%); the other units keep 200%. Tests: `tests/test_suite_parallel.py` (owner's yes of 2026-11-23 for the quota line).
 
 ### Fixed
+- `awb side status` prints a `reason:` line under a failed side session, taken from the error of the client's JSON answer (the client writes it there, not to the error file), or says that the client gave none (ask 2026-11-25-tcp-s2z5-1).
 - `awb doc fetch` drops a byte order mark, zero-width marks and the soft hyphen from a page, so the archive help pages of a vendor (Veeam 9.0 to 11) are no longer withheld for a control character; any other control character still withholds the page (ask 2026-11-25-tcp-s2z5-2).
 - `awb winlab get` in a window opened with `--public-image` lets a vendor program (ELF or PE, such as the Veeam extract binary) skip the secret check like a disk image; the name check stays and a plain window keeps the secret check (ask 2026-11-25-tcp-bytg-2).
 - `awb winlab put` and run no longer take a quoted `-Description` after a bracketed `(ConvertTo-SecureString $pw -AsPlainText -Force)` for a typed password; a quoted literal inside the bracket is still refused (ask 2026-11-25-tcp-bytg-1).

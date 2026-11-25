@@ -507,7 +507,34 @@ def status_lines(cwd: Path | None = None) -> list[str]:
         lines.append("%s  %s  %s/%s  %s commit(s)  result: %s"
                      % (name, st, model, effort, n,
                         "yes" if _has_result(root, p, name, meta) else "no"))
+        if st == "failed":
+            lines.append("  reason: %s" % _failure_reason(root, p))
     return lines or ["no side sessions"]
+
+
+def _failure_reason(root: Path, p: dict[str, Path]) -> str:
+    """Why a side session failed, in one line: the client prints its error into the JSON answer, not to standard
+    error (tcp-s2z5 2026-11-25), so the first line of its error text, then of the error file, else a plain line."""
+    for key in ("out", "err"):
+        try:
+            text = _read(root, p[key], MAX_RESULT) if os.path.lexists(p[key]) else ""
+        except (OSError, SideError):
+            continue
+        if key == "out":
+            try:
+                answer = json.loads(text or "{}")
+            except ValueError:
+                answer = {}
+            if not isinstance(answer, dict):
+                continue
+            parts = [str(answer[k]) for k in ("api_error_status", "result", "subtype")
+                     if answer.get(k) and (k != "subtype" or answer.get("is_error"))]
+            text = "\n".join(parts)
+        line = next((x.strip() for x in text.splitlines() if x.strip()), "")
+        line = re.sub(r"[\x00-\x1f\x7f]", "", line)[:200]
+        if line:
+            return line
+    return "the client gave no reason (no answer and an empty error file)"
 
 
 @_command
