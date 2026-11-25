@@ -125,7 +125,7 @@ MAX_CONNECTIONS = 16
 lock the owner out of the admin socket (lock, status, unlock)."""
 MAX_FDS = 2
 """Descriptors a request may pass (lab_obs: the file and the run log); those of any other op are closed unread."""
-RATE_LIMIT = 120
+RATE_LIMIT = 240
 RATE_WINDOW = 60.0
 # every pattern ends with \Z, never $: `$` also matches before a trailing newline, and "iam\n" would pass as a
 # service name that is not iam

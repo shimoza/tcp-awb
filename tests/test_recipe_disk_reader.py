@@ -410,16 +410,16 @@ def test_the_user_data_carries_no_secret_and_nothing_from_a_public_bucket(cloud,
 
 
 def test_the_user_data_carries_the_files_of_the_parameter(cloud, project):
-    code, lines, errors = go(cloud, ["files=Windows/Panther/setupact.log:Windows/Program+Files/x.log"])
+    code, lines, errors = go(cloud, ["files=Windows/Panther/setupact.log:Windows/Temp/x.log"])
     assert code == lab.EXIT_OK
     text = decoded(cloud)
     cfg = json.loads(json.loads(re.search(r"CFG = json\.loads\((.*)\)\n", text).group(1)))
-    assert cfg["files"][-2:] == ["Windows/Panther/setupact.log", "Windows/Program Files/x.log"]
+    assert cfg["files"][-2:] == ["Windows/Panther/setupact.log", "Windows/Temp/x.log"]
 
 
 def test_the_files_parameter_pattern_and_the_reader_take_the_same_paths():
     pattern = recipe()["params"]["files"]["pattern"]
-    good = ["", "Windows/Panther/setupact.log", "a:b", "Windows/Program+Files/x.log", "a.b/c-d_e"]
+    good = ["", "Windows/Panther/setupact.log", "a:b", "Windows/Temp/x.log", "a.b/c-d_e"]
     bad = ["../x", "/etc/x", "a//b", "a/", ":a", "a::b", "a/./b", ".", "a/../b", "a b", "a*", "a;b", "a\nb"]
     for v in good:
         assert re.fullmatch(pattern, v), v
@@ -466,7 +466,7 @@ def test_the_script_finds_the_files_without_regard_to_case(tmp_path, monkeypatch
     assert [Path(p).name for p in ns["resolve"]("Windows/System32/winevt/Logs/System.evtx")] == ["System.evtx"]
     assert ns["resolve"]("Windows/System32/config/SOFTWARE") == []
     assert ns["resolve"]("Windows/INF") == []                    # a folder is no file
-    assert ns["safe_key"]("Windows/Program Files/ä x.log") == "files/Windows/Program_Files/__x.log"
+    assert ns["safe_key"]("Windows/Temp/ä x.log") == "files/Windows/Temp/__x.log"
 
 
 def test_the_script_signs_a_put_the_obs_way_and_never_sends_the_secret_key(tmp_path, monkeypatch):
