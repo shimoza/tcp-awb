@@ -212,6 +212,24 @@ def _require_safe(text: str) -> None:
         raise SideError("text withheld: a name or secret was found, or the text check is unavailable")
 
 
+def _require_safe_result(text: str) -> None:
+    """The result of a side session is a background agent's result (D-T8): an address, a host name, a phone number
+    or a MAC address of its work passes as in hooks.SOFT_CLASSES (tcp-s2z5 2026-11-25: a vendor host name withheld
+    a result). A registered name, a mail, bank data, a register or tax number and a secret still withhold it."""
+    from awb import hooks, ledger
+
+    soft = set(hooks.SOFT_CLASSES) | {"ipv4", "ipv6"}
+    try:
+        ledger.ensure_checkable(ledger.register_path())
+        found = ledger.screen(text, ledger.register_path(), candidates=False)
+        clean = not any(ord(c) < 32 and c not in "\n\t" for c in text) and not any(
+            n for cls, n in found.items() if cls not in soft)
+    except Exception:
+        clean = False
+    if not clean:
+        raise SideError("text withheld: a name or secret was found, or the text check is unavailable")
+
+
 def _command(fn):
     """One cooperating command per project; never leave a stale lock after a crash."""
     signature = inspect.signature(fn)
@@ -556,7 +574,7 @@ def take(name: str, merge: bool = False, cwd: Path | None = None) -> list[str]:
         out.append("result: none (%s is the one of the start commit, an earlier result, not this session's)"
                    % RESULT)
     elif text is not None:
-        _require_safe(text)
+        _require_safe_result(text)
         fresh = text
         if not merge:
             _write_note(root, name, text)
