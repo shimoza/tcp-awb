@@ -802,7 +802,7 @@ a last step and both checks again. After he sends it, `awb voice learn DRAFT SEN
 ## Used by the client, not by hand
 
 `awb hook prompt | pre-write | pre-tool | post-write | stop | session-start` are the hooks of working sessions
-(`pre-tool` is the tool guard that keeps a session inside its project; a hook that runs over 50 seconds stops itself
+(`pre-tool` is the tool guard that keeps a session inside its project; it passes a `for` loop over plain relative paths and refuses a list item that is a variable, a substitution, an absolute path or has `..`; a hook that runs over 50 seconds stops itself
 and fails closed). `awb hook selftest` plants refused cases and a pass in a throw-away home and exits 1 when a planted refusal passes. While the vault is locked, or the name check cannot run for any
 other reason, every prompt of a work session is refused with the time of the lock and the unlock to run, and a
 session starts without its project files. `awb vault status`, `awb board` and the 503 of `GET /api/board` open with
