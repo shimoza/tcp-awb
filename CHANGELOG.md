@@ -35,6 +35,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Customers and 
 - `awb build check` (Q-0031): the host is an x1.2xlarge.4 with 8 vCPU and 32 GB since 2026-11-23, so the suite unit runs eight test files at a time (was four) under `CPUQuota=800%` (was 400%); the other units keep 200%. Tests: `tests/test_suite_parallel.py` (owner's yes of 2026-11-23 for the quota line).
 
 ### Fixed
+- tcp-bytg ask 2026-11-24-3: `awb doc fetch --links` lists the links of the page body before those of nav, header, aside and footer, so a long help tree no longer fills the cap of 400 before the body links.
+- tcp-bytg ask 2026-11-24-4: `awb doc fetch` shows a public page whose only finding is a secret-like sample value (vendor cmdlet examples) with those lines masked and counted, when they are at most a third of the page; a name or anything left after the masking still withholds the page.
 - tcp-bj3o ask 2026-11-24-1: `awb side take NAME --merge` after a plain `awb side take NAME`, and a second or third merge, no longer conflict. The merge commits the result as `notes/side-NAME.md` and leaves `SIDE-RESULT.md` as the main branch has it; the untracked copy of the plain take gives way. A conflict on any other file still aborts.
 - tcp-bytg ask 2026-11-24-1: `awb calc` in a side session records into `calc/calc.tsv` of its project under the same lock, so the main session and a side session never give one K id twice.
 - `seal/setup.sh` keeps the owner's line `doc_hosts` of `paths.conf` when it rewrites the host file. The deploy of 2026-11-24 dropped it, so `awb doc hosts add` refused until the line was put back by hand.

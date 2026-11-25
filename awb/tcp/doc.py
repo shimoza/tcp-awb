@@ -166,6 +166,26 @@ def _line_of(text: str, at: int) -> str:
     return "line %d of %d" % (text.count("\n", 0, max(at, 0)) + 1, text.count("\n") + 1)
 
 
+MASKED_LINE = "[a line withheld: a secret-like value of the page]"
+
+
+def mask_secret_lines(text: str) -> tuple[str, int]:
+    """`text` with each line that holds a secret, a token or a private key replaced by MASKED_LINE, and the count.
+    A public vendor page shows sample credentials in its examples (tcp-bytg ask 2026-11-24-4: the Veeam cmdlet
+    pages); the rest of the page is still useful. The caller checks the result again and withholds the whole page
+    when anything is left, so a value split over lines never passes."""
+    from awb import check, gate
+
+    out, n = [], 0
+    for line in text.split("\n"):
+        if any(gate.DETECTORS[cls](line) for cls in check.SECRET_CLASSES if cls != "homepath"):
+            out.append(MASKED_LINE)
+            n += 1
+        else:
+            out.append(line)
+    return "\n".join(out), n
+
+
 def private_reason(text: str) -> str | None:
     """Why `text` is withheld, without its value: the class of the first hit and its line; None when it is public.
     The same decision as `_public`."""
@@ -458,9 +478,15 @@ class _Links(html.parser.HTMLParser):
         self.open: list[str] | None = None
         self.href = ""
         self.help_root: str | None = None
+        self.frame: list[str] = []
+        self.frame_links: set[int] = set()
+
+    FRAME = ("nav", "header", "footer", "aside")
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if tag in self.FRAME:
+            self.frame.append(tag)
         if tag == "html" and a.get("data-mc-path-to-help-system") is not None:
             self.help_root = a["data-mc-path-to-help-system"] or "./"
         if tag == "a" and a.get("href"):
@@ -468,8 +494,12 @@ class _Links(html.parser.HTMLParser):
 
     def handle_endtag(self, tag):
         if tag == "a" and self.open is not None:
+            if self.frame:
+                self.frame_links.add(len(self.links))
             self.links.append((self.href, " ".join("".join(self.open).split())))
             self.open = None
+        elif tag in self.FRAME and tag in self.frame:
+            del self.frame[len(self.frame) - 1 - self.frame[::-1].index(tag):]
 
     def handle_data(self, data):
         if self.open is not None:
@@ -483,7 +513,10 @@ def page_links(page: str, base: str, hosts: list[str]) -> tuple[list[str], str |
     p.feed(page)
     p.close()
     seen, lines = set(), []
-    for href, text in p.links:
+    # the links of the page body first, then those of the navigation, header, aside and footer (tcp-bytg ask
+    # 2026-11-24-3: a help tree of thousands of entries came first and the cap cut every body link)
+    order = [i for i in range(len(p.links)) if i not in p.frame_links] + sorted(p.frame_links)
+    for href, text in (p.links[i] for i in order):
         try:
             if any(ord(c) < 32 for c in href):
                 continue
@@ -902,6 +935,13 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
     except DocError as err:
         return {"ok": False, "error": str(err)}, None
     why = private_reason(page["text"])
+    if why is not None and why.startswith("a secret"):
+        masked, n = mask_secret_lines(page["text"])
+        lines = sum(1 for x in page["text"].split("\n") if x.strip())
+        # a page that is mostly secret-like values stays withheld whole: masking is for a sample line in a long page
+        if n and n * 3 <= lines and private_reason(masked) is None:
+            page = {**page, "text": masked + "\n\n%d line(s) withheld: a secret-like value of the page\n" % n}
+            why = None
     if why is not None:
         return {"ok": False, "error": "refused: private documentation text withheld (%s)" % why}, None
     text = page["text"]
