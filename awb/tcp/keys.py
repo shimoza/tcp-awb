@@ -1229,7 +1229,10 @@ class Service:
         if not (isinstance(token, str) and len(token) == 64):
             return None
         found = None
-        for code, recorded in self._grant_tokens().items():
+        # the kind ask reaches the test tenants too (owner's word of 2026-11-24), so its folder token names its
+        # project as well; the ask checks of each op still keep it to test tenants and away from material
+        # (tcp-s2z5 2026-11-25: without it every lab run start of the Playground was refused)
+        for code, recorded in list(self._grant_tokens().items()) + list(self._ask_tokens().items()):
             if hmac.compare_digest(recorded.encode("ascii"), token.encode("ascii", "replace")):
                 found = code
         return found
