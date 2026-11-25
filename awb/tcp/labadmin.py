@@ -1189,13 +1189,27 @@ def _read_path(d: dict) -> str:
 
 
 def _gone(svc, signer, run_id: str, d: dict) -> bool:
-    """True when a read of the resource after its delete answers 404, False for any other answer or none."""
+    """True when a read of the resource after its delete answers 404, or answers an ECS server in status DELETED
+    (the platform still shows a deleted server for a while, tcp-s2z5 2026-11-25); False for any other answer or
+    none."""
     try:
-        status = _send(svc, signer, run_id, "HEAD" if d["service"] == "obs" else "GET", d["service"], _read_path(d),
-                       d.get("query") or {}, None, {}, None, None, None)[0]
+        status, _headers, raw, _path = _send(svc, signer, run_id, "HEAD" if d["service"] == "obs" else "GET",
+                                             d["service"], _read_path(d), d.get("query") or {}, None, {}, None,
+                                             None, None)
     except LabAdminError:
         return False
-    return status == 404
+    if status == 404:
+        return True
+    return status == 200 and d.get("service") == "ecs" and _server_deleted(raw)
+
+
+def _server_deleted(raw: bytes) -> bool:
+    """True when the answer is one ECS server in status DELETED."""
+    try:
+        server = json.loads(raw or b"{}").get("server")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(server, dict) and str(server.get("status") or "").upper() == "DELETED"
 
 
 def _kept_by_platform(d: dict) -> bool:
