@@ -13,7 +13,8 @@ from awb import words as _word_lists
 from awb.intake.wipe.basic import _COMPANY_RE, _Mask, _SPACED_RE, _TITLES, _mail_candidates, _spaced_words, _stop_spans
 from awb.intake.wipe.lexicon import (_CODE_KIND_WORDS, _EXTRA_KNOWN, _FIRST_NAMES, _GENERIC_COMPANY_WORDS, _GERMAN_ADJ,
                                      _GERMAN_FUNCTION, _GERMAN_KNOWN, _PARTICLE_WORDS, _PRODUCT_LABEL_RE,
-                                     _generic_local, _generic_word, _known_word, _letters)
+                                     _generic_local, _generic_word, _german_noun_run, _known_word, _letters,
+                                     _ORG_OPENERS)
 from awb.intake.wipe.lexicon import _TECH_FORMS, _TECH_MULTI, _code_spans, _plain_value, _tech_spans, _technical_value
 from awb.intake.wipe.proposed import (PROPOSED_RULES, _DC_RE, _blank_marks, _name_shaped, _plausible, _run_rule_exempt,
                                       _token_spans, _trim_run, _value_words)
@@ -196,6 +197,8 @@ def _candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Spa
                     found.append((prio, x, y, cls2))
                     continue
                 if cls == "unknown":
+                    if rule.__name__ == "_run_candidates" and _german_noun_run(text, x, y):
+                        continue
                     if _run_rule_exempt(text, x, y):
                         continue
                     x, y, cls2 = _trim_run(text, x, y)
@@ -241,9 +244,7 @@ def _candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Spa
                 cls = "person"
             elif len(ws) >= 2 and ws[-1].casefold() in _GENERIC_COMPANY_WORDS | {"systemhaus", "software", "solutions"}:
                 cls = "company"
-            elif len(ws) >= 2 and ws[0].casefold() in ("stadt", "landkreis", "gemeinde", "kreis", "land", "bezirk",
-                                                      "universität", "hochschule", "klinikum", "sparkasse", "stadtwerke",
-                                                      "firma", "fa.", "unternehmen", "verein", "verband", "stiftung"):
+            elif len(ws) >= 2 and ws[0].casefold() in _ORG_OPENERS:
                 cls = "company"
         out.append(Span(a, b, cls, None, RULE_LABELS.get(PROPOSED_RULES[prio].__name__, "candidate")))
     return out

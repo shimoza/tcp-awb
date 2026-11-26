@@ -890,8 +890,10 @@ def send_check(project, file, for_customer, register_path=None) -> tuple[str, st
   `_MASK_RE` a network mask such as /29. `workflows/review.js` takes `args.mirrors` (default /srv/tcp-mirrors) and
   records the output tokens of the turn over its run (`budget.spent()` is shared by everything that runs).
 - `awb/images.py`: `pictures(src, kind)`, `hold(p, customer, file_id, src, kind, encrypted=False)`,
-  `held(p, customer=None)`, `release(p, customer, file_id, numbers=None)`, `load_manifest`, `folder`,
-  `ImageError`; `awb images list [CUST]`, `awb images release CUST FILEID N...|--all`. The intake holds the
+  `held(p, customer=None)`, `release(p, customer, file_id, numbers=None, project=None)`, `project_folder`,
+  `load_manifest`, `folder`, `ImageError`; `awb images list [CUST]`,
+  `awb images release CUST FILEID N...|--all [--project CODE]` (the pictures land in `input/FILEID-img/` of the
+  project, in the outbox of a customer without a project). The intake holds the
   pictures of every file before its original moves; in an encrypted vault each picture is sealed and released
   through `open_file` of the vault daemon; a release checks the hash of the manifest.
 - `awb/tcp/sweep.py`: `Handles(path)` with `handle(kind, rid, name)`, `resolve(handle)`, `mask(text)`, `save()`;

@@ -424,6 +424,9 @@ repository.
 - py-module-path-brand-surname: leak. a lower-case dotted module path: no shape tells a brand from a package name (limit)
 - py-attr-access-read-as-host: loss. config.name and os.run read as bare hosts by the structured patterns (limit of patterns.py: a two-label host under a word-like top level)
 - md-readme-julia-line-start: loss. Julia at a line start is a first name of the list (limit; the keep list repairs it)
+- yaml-contact-fullname-learns-host: leak. the surname inside a host name with a hyphen or digits: a letter, a digit and a hyphen are word characters, so a learned form never matches inside a word (B-090; the entry keeps host names as written)
+- ldif-cn-dc-brand: leak. the login is the first initial glued to the learned surname, a match inside a word (B-090)
+- py-learned-short-surname-glue: leak. short surnames glued into logins and a host name, matches inside a word (B-090)
 
 ## wipe-tables
 
@@ -437,6 +440,8 @@ repository.
 - de-legal-footer-eml: loss. the commercial register number in the keep list is a structured token on purpose (case artefact)
 - de-surname-klein: leak. the planted surname equals the adjective the case keeps on purpose (harness artefact, the output is right)
 - de-lone-after-preposition: leak. a lone unknown capitalised word after a preposition in German prose (limit)
+- de-compound-glued-short: leak. a company glued into a German compound (Nrgtzlösung) is a match inside a word (B-090)
+- de-surname-lang: leak. the planted surname is a word of the public corpus and a learned form never matches a dictionary word (B-090)
 
 ## wipe-russian
 

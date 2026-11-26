@@ -1651,7 +1651,19 @@ customer data out of the model as far as it can:
   2026-11-25): IP addresses, host names, web addresses (the platform's endpoints included), hashes, UUIDs and tenant,
   domain or project numbers arrive as written, never a finding and never a token, so that a technical handover (Terraform,
   a Postman collection) stays usable. A technical word is never a name: `VMs`, `IPs`, `ECSs`, `VPCs`, `SGs`, an acronym
-  or its plural, a hyphen compound in lower case such as `pre-shared-key` and the words of `rules/allowed-terms.txt`. A
+  or its plural, a hyphen compound in lower case such as `pre-shared-key` and the words of `rules/allowed-terms.txt`.
+  A word of the German or English lists (`rules/known-words-de.txt`, `rules/known-words.txt`, `rules/common-words.txt`)
+  and a product or vendor name (`rules/vendor-names.txt`, `rules/source-platforms.txt`, `rules/tech-terms.txt`) is
+  never a learned form and a guessed name matches whole words only: a letter of any script, a digit or a hyphen next to
+  it makes it part of a word, so `Grafikkarte` stays whole (B-090, ask 2026-11-26-tcp-6edq-2). In a text whose language
+  is German a run of capitalised words needs a first name of `rules/first-names.txt` in it, every German noun being
+  capitalised (a run that opens with an organisation word such as `Stadt` or `Landkreis` is still a name). A BIC needs a
+  country code of ISO 3166 at its positions 5 and 6 and is no dictionary word, so a chapter title in capitals is none.
+  A paragraph or a list item of a docx is a heading only by a heading style, a picture leaves no empty `#` line and a
+  docx with text carries no "no text layer" note. The line `wiped:` of the import and the table of `intake-report.md`
+  use the same class words (person, company, place, name; the report says registered for a registered form).
+  `awb images release CUST-XXXX FILEID N... [--project CODE]` puts a released picture into `input/FILEID-img/` of the
+  project and the take note says so; the commit gate of a project checks no content (DMZ 3), so it can be committed. A
   script line that only reads or sets a variable (`pm.environment.set("token", pm.response.json().access_token)`,
   `{{token}}`, `$env:TOKEN`) is no secret; a literal password or key still is `[secret]`. The same entry rules hold for
   `awb import --paste`, `awb paste`, `awb material add`, `awb start --from`, `awb inbox take`, the bucket folder `in/`

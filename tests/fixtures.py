@@ -102,6 +102,9 @@ PLANTED_STREET = "Xqarvstraße 12"
 LISTED_FIRST = "Jonas"
 FIRST_LAST = " ".join((LISTED_FIRST, "Vrelkam"))
 
+# the BIC of an invented bank (the country code DE at its positions 5 and 6): a real BIC is still a finding (B-090)
+BANK_BIC = "QWXZ" + "DEFF"
+
 # the invented people, companies and places of the meeting transcripts of the wipe pack (B-051,
 # calibration/redteam/wipe/cases_meetings.py) and of the tests of the local model pass of `awb clean`; none of them
 # is registered. First names of rules/first-names.txt with invented surnames, the n-th first name and the n-th

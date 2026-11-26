@@ -195,7 +195,7 @@ def _run(*texts: str, entries=None) -> tuple[intake._Engine, list[str]]:
 
 def test_a_surname_wiped_once_is_wiped_in_every_later_shape():
     _, (one, two) = _run("Termin mit Herrn %s %s." % (FIRST, LAST),
-                         "%s kommt. der Host srv-%s-02 und %ss Konzept." % (LAST, LAST.lower(), LAST))
+                         "%s kommt. der Host srv_%s_02 und %ss Konzept." % (LAST, LAST.lower(), LAST))
     assert LAST not in one and LAST.lower() not in two.lower()
     assert re.search(r"\[person 1\] kommt", two), "the surname alone gets the number of its person"
 

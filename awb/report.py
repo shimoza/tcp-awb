@@ -98,9 +98,18 @@ def _cell(value) -> str:
     return text.replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
 
 
-def counts_text(counts: Counter) -> str:
-    items = [(cls, n) for cls, n in sorted(counts.items()) if n]
-    return ", ".join("%s %d" % item for item in items) if items else "none"
+CLASS_WORDS = {"person": "person", "company": "company", "place": "place", "unknown": "name", "name": "registered"}
+"""The word of a class in a line for the reader, the same in the import summary and in the reports: the four classes of
+wipe mode by the word of their token ([person 1], [name 2]) and a registered form (it becomes a code) as registered."""
+
+
+def counts_text(counts: Counter, raw: bool = False) -> str:
+    """The counts per class in one line. `raw` keeps the class names as the check gives them (a message of the final
+    check: name 1 is a registered form left in a text)."""
+    order = {cls: i for i, cls in enumerate(CLASS_WORDS)}
+    items = sorted(((cls, n) for cls, n in counts.items() if n), key=lambda kv: (order.get(kv[0], len(order)), kv[0]))
+    word = (lambda cls: cls) if raw else (lambda cls: CLASS_WORDS.get(cls, cls))
+    return ", ".join("%s %d" % (word(cls), n) for cls, n in items) if items else "none"
 
 
 def _notes_text(notes: list[str]) -> str:

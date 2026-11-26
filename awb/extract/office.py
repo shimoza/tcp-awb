@@ -394,6 +394,8 @@ class _Ctx:
     table_cells: int = 0
     # odf only: user field and variable declarations by name, for an empty field in the body
     decls: dict[str, str] = field(default_factory=dict)
+    # docx only: paragraph style id -> (style name, outline level of the style or None, id of its parent), from styles.xml
+    styles: dict[str, tuple[str, int | None, str]] = field(default_factory=dict)
 
     def add_deleted(self, text: str) -> None:
         if not text:
@@ -626,20 +628,69 @@ def _w_para(p: ET.Element, ctx: _Ctx) -> str:
     _w_runs(p, parts, ctx)
     ctx.del_open = False
     body = "".join(parts).strip("\n")
+    if not body.strip():
+        return ""   # a picture alone in a paragraph, even a heading one, leaves no line (no empty "#")
     ppr = _child(p, "pPr")
     prefix = ""
     if ppr is not None:
         style = _child(ppr, "pStyle")
         val = _attr(style, "val") if style is not None else None
-        if val:
-            m = _HEADING_STYLE_RE.match(val)
-            if m:
-                prefix = "#" * min(int(m.group(1)), 6) + " "
-            elif _TITLE_STYLE_RE.match(val):
-                prefix = "# "
+        level = _heading_level(val, ctx) if val else None
+        if level:
+            prefix = "#" * level + " "
         if not prefix and _child(ppr, "numPr") is not None:
             prefix = "- "
-    return prefix + body if body else ""
+    return prefix + body
+
+
+def _w_styles(parts: "_Parts", main: str) -> dict[str, tuple[str, int | None, str]]:
+    """The paragraph styles of styles.xml: id -> (name, outline level of the style itself or None, id of the style it
+    is based on)."""
+    out: dict[str, tuple[str, int | None, str]] = {}
+    for name in parts.targets(main, "styles") or ["word/styles.xml"]:
+        root = parts.get(name)
+        if root is None:
+            continue
+        for st in root:
+            if _local(st.tag) != "style" or (_attr(st, "type") or "paragraph") != "paragraph":
+                continue
+            sid = _attr(st, "styleId")
+            if not sid:
+                continue
+            title = _child(st, "name")
+            based = _child(st, "basedOn")
+            ppr = _child(st, "pPr")
+            outline = _child(ppr, "outlineLvl") if ppr is not None else None
+            try:
+                lvl = int(_attr(outline, "val")) if outline is not None else None
+            except (TypeError, ValueError):
+                lvl = None
+            out[sid] = ((_attr(title, "val") or "") if title is not None else "", lvl,
+                        (_attr(based, "val") or "") if based is not None else "")
+    return out
+
+
+def _heading_level(style_id: str, ctx: _Ctx) -> int | None:
+    """The heading level (1 to 6) of a paragraph style, None when it is no heading style: only a style named like a
+    heading (heading 1, Überschrift 1, Title), a style with an outline level or one based on such a style is. A
+    style id that styles.xml does not know is read as its name."""
+    seen: set[str] = set()
+    sid = style_id
+    while sid and sid not in seen and len(seen) < 12:
+        seen.add(sid)
+        known = ctx.styles.get(sid)
+        for text in ((known[0],) if known and known[0] else (sid,)):
+            m = _HEADING_STYLE_RE.match(text)
+            if m:
+                return min(max(int(m.group(1)), 1), 6)
+            if _TITLE_STYLE_RE.match(text):
+                return 1
+        if known is None:
+            return None
+        if known[1] is not None and 0 <= known[1] <= 8:
+            return min(known[1] + 1, 6)
+        sid = known[2]
+    return None
 
 
 _W_WRAPPERS = ("sdt", "sdtContent", "customXml")
@@ -790,6 +841,7 @@ def _docx(parts: _Parts, ex: Extraction, out: list[str], det: list[str]) -> None
         return
     body = _child(root, "body")
     ctx = _Ctx(parts=parts, rels=parts.rels_for(main))
+    ctx.styles = _w_styles(parts, main)
     if body is not None:
         _w_blocks(body, out, ctx)
         tracked = _tracked_lines(body)
@@ -1655,7 +1707,8 @@ def _odf_blocks(el: ET.Element, out: list[str], ctx: _Ctx, det: list[str] | None
                 level = min(int(_attr(c, "outline-level") or 1), 6)
             except ValueError:
                 level = 1
-            out.append("#" * level + " " + _odf_text(c, ctx).strip())
+            heading = _odf_text(c, ctx).strip()
+            out.append("#" * level + " " + heading if heading else "")
         elif tag == "p":
             out.append(_odf_text(c, ctx).strip())
         elif tag == "list":
@@ -1664,7 +1717,8 @@ def _odf_blocks(el: ET.Element, out: list[str], ctx: _Ctx, det: list[str] | None
                     continue
                 lines = []
                 _odf_blocks(item, lines, ctx, det)
-                out.append("- " + " ".join(line for line in lines if line))
+                item_text = " ".join(line for line in lines if line)
+                out.append("- " + item_text if item_text else "")
         elif tag == "table":
             _odf_table(c, out, ctx, det)
         elif tag == "page":
@@ -1874,15 +1928,18 @@ _MACRO_RE = r"(?:word|xl|ppt)/vbaProject\.bin"
 _FONT_RE = r"(?:word|xl|ppt)/fonts/[^/]+"
 
 
-def _container_notes(parts: _Parts, ex: Extraction, det: list[str], read_as_child: set[str], chunks: set[str]) -> None:
+def _container_notes(parts: _Parts, ex: Extraction, det: list[str], read_as_child: set[str], chunks: set[str],
+                     has_text: bool = False) -> None:
     """External targets to detect_text; counts of images, of embedded objects that are not read, of macro
-    projects and embedded fonts that are not read, of alt chunks read as children."""
+    projects and embedded fonts that are not read, of alt chunks read as children. A file with text says only that its
+    pictures are not text: "no text layer" is for a file that has none."""
     for target in parts.external_targets():
         det.append("link: " + target)
     images = len(parts.matching(_MEDIA_RE))
     if images:
         ex.meta["image_count"] = images
-        ex.notes.append("%d embedded image(s), no text layer, review the original" % images)
+        ex.notes.append("%d embedded image(s), not read as text" % images if has_text
+                        else "%d embedded image(s), no text layer, review the original" % images)
     embedded = [n for n in parts.matching(_EMBED_RE) if n not in read_as_child and n not in chunks]
     if embedded:
         ex.meta["embedded_count"] = len(embedded)
@@ -2119,7 +2176,7 @@ def extract_office(path: Path, kind: str, depth: int = 0) -> Extraction:
             chunks = _alt_chunks(parts, ex, depth)
             scan, as_child = _raw_parts(zf, ex, depth, chunks)
             ex.scan_text = "\n".join(t for t in scan if t and t.strip())
-            _container_notes(parts, ex, det, as_child, chunks)
+            _container_notes(parts, ex, det, as_child, chunks, has_text=any(line.strip() for line in out))
             parts.finish_notes()
     except zipfile.BadZipFile:
         return Extraction(path, kind, "failed", notes=["container is not a readable zip"])

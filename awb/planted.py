@@ -230,8 +230,8 @@ WIPE_CASES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
     ("German genitive", "Herr %s %s schreibt. %ss Vorschlag gilt." % (_P1, _P2, _P2), (_P2,), "person"),
     ("Russian name with a case ending", "Уважаемый Ксарв Помблет, спасибо. Письмо Помблета пришло вчера.",
      ("Помблет",), "person"),
-    ("name glued into a host", "Herr %s %s betreibt den Server srv-%s-02 im Netz." % (_P1, _P2, _P2.lower()), (_P2,),
-     "person"),
+    ("name between underscores in an identifier", "Herr %s %s betreibt den Server srv_%s_02 im Netz."
+     % (_P1, _P2, _P2.lower()), (_P2,), "person"),
     ("street and number", "Die Lieferung geht in die Xqarvstraße 12.", (_P1,), "place"),
 )
 CUSTOMER_CASE = ("customer form in a company shape", "Die %s Spedition Nord GmbH liefert." % CUSTOMER_SHORT)

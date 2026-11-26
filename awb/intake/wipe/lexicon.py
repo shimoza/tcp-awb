@@ -8,7 +8,7 @@ from __future__ import annotations
 import functools
 import re
 
-from awb import codes
+from awb import codes, patterns
 from awb import words as _word_lists
 from awb.intake.wipe import _list
 from awb.intake.wipe.basic import _FUNCTION_WORDS, _OPENERS, _STOP_SINGLES, _TOOL_WORDS
@@ -471,6 +471,63 @@ def _person_known(word: str) -> bool:
     return _known_word(word, suffix=False)
 
 
+_DE_MARKERS = frozenset("""der die das den dem des ein eine einen einem einer und oder nicht mit auf für von im zum zur
+am bei auch wird werden wurde wurden sind ist war aus nach über durch wie dass sich als an um nur noch dann wenn
+aber haben hat kann können soll sollen mehr sehr gut""".split())
+_EN_MARKERS = frozenset("""the and or not with on for of in to at by is are was were be been that this these those it
+its as from have has can will would should more very good which what when then than but also""".split())
+_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+_GERMAN_MIN_WORDS = 30
+_GERMAN_SHARE = 0.08
+
+
+@functools.lru_cache(maxsize=64)
+def _german_text(text: str) -> bool:
+    """The language of a text is German: it has a document's length (30 words) and its small German words are 8 in 100
+    of its words and twice as many as its small English words. A snippet of a few words says nothing of its language.
+    Every German noun is capitalised, so a capital says less there than in an English text."""
+    words = _WORD_RE.findall(text[:200_000])
+    if len(words) < _GERMAN_MIN_WORDS:
+        return False
+    de = en = 0
+    for w in words:
+        if w.islower():
+            de += w in _DE_MARKERS
+            en += w in _EN_MARKERS
+    return de >= _GERMAN_SHARE * len(words) and de > 2 * en
+
+
+_ORG_OPENERS = ("stadt", "landkreis", "gemeinde", "kreis", "land", "bezirk", "universität", "hochschule", "klinikum",
+                "sparkasse", "stadtwerke", "firma", "fa.", "unternehmen", "verein", "verband", "stiftung")
+"""A word that opens the name of an organisation (Stadt Musterhausen): the run is a company, not a person."""
+
+
+def _german_noun_run(text: str, a: int, b: int) -> bool:
+    """A run of capitalised words in a German text that has no first name of rules/first-names.txt in it: nouns in a
+    row, no name (B-090). A run that an organisation word opens (Stadt X, Landkreis X) is still a name."""
+    words = [w.casefold() for w in text[a:b].split()]
+    return (_german_text(text) and bool(words) and words[0] not in _ORG_OPENERS
+            and not any(w in _FIRST_NAMES for w in _WORD_RE.findall(text[a:b].casefold())))
+
+
+_VENDOR_WORDS = frozenset(w for line in _word_lists.load_plain(patterns.RULES_DIR / "vendor-names.txt")
+                          for w in re.split(r"[\s-]+", line) if w)
+"""The words of the vendor and product names of rules/vendor-names.txt, case folded."""
+
+
+def _dictionary_word(word: str) -> bool:
+    """A word of the German or English dictionary lists (rules/known-words-de.txt, known-words.txt, common-words.txt),
+    a product or vendor name (rules/vendor-names.txt, source-platforms.txt, tech-terms.txt): a learned form never
+    matches one in any case. A first name of the list is not one for this purpose (Peter, Michael, Jan)."""
+    low = word.casefold().strip(".,;:!?()[]\"'")
+    if not low or low in _FIRST_NAMES:
+        return False
+    return (low in _GERMAN_KNOWN or low in _CORPUS or low in _COMMON_WORDS or low in _VENDOR_WORDS
+            or low in _SOURCE_PLATFORM_WORDS or low in _TECH_SINGLE)
+
+
 _ROLE_SUFFIXES = ("leiter", "leiterin", "manager", "managerin", "berater", "beraterin", "architekt", "architektin",
                   "ingenieur", "ingenieurin", "entwickler", "entwicklerin", "experte", "expertin", "spezialist",
                   "spezialistin", "beauftragter", "beauftragte", "verantwortlicher", "verantwortliche",
@@ -488,5 +545,5 @@ def _role_shape(low: str) -> bool:
 
 # the names of the later families this one calls; they import this module, so these come after its own
 from awb.intake.wipe.proposed import _SYSTEM_USERS  # noqa: E402
-from awb.intake.wipe.runstate import _VOCAB  # noqa: E402
+from awb.intake.wipe.runstate import _CORPUS, _VOCAB  # noqa: E402
 from awb.intake.wipe import runstate as _runstate  # noqa: E402  (bind rebinds _RUN_EXEMPT there)

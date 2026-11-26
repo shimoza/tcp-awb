@@ -18,8 +18,10 @@ rules/allowed-terms.txt.
 The numbers count per class within one import run and restart with the next one: they tell two persons of one mail
 chain apart and link nothing across imports. `collect` gives the spans of a text with their class and the rule that
 found them (`WipeSpan`); `WipeState` holds what one run learned: the forms of every wiped person and company, matched
-over every output of the run like a registered form (whole word, glued into an identifier, with German and Russian
-endings), the tokens issued and the product-label words of the run.
+over every output of the run (whole words only: a letter, a digit or a hyphen next to a form makes it part of a word;
+with German and Russian endings; never a word of the dictionary lists or a product or vendor name), the tokens
+issued and the product-label words of the run. In a German text the run of capitalised words needs a first name of
+rules/first-names.txt in it (B-090).
 
 The lists that keep a text readable are rules files: the public corpus (rules/known-words.txt and
 rules/known-phrases.txt, written by `awb words update`), rules/known-words-de.txt, rules/known-words-ru.txt,

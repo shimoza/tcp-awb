@@ -751,7 +751,8 @@ def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0
             if pictures:
                 pictures_total += pictures
                 fr.parts[0].public_notes.append("%d picture(s) held on the vault side, released only by awb images "
-                                                "release after a look" % pictures)
+                                                "release after a look, then into input/%s-img/ of the project"
+                                                % (pictures, fr.file_id))
             try:
                 _move_original(src, dst, sources[src])
                 fr.original = dst
@@ -860,7 +861,7 @@ def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str
     if not _public_safe(engine, body) or (reader is not None and not _public_safe(engine, reader)):
         hits.append(_report.Hit("", "secret", ""))
     if hits:
-        found = _report.counts_text(Counter(h.cls for h in hits))
+        found = _report.counts_text(Counter(h.cls for h in hits), raw=True)
         if held is not None:
             raise held(found)
         raise IntakeError("the final check withheld the text (%s left in it): nothing was written" % found)
@@ -1045,7 +1046,7 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
     if hits:
         check_failed.add(fr.file_id)
         fr.state = "failed"
-        classes = _report.counts_text(Counter(h.cls for h in hits))
+        classes = _report.counts_text(Counter(h.cls for h in hits), raw=True)
         fr.reasons.append("final check found %s, output deleted" % classes)
         fr.parts[0].public_notes.append("final check failed, output deleted")
         return

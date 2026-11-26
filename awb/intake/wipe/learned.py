@@ -9,8 +9,8 @@ import re
 from awb import codes, patterns, register
 from awb.intake.wipe import _REPORT_WORDS, skeleton
 from awb.intake.wipe.lexicon import (_FIRST_NAMES, _GENERIC_ADDRESSEES, _GENERIC_COMPANY_WORDS, _GERMAN_ADJ,
-                                     _GERMAN_FUNCTION, _GERMAN_KNOWN, _NEUTRAL_LABELS, _PARTICLE_WORDS, _TITLE_WORDS,
-                                     _known_word, _letters, _person_known)
+                                     _GERMAN_FUNCTION, _NEUTRAL_LABELS, _PARTICLE_WORDS, _TITLE_WORDS,
+                                     _dictionary_word, _known_word, _letters, _person_known)
 from awb.intake.wipe.proposed import _SYSTEM_USERS, _name_shaped
 from awb.matcher import GLUE_AFFIXES, Matcher, Span
 
@@ -73,6 +73,11 @@ def _domain_label(value: str) -> str | None:
 _LATIN_ENDINGS = ("s", "es", "n", "en", "ns", "'s", "’s", "sche", "schen", "scher", "sches", "'sche", "’sche", "in")
 _CYRILLIC_RE = re.compile(r"^[А-ЯЁа-яё-]+$")
 _LOWER_WORD_BOUND = r"(?<![\w.@/-])%s(?![\w.@/-])"
+_ESCAPES = ("\\n", "\\r", "\\t")
+"""A backslash and a letter in front of a form is a line break or a tab written out (an ics or a json string), no word."""
+_WORD_BEFORE = r"(?<![^\W_])(?<!-)"
+_WORD_AFTER = r"(?![^\W_])(?!-)"
+"""A learned form is a whole word: no letter of any script, digit or hyphen stands next to it (B-090)."""
 
 
 class _Learned:
@@ -105,6 +110,8 @@ class _Learned:
                 low = part.casefold()
                 if low in self.words:
                     continue
+                if _dictionary_word(low):
+                    continue   # a word of the German or English lists or a product or vendor name is never learned (B-090)
                 if low in _TITLE_WORDS or low in _PARTICLE_WORDS or low in _NEUTRAL_LABELS or low in _GENERIC_ADDRESSEES:
                     continue
                 if low in _REPORT_WORDS or low in _runstate._RUN_EXEMPT or low in _GERMAN_FUNCTION:
@@ -172,8 +179,8 @@ class _Learned:
                 else:
                     stem, ending = word, r"[а-яё]{0,3}"
                 if len(stem) >= 3:
-                    self.cyr_res.append((re.compile(r"(?<![^\W\d_])%s%s(?![^\W\d_])" % (re.escape(stem), ending),
-                                         re.IGNORECASE), key))
+                    self.cyr_res.append((re.compile(_WORD_BEFORE + r"%s%s" % (re.escape(stem), ending) + _WORD_AFTER,
+                                                    re.IGNORECASE), key))
                 continue
             if _letters(word) >= 5:
                 for v in register._variants(word):
@@ -181,7 +188,7 @@ class _Learned:
                 for ending in _LATIN_ENDINGS:
                     pairs.append((word + ending, code))
             else:
-                rx = re.compile(r"(?<![^\W\d])(?P<initial>[a-z])?(?:%s)(?:s|'s|’s)?(?![^\W\d])" % re.escape(word),
+                rx = re.compile(_WORD_BEFORE + r"(?P<initial>)(?:%s)(?:s|'s|’s)?" % re.escape(word) + _WORD_AFTER,
                                 re.IGNORECASE)
                 self.short_res.append((rx, key, word[:1].islower()))
         self.matcher = Matcher(pairs) if pairs else None
@@ -215,23 +222,8 @@ class _Learned:
                     continue   # spread out or broken by marks: only a long or a strong learned form is read that way
                 left = text[a - 1] if a > 0 else " "
                 right = text[b] if b < len(text) else " "
-                if left.isalnum() or right.isalnum():
-                    # glued inside a token: an identifier (a digit, a separator or a case change in it) or a long
-                    # word; never a short word inside a plain word
-                    i, j = a, b
-                    while i > 0 and text[i - 1].isalnum():
-                        i -= 1
-                    while j < len(text) and text[j].isalnum():
-                        j += 1
-                    token = text[i:j]
-                    around = text[max(0, i - 1):j + 1]
-                    identifier = (any(c.isdigit() for c in token) or re.search(r"[a-z][A-Z]", token)
-                                  or any(c in "_.-@/" for c in around))
-                    initial = (i == a - 1 and j == b)   # one letter before the surname: a login (tzrbko)
-                    rest = (text[i:a] + text[b:j]).casefold()
-                    compound = len(rest) >= 3 and (_known_word(rest) or rest in _GERMAN_KNOWN)   # Nrgtzlösung
-                    if not identifier and not initial and not compound and (b - a) < 7:
-                        continue
+                if (left.isalnum() and text[a - 2:a] not in _ESCAPES) or right.isalnum() or "-" in (left, right):
+                    continue   # never inside a word: a letter, a digit or a hyphen next to it makes it part of a word
                 if not taken(a, b):
                     out.append(Span(a, b, key[0], "L:%s:%s" % (key[0], key[1])))
         for rx, key, any_case in self.short_res:

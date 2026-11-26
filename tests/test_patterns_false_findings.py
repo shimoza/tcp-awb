@@ -30,8 +30,8 @@ def test_powershell_files_are_read_in_the_code_view():
 
 
 def test_a_token_after_a_dollar_or_a_dot_is_no_bank_code_in_the_code_view():
-    text = "$box = $SERVERNAMES\n$a = $Obj.HOSTNM01\n"
-    assert [t for c, t in hits(text) if c == "bic"] == ["SERVERNAMES", "HOSTNM01"]
+    text = "$box = $QWXZDEFFXXX\n$a = $Obj.QWXZDE01\n"
+    assert [t for c, t in hits(text) if c == "bic"] == ["QWXZDEFFXXX", "QWXZDE01"]
     assert [h for h in hits(text, code=True) if h[0] == "bic"] == []
 
 

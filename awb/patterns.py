@@ -504,12 +504,72 @@ def _phone_ok(s: str) -> bool:
 _BIC_LABEL = r"(?i:bic|swift)(?:[\s-]*code)?[\s:.=-]*"
 
 
+_ISO_COUNTRIES = frozenset("""AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT
+BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO
+FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE
+KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX
+MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH
+SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN
+VU WF WS XK YE YT ZA ZM ZW""".split())
+"""The country codes of ISO 3166-1 alpha-2 (XK, the code of Kosovo that banks use, included): positions 5 and 6 of a BIC."""
+_BIC_PREFIX = re.compile(r"(?i)^(?:bic|swift)(?:[\s-]*code)?[\s:.=-]*")
+
+
+_NOUN_ENDINGS = ("ung", "ungen", "heit", "heiten", "keit", "keiten", "schaft", "schaften", "tion", "tionen", "ität")
+_LINKS = ("s", "es", "n", "en", "e", "er")
+
+
+@functools.lru_cache(maxsize=1)
+def _dictionary() -> frozenset[str]:
+    """The words of the dictionary lists, case folded: rules/known-words-de.txt, known-words.txt (its first column) and
+    common-words.txt. A missing list gives fewer words."""
+    out: set[str] = set()
+    for name in ("known-words-de.txt", "known-words.txt", "common-words.txt"):
+        try:
+            lines = (RULES_DIR / name).read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        out.update(line.split("\t")[0].strip().casefold() for line in lines if line.strip() and not line.startswith("#"))
+    return frozenset(out)
+
+
+def _two_words(low: str, depth: int = 0) -> bool:
+    """The word is two or three dictionary words of four letters or more joined (Hintergrund, Schlusswort), with the
+    sounds a German compound puts between its parts."""
+    words = _dictionary()
+
+    def part(w: str) -> bool:
+        return len(w) >= 4 and w in words
+
+    if depth > 2:
+        return False
+    for i in range(4, len(low) - 3):
+        head, tail = low[:i], low[i:]
+        if part(head) or any(head.endswith(k) and part(head[:-len(k)]) for k in _LINKS):
+            if part(tail) or _two_words(tail, depth + 1):
+                return True
+    return False
+
+
+@functools.lru_cache(maxsize=1024)
+def _dictionary_bic(low: str) -> bool:
+    """The word stands in a dictionary list or is its plural, ends like a German noun (Zielsetzung) or is two words
+    joined (Hintergrund): a chapter title in capitals."""
+    words = _dictionary()
+    plural = any(low.endswith(e) and len(low) - len(e) >= 4 and low[:-len(e)] in words
+                 for e in ("ern", "en", "er", "es", "e", "n", "s"))
+    return low in words or plural or (len(low) >= 8 and low.endswith(_NOUN_ENDINGS)) or _two_words(low)
+
+
 def _bic_ok(s: str) -> bool:
     # an all-letter 8-character word is too often an ordinary word; accept it only with a digit, at full
-    # length 11 in capitals, or when the caller saw a BIC or SWIFT label (the pattern carries the label then)
-    if re.match(r"(?i)^(bic|swift)", s):
-        return True
-    return (len(s) == 11 and s.isupper()) or any(c.isdigit() for c in s)
+    # length 11 in capitals or when the caller saw a BIC or SWIFT label (the pattern carries the label then). In
+    # every case positions 5 and 6 are a country code of ISO 3166 and the word is no dictionary word (B-090)
+    labelled = bool(_BIC_PREFIX.match(s))
+    code = "".join(_BIC_PREFIX.sub("", s).split()) if labelled else s
+    if len(code) not in (8, 11) or code[4:6].upper() not in _ISO_COUNTRIES or _dictionary_bic(code.casefold()):
+        return False
+    return labelled or (len(code) == 11 and code.isupper()) or any(c.isdigit() for c in code)
 
 
 _VAT_BODY = (

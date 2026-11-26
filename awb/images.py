@@ -3,13 +3,16 @@
     <vault>/quarantine/<CUST>/<file id>/img-001.png ...   (sealed as .gpg when the vault is encrypted)
     <vault>/quarantine/<CUST>/<file id>/manifest.json     numbers, kinds, sizes, hashes and states only
     awb images list [CUST]                                what is held (his own shell, vault side)
-    awb images release CUST FILEID N [N...] | --all       copy pictures into the outbox of the customer
+    awb images release CUST FILEID N [N...] | --all       copy pictures into input/<file id>-img/ of the project
 
 The intake keeps only text. A picture can show a logo, a name, a signature or a network plan with addresses that
 no text check sees, so the intake holds every picture of a file (the media of docx, pptx, xlsx, odt, odp and ods,
 the images of a pdf through pdfimages, an image file itself) and nothing reaches the outbox before he releases it
-by number after a look. Released pictures land in `<outbox>/<CUST>/images/<file id>-img-001.png`. The manifest
-names no member and no file: a member name can carry a name as well.
+by number after a look. Released pictures land in the project folder at `input/<file id>-img/img-001.png` (the
+project of the code or the only project of the customer; `--project CODE` names one of several). The project commit
+gate checks no content since B-087, so a released picture can be committed. A customer that has no project gets them
+in `<outbox>/<CUST>/images/<file id>-img-001.png`. The manifest names no member and no file: a member name can carry
+a name as well.
 """
 from __future__ import annotations
 
@@ -297,10 +300,60 @@ def _data_of(p: config.Paths, path: Path, sealed: bool) -> bytes:
         raise ImageError("the vault daemon answered in an unexpected form") from None
 
 
+def project_folder(p: config.Paths, customer: str, project: str | None = None) -> Path | None:
+    """The folder of the project the pictures of `customer` go to: the project `project` names, the project that the
+    code is or the only active project of the customer. None when the customer has no project (the outbox then).
+    Several projects and none named is an error."""
+    from awb import projects
+
+    try:
+        rows = projects.load(p)
+    except projects.ProjectError:
+        rows = []
+    mine = [r for r in rows if r.code == customer or r.customer == customer]
+    if project is not None:
+        chosen = [r for r in mine if r.code == project]
+        if not chosen:
+            raise ImageError("%s is no project of %s" % (project, customer))
+        return Path(chosen[0].path)
+    active = [r for r in mine if r.state == "active"] or mine
+    if len(active) > 1:
+        raise ImageError("%s has %d projects: name one with --project CODE" % (customer, len(active)))
+    return Path(active[0].path) if active else None
+
+
+def _open_folder(parent_fd: int, name: str) -> int:
+    """The folder `name` of the folder `parent_fd`, made when it is missing, never through a link."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        return os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        os.mkdir(name, 0o750, dir_fd=parent_fd)
+        return os.open(name, flags, dir_fd=parent_fd)
+
+
+def _land_in_project(folder_: Path, file_id: str, ready: list[tuple[int, str, bytes]]) -> list[Path]:
+    """Write the pictures into input/<file id>-img/ of the project folder, each file new and private to the group."""
+    root = os.open(folder_, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fds = [root]
+    try:
+        fds.append(_open_folder(fds[-1], "input"))
+        fds.append(_open_folder(fds[-1], "%s-img" % file_id))
+        written = []
+        for _, name, data in ready:
+            safefile.write_atomic(name, data, dir_fd=fds[-1], mode=0o640, chmod=True)
+            written.append(folder_ / "input" / ("%s-img" % file_id) / name)
+        return written
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
 def release(p: config.Paths, customer: str, file_id: str, numbers: list[int] | None = None, *,
-            today: str | None = None) -> list[Path]:
-    """Copy the chosen pictures (all held ones when `numbers` is None) into the outbox of the customer and mark
-    them released. A number that was not held is an error and nothing is copied."""
+            today: str | None = None, project: str | None = None) -> list[Path]:
+    """Copy the chosen pictures (all held ones when `numbers` is None) into input/<file id>-img/ of the project of the
+    customer (its outbox when it has no project) and mark them released. A number that was not held is an error and
+    nothing is copied."""
     where = folder(p, customer, file_id)
     m = load_manifest(where)
     rows = {int(i["n"]): i for i in m["images"]}
@@ -323,18 +376,22 @@ def release(p: config.Paths, customer: str, file_id: str, numbers: list[int] | N
             raise ImageError("picture %d carries a registered name in its metadata or text and is not released; "
                              "look at it on the vault side" % n)
         ready.append((n, name, data))
-    outdir = config.make_dir(p.outbox / customer / IMAGES, 0o750, shared=True)
-    written: list[Path] = []
-    for n, name, data in ready:
-        row = rows[n]
-        dest = outdir / ("%s-%s" % (file_id, name))
-        tmp = outdir / (".%s.tmp" % dest.name)
-        tmp.write_bytes(data)
-        os.chmod(tmp, 0o640)
-        os.replace(tmp, dest)
-        written.append(dest)
-        row["state"] = "released"
-        row["released"] = today or datetime.date.today().isoformat()
+    target = project_folder(p, customer, project)
+    if target is not None:
+        written = _land_in_project(target, file_id, ready)
+    else:
+        outdir = config.make_dir(p.outbox / customer / IMAGES, 0o750, shared=True)
+        written = []
+        for n, name, data in ready:
+            dest = outdir / ("%s-%s" % (file_id, name))
+            tmp = outdir / (".%s.tmp" % dest.name)
+            tmp.write_bytes(data)
+            os.chmod(tmp, 0o640)
+            os.replace(tmp, dest)
+            written.append(dest)
+    for n, _, _ in ready:
+        rows[n]["state"] = "released"
+        rows[n]["released"] = today or datetime.date.today().isoformat()
     _save_manifest(where, m)
     return written
 
@@ -347,11 +404,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     s = sub.add_parser("list", help="the files with held pictures")
     s.add_argument("customer", nargs="?", default=None, metavar="CUST")
-    s = sub.add_parser("release", help="copy pictures into the outbox of the customer after a look")
+    s = sub.add_parser("release", help="copy pictures into input/FILEID-img/ of the project after a look")
     s.add_argument("customer", metavar="CUST")
     s.add_argument("file", metavar="FILEID")
     s.add_argument("numbers", nargs="*", type=int, metavar="N")
     s.add_argument("--all", action="store_true", help="every held picture of the file")
+    s.add_argument("--project", default=None, metavar="CODE", help="the project, when the customer has several")
     try:
         args = ap.parse_args(sys.argv[1:] if argv is None else argv)
     except SystemExit as exc:
@@ -368,9 +426,10 @@ def main(argv: list[str] | None = None) -> int:
             if bool(args.numbers) == bool(args.all):
                 print("awb images: give picture numbers or --all", file=sys.stderr)
                 return 2
-            out = release(p, args.customer, args.file, None if args.all else args.numbers)
-            print("awb images: %d picture(s) of %s released to the outbox of %s" % (len(out), args.file,
-                                                                                   args.customer))
+            out = release(p, args.customer, args.file, None if args.all else args.numbers, project=args.project)
+            where = ("input/%s-img/ of the project %s" % (args.file, out[0].parents[2].name)
+                     if out and out[0].parent.name == "%s-img" % args.file else "the outbox of %s" % args.customer)
+            print("awb images: %d picture(s) of %s released to %s" % (len(out), args.file, where))
             return 0
         rows = held(p, args.customer)
         for r in rows:
