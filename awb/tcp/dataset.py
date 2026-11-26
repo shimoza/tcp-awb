@@ -29,8 +29,18 @@ What the folder holds: README.md and PROMPT.md (how to use it, the one-line prom
 people who read PDF), facts.md (every fact on one line, grouped by topic, small enough for one chat), topics/<tag>.md
 (one file per first tag), facts.jsonl (the export of `awb kb export` with its metadata), services.md (what the
 latest service description lists and what it does not offer), tcp-facts.mcpb (the same bytes as the
-tcp-facts-<date>.mcpb beside the folder, the release asset with a stable name), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module) and
-MANIFEST.json (counts, dates, the sha256 of every file). README.md, PROMPT.md and HOW-TO.pdf carry "What the facts
+tcp-facts-<date>.mcpb beside the folder, the release asset with a stable name), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module, under the Apache License 2.0 with its header),
+LICENSE-CODE (the text of that licence, copied from the LICENSE of this repository; the facts stay CC BY 4.0) and
+MANIFEST.json (counts, dates, the sha256 of every file). The public repository gets README.md, facts.md, facts.jsonl,
+services.md, topics/, tcp_facts_mcp.py and LICENSE-CODE; MANIFEST.json, HOW-TO.pdf, the zip and the .mcpb are release
+assets, so the README names only these files and calls the others release assets (B-110).
+
+The first screen of README.md (B-110): one sentence what it is and for whom, the three ways to use it (attach
+facts.md, the one-click .mcpb, claude mcp add), "What this proves" (facts, facts tested live, services, releases, each
+with the jq or gh command that checks it), one example fact, one freshness line (the facts with a recheck due and the
+jq command that lists them, then `cadence`: the facts with a weekly automated check and the check periods of the
+rest, the one wording of it in every text) and the release date with
+the licence line. No table of fact ids. README.md, PROMPT.md and HOW-TO.pdf carry "What the facts
 cover", counted from the facts: the orderable services with a plain fact per section of the service description, the
 requirement areas (facts that open with "T Cloud Public (TCP)" and a verb), an example and the contract matters the
 dataset never holds. The release notes of a GitHub release say what is new since the previous release tag: facts
@@ -52,8 +62,10 @@ that the published repository still holds (git rm, said in the commit message).
 
 What leaves: the grades live, contract and docs, no retired entry, every one name checked again by the export. A
 fact leaves the dataset only when something invalidates it, never for its date (task KS): an expired fact stays,
-marked "recheck_due": true in facts.jsonl, "recheck due" after its check date in facts.md and topics/ and listed in
-the README table "Facts with a recheck due"; a retired fact (a superseded one is retired for its successor), one a
+marked "recheck_due": true in facts.jsonl, "recheck due" after its check date in facts.md and topics/ and counted
+in the freshness line of the README; a contract fact of the current revision of the service description
+(`of_revision`) is not due for its date while that revision is current, a requested recheck still makes it due.
+Source notes say "earlier private knowledge base" where the knowledge base says "old setup". A retired fact (a superseded one is retired for its successor), one a
 recheck refuted (refuted.tsv of the recheck, not older than its check date) and one that names a service the service
 description no longer offers stay out.
 
@@ -142,6 +154,17 @@ _PLANT_TOOL = "awb cloud call against a TCP test tenant, then a DELETE through t
 _PLANT = "the read key of test tenant test-00001 and a call on test-00002"
 MCP_FILE = "tcp_facts_mcp.py"
 MCP_TEMPLATE = Path(__file__).with_name(MCP_FILE)   # the MCP server every build carries, standard library only
+CODE_LICENCE = "Apache-2.0"                          # the SPDX id of the header of MCP_FILE; the facts stay LICENCE
+CODE_LICENCE_FILE = "LICENSE-CODE"
+CODE_LICENCE_TEXT = Path(__file__).resolve().parents[2] / "LICENSE"   # the Apache License 2.0 of this repository
+CODE_LICENCE_LINE = ("Licence: the facts are %s (LICENSE); the code, %s, is %s (%s)."
+                     % (LICENCE, MCP_FILE, CODE_LICENCE, CODE_LICENCE_FILE))
+# a source note of the import of 2026-10-20 says "(old setup, imported DATE)"; the public text names what it was
+_OLD_SETUP_RE = re.compile(r"\bold setup\b", re.I)
+OLD_SETUP_PLAIN = "earlier private knowledge base"
+# a revision of the service description cited in a source line, as refresh.py reads it, or in ISO form
+_REVISION_RE = re.compile(r"\b(?:revision|revised|Rev\.?)\s+(?:(\d{2})\.(\d{2})\.(\d{4})|(\d{4}-\d{2}-\d{2}))\b", re.I)
+_SD_SOURCE_RE = re.compile(r"\bservice description\b", re.I)
 
 
 MCPB_SPEC = "0.3"                                    # manifest_version of the MCP Bundle specification
@@ -183,6 +206,22 @@ def tenant_free(text: str) -> str:
     for rx, plain in _TOOL_RULES:
         text = rx.sub(plain, text)
     return text
+
+
+def source_note(text: str) -> str:
+    """A source line as it leaves: tenant free and "old setup" named as what it was (B-110)."""
+    return _OLD_SETUP_RE.sub(OLD_SETUP_PLAIN, tenant_free(text))
+
+
+def of_revision(r: dict, revision: str) -> bool:
+    """True for a contract fact of the current revision `revision` (ISO) of the service description: its source names
+    the service description and cites that revision, or cites none and was checked on or after it (B-110). Such a
+    fact is not due for its date while the revision is current; a new revision requests its recheck (refresh)."""
+    if r.get("grade") != "contract" or not revision or not _SD_SOURCE_RE.search(r.get("source") or ""):
+        return False
+    cited = {m.group(4) or "%s-%s-%s" % (m.group(3), m.group(2), m.group(1))
+             for m in _REVISION_RE.finditer("%s %s" % (r.get("source") or "", r.get("statement") or ""))}
+    return revision in cited if cited else str(r.get("checked") or "") >= revision
 
 
 def _prove_rewrite() -> None:
@@ -242,8 +281,8 @@ MCP_CLIENTS = [
           "grade), tcp_service_check (offered or not, from services.md), tcp_price_find (live price rows of eu-de or "
           "eu-nl, only with --live) and tcp_calculate (exact arithmetic in hours, a month is 720 h). It reads no "
           "file outside its folder, opens no connection without --live and writes nothing." % MCP_FILE),
-    ("p", "Claude Desktop, one click: download %s (the newest release, the same bytes as its "
-          "tcp-facts-<date>.mcpb) and open it (double click, or drag it into Settings, Extensions). Claude Desktop "
+    ("p", "Claude Desktop, one click: download %s (a release asset of the newest release, the same bytes as its "
+          "release asset tcp-facts-<date>.mcpb) and open it (double click, or drag it into Settings, Extensions). Claude Desktop "
           "shows the extension and its four tools; press Install. The file carries the server and the data of that "
           "build. It needs Python 3.10 or newer on the machine." % MCPB_LATEST_URL),
     ("p", "Any other client: unpack the zip of the latest release or clone github.com/%s, then add the server by "
@@ -268,6 +307,8 @@ DISCLAIMER = (
     'he public service description, the public price API), with respect for robots.txt and the terms of t'
     "hose sources. No customer data and no confidential information. No warranty: the provider's contract"
     ' documents are binding.')
+WHAT_FOR_WHOM = ("Checked facts about T Cloud Public (TCP) for the architects and engineers who ask an AI assistant "
+                 "about it")
 BADGE_COLOURS = {"unofficial": "c64a3d", "facts": "2f6fd1", "before": "e0b43a", "licence": "3f9d5a", "mcp": "8a63b8"}
 
 
@@ -284,8 +325,7 @@ def readme_header(day: str, best_before: str, n_facts: int) -> list[tuple[str, s
                      badge("License: CC BY 4.0", "License", "CC BY 4.0", "licence"),
                      badge("MCP server", "MCP", "server", "mcp", "#" + MCP_HEADING.lower().replace(" ", "-"))])
     return [("p", '<h1 align="center">%s</h1>' % NAME),
-            ("p", '<p align="center"><b>Checked facts about T Cloud Public (TCP) for any AI assistant, dataset of %s</b>'
-                  '<br>%s</p>' % (day, WORKBENCH_LINE)),
+            ("p", '<p align="center"><b>%s, dataset of %s</b><br>%s</p>' % (WHAT_FOR_WHOM, day, WORKBENCH_LINE)),
             ("p", DISCLAIMER),
             ("p", '<p align="center">Claude Desktop, one click: <a href="%s">%s</a> (needs Python 3.10 or newer)</p>'
                   % (MCPB_LATEST_URL, kbreview.STABLE_MCPB)),
@@ -303,7 +343,6 @@ EXAMPLES = ("Use the attached TCP Facts. Answer: which Elasticsearch versions do
             "Use the attached TCP Facts. Answer: which services does TCP offer for object storage and how do they differ?")
 
 
-RECHECK_DUE = "recheck due"
 LEVELS_HEADING = "Validation levels"
 
 
@@ -330,19 +369,72 @@ def level_blocks(records: list[dict]) -> list[tuple[str, str]]:
             ("table", "\n".join(rows))]
 
 
-def recheck_due_blocks(records: list[dict]) -> list[tuple[str, str]]:
-    """The README table of the facts past their expiry date that wait for their recheck (task KS): they stay in the
-    dataset with their check date until a recheck confirms, amends or refutes them."""
-    due = sorted((r for r in records if r.get("recheck_due")), key=lambda r: (r["checked"], r["id"]))
-    if not due:
-        return []
-    rows = ["| fact | grade | checked | state |", "|---|---|---|---|"]
-    rows += ["| %s | %s | %s | %s |" % (r["id"], r["grade"], r["checked"], RECHECK_DUE) for r in due]
-    return [("h2", "Facts with a recheck due"),
-            ("p", "%d facts are past their expiry date and wait for their weekly recheck. They stay in the dataset "
-                  "until something invalidates them: a recheck that refutes them, a newer fact that replaces them or "
-                  "a change of the service description. Name the check date when you use one." % len(due)),
-            ("p", "\n".join(rows))]
+USE_HEADING = "Use"
+PROVES_HEADING = "What this proves"
+JQ_FACTS = "jq -s 'map(select(.id)) | length' facts.jsonl"
+JQ_LIVE = "jq -s 'map(select(.grade == \"live\")) | length' facts.jsonl"
+JQ_SERVICES = "jq -Rn '[inputs | select(test(\"^- [0-9]\"))] | length' services.md"
+JQ_WEEKLY = "jq -s 'map(select(.level == \"V4\")) | length' facts.jsonl"
+JQ_DUE = "jq -c 'select(.recheck_due) | {id, checked}' facts.jsonl"
+GH_RELEASES = "gh release list --repo %s --limit 1000 --json tagName --jq length" % GITHUB_REPO
+CLAUDE_CODE_ADD = 'claude mcp add tcp-facts -- python3 "$PWD/%s"' % MCP_FILE
+
+
+def weekly_count(records: list[dict]) -> int:
+    """The facts with a weekly automated check: level V4, a live fact whose check block the weekly recheck takes."""
+    return sum(1 for r in records if r.get("level") == "V4")
+
+
+def cadence(records: list[dict]) -> str:
+    """The one wording of the recheck cadence, as kb.CLASSES, kb.level and the refresh requests do it (B-110): never
+    "the dataset is rechecked weekly"."""
+    c = kb.CLASSES
+    return ("%d of the %d facts have a weekly automated check (level V4: `%s`). Every other fact carries its own check "
+            "date and is checked again when it expires (availability after %d days, API behaviour after %d, stable "
+            "facts after %d) or earlier when a release note, a new revision of the service description or a changed "
+            "documentation page asks for it." % (weekly_count(records), len(records), JQ_WEEKLY, c["availability"],
+                                                 c["api"], c["stable"]))
+
+
+def example_fact(records: list[dict]) -> dict:
+    """The fact the first screen shows: the highest level, then the lowest id."""
+    rank = {lv: i for i, (lv, _, _, _) in enumerate(kb.LEVELS)}
+    return min(records, key=lambda r: (rank.get(r.get("level", ""), len(rank)), r["id"]))
+
+
+def first_screen(day: str, records: list[dict], grades: dict, n_services: int, n_plain: int, revision: str,
+                 releases: list[str] | None) -> list[tuple[str, str]]:
+    """The README below its header (B-110): the three ways to use it, "What this proves" with the command that checks
+    each number, one example fact, the freshness line, the release date and the licence line. `releases` are the
+    release dates up to this one, None when the build has no clone to count them in."""
+    due = sum(1 for r in records if r.get("recheck_due"))
+    if releases:
+        released = "- **%d weekly releases** since %s, this one of %s: `%s`" % (len(releases), releases[0], day,
+                                                                                  GH_RELEASES)
+    else:
+        released = "- **weekly releases**, every Monday: `%s`" % GH_RELEASES
+    ex = example_fact(records)
+    return [
+        ("h2", USE_HEADING),
+        ("p", "1. Attach facts.md to any assistant (ChatGPT, Claude, Gemini, Copilot or a local model) and type "
+              "`%s`.\n"
+              "2. One click in Claude Desktop: download [%s](%s), a release asset, and open it.\n"
+              "3. Claude Code, in a clone of this repository: `%s`."
+              % (ONE_LINER, kbreview.STABLE_MCPB, MCPB_LATEST_URL, CLAUDE_CODE_ADD)),
+        ("h2", PROVES_HEADING),
+        ("p", "- **%d facts**, each with its source and check date: `%s`\n"
+              "- **%d facts tested live** on a TCP tenant, the others from the service description or the vendor "
+              "documentation: `%s`\n"
+              "- **%d services** of the service description of %s, each offered or not in services.md, %d of them "
+              "with a plain fact: `%s`\n%s"
+              % (len(records), JQ_FACTS, grades.get("live", 0), JQ_LIVE, n_services, revision, n_plain, JQ_SERVICES,
+                 released)),
+        ("p", "Example fact, as facts.md holds it (`jq -c 'select(.id == \"%s\")' facts.jsonl` shows its source):\n%s"
+              % (ex["id"], fact_line(ex))),
+        ("p", "Freshness: %d of the %d facts wait for a recheck and are used with their check date: `%s`. %s"
+              % (due, len(records), JQ_DUE, cadence(records))),
+        ("p", "Released %s. %s" % (day, CODE_LICENCE_LINE)),
+    ]
 
 
 # --------------------------------------------------------------------------- what the facts cover
@@ -356,6 +448,9 @@ _AREA_RE = re.compile(r"^T Cloud Public \(TCP\) (?!(?:does|do|did|has|have|is|ar
 _AREA_END = re.compile(r"[:;(]|\.(?:\s|$)| (?:in|with|through|as|by|via|from|on) (?=[A-Z])")
 CONTRACT_MATTERS = ("certificates and attestations", "SLA values", "support hours and response times", "prices",
                     "subcontractors")
+# a fact that names a certificate or an attestation (topics/tender.md holds such facts): the README says they are in
+_CERTIFICATE_RE = re.compile(r"(?i)\bcertificat|\battestation|\bISO(?:/IEC)?\s?2700\d\b|\bBSI C5\b|\bTISAX\b|"
+                             r"\bSOC\s?[123]\b")
 
 
 def _forms(services: list[offered.Service]) -> list[tuple[str, offered.Service]]:
@@ -451,6 +546,13 @@ def coverage_blocks(records: list[dict], services: list[offered.Service], revisi
                ("p", "What the dataset does not hold and never will: commitments on %s and %s. These are contract "
                      "matters: check them in the contract. A fact that touches one of them is background from a "
                      "public source, not a commitment." % (", ".join(CONTRACT_MATTERS[:-1]), CONTRACT_MATTERS[-1]))]
+    named = [r for r in records if _CERTIFICATE_RE.search(r["statement"])]
+    if named:
+        topics = sorted({(r["tags"] or ["other"])[0] for r in named})
+        blocks.append(("p", "What it does hold: facts that name a certificate or an attestation as a public source "
+                            "lists it, %d of them (topics/%s). Such a fact says what the source lists on its check "
+                            "date; whether a certificate covers your contract is a contract matter."
+                            % (len(named), ".md, topics/".join(topics) + ".md")))
     return blocks
 
 
@@ -492,7 +594,7 @@ def mirror_count(records: list[dict]) -> int:
 
 def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_services: int, revision: str,
                    cover: list[tuple[str, str]] = (), n_mirror: int = 0,
-                   check: list[tuple[str, str]] = ()) -> list[tuple[str, str]]:
+                   check: list[tuple[str, str]] = (), cadence_text: str = "") -> list[tuple[str, str]]:
     """The how-to as (style, text) blocks: h1, h2, p, code (code:json, code:bash for the fence). PROMPT.md and
     HOW-TO.pdf are made from it."""
     return [
@@ -522,17 +624,20 @@ def _how_to_blocks(day: str, best_before: str, n_facts: int, grades: dict, n_ser
         ("p", "facts.md: all facts, grouped by topic. facts.jsonl: the same facts with source, tags, class, expiry "
               "and the evidence of negatives, for RAG and tools. topics/<topic>.md: one file per topic. "
               "services.md: the %d services orderable per the service description of %s. %s: a read-only MCP server over these files for Claude, VS Code or any MCP client; its first "
-              "lines say how to add it. MANIFEST.json: counts, dates and the sha256 of every file."
-              % (n_services, revision, MCP_FILE)),
+              "lines say how to add it. %s: the %s licence of that server. Release assets, in the zip and on every "
+              "release: MANIFEST.json (counts, dates and the sha256 of every file), HOW-TO.pdf (this how-to) and %s "
+              "(the one-click file for Claude Desktop)."
+              % (n_services, revision, MCP_FILE, CODE_LICENCE_FILE, CODE_LICENCE, kbreview.STABLE_MCPB)),
         *check,
         ("h2", "Dates and licence"),
-        ("p", "Built %s. Best before %s: facts about availability are re-checked every %d days. Prices are not "
-              "part of the dataset: the live price API is the source of truth before any quote." % (day, best_before,
-                                                                                         BEST_BEFORE_DAYS)),
+        ("p", "Built %s. Best before %s, %d days on: after that date take a fresh copy. %sPrices are not part of the "
+              "dataset: the live price API is the source of truth before any quote."
+              % (day, best_before, BEST_BEFORE_DAYS, cadence_text + " " if cadence_text else "")),
         ("p", "Dataset: %s." % COMPILED_BY),
         ("p", CREDIT),
         ("p", SOURCE_ATTRIBUTION),
         ("p", LICENCE_LINE),
+        ("p", CODE_LICENCE_LINE),
     ]
 
 
@@ -925,7 +1030,9 @@ def _build(p: config.Paths, *, out: Path, today: datetime.date | None = None,
             left["contradicted by a recheck"] += 1
             continue
         # a trigger of the refresh (release note, new service description, changed docs page) makes it due too
-        r["recheck_due"] = bool(r.get("expired")) or any(r["checked"] < d <= day for d in asked.get(r["id"], ()))
+        # a contract fact of the current revision is not due for its date (B-110); the new revision requests it
+        r["recheck_due"] = (bool(r.get("expired")) and not of_revision(r, catalog.revision)) \
+            or any(r["checked"] < d <= day for d in asked.get(r["id"], ()))
         b = blocks.get(r["id"], {})
         r["level"] = kb.level(r["grade"], due=r["recheck_due"], tier=b.get("tier", ""), needs=b.get("needs", "none"))
         kept.append(r)
@@ -945,7 +1052,7 @@ def _build(p: config.Paths, *, out: Path, today: datetime.date | None = None,
         raise DatasetError("no fact left after the third-party filter: nothing to build")
     for r in records:
         r["statement"] = tenant_free(r["statement"])
-        r["source"] = tenant_free(r["source"])
+        r["source"] = source_note(r["source"])
         r["tried"] = [tenant_free(t) for t in r.get("tried", [])]
     records.sort(key=lambda r: ((r["tags"] or ["zzz"])[0], r["id"]))
     grades: dict[str, int] = {}
@@ -1034,17 +1141,25 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     cover = coverage_blocks(records, orderable, revision)
     levels = level_blocks(records)
     blocks = _how_to_blocks(day, best_before, len(records), grades, len(svc), revision, cover + levels,
-                            mirror_count(records), check_blocks(sign_settings()))
+                            mirror_count(records), check_blocks(sign_settings()), cadence(records))
     (root / "PROMPT.md").write_text(blocks_to_markdown(blocks), encoding="utf-8")
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
+    # B-110: the first screen, then what PROMPT.md says too; no table of fact ids and no name of a file that is
+    # neither in the public repository nor a release asset (PROMPT.md is only in the zip)
     (root / "README.md").write_text(blocks_to_markdown(
-        readme_header(day, best_before, len(records)) + [("p", "Build of %s. A later build of the same day replaces this one under the same "
-                                              "name; the manifest carries the build time." % built_at)]
-        + blocks[1:4] + [("h2", "Use"), ("p", "Attach facts.md and type:"),
-                                                          ("code", ONE_LINER), ("p", "PROMPT.md has the rest.")]
-        + cover + levels + recheck_due_blocks(records) + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]), encoding="utf-8")
+        readme_header(day, best_before, len(records))
+        + first_screen(day, records, grades, len(svc), len(plain_service_facts(records, orderable)), revision,
+                       release_dates(p, day))
+        + [("p", "Build of %s. A later build of the same day replaces this one under the same name; the manifest "
+                 "carries the build time." % built_at)]
+        + blocks[1:4] + cover + levels + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]),
+        encoding="utf-8")
 
     (root / MCP_FILE).write_bytes(_read_input(MCP_TEMPLATE))
+    licence = _read_input(CODE_LICENCE_TEXT)
+    if not licence.lstrip().startswith(b"Apache License") or b"Version 2.0" not in licence[:200]:
+        raise DatasetError("the licence text of the code is not the Apache License 2.0; the folder was removed")
+    (root / CODE_LICENCE_FILE).write_bytes(licence)
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix in (".md", ".jsonl", ".csv", ".py"):
             text = path.read_text(encoding="utf-8")
@@ -1058,7 +1173,8 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
                 "grades": grades, "recheck_due": sum(1 for r in records if r.get("recheck_due")),
                 "levels": level_counts(records),
                 "topics": {t: len(bytag[t]) for t in tags}, "services": len(svc), "service_description": revision,
-                                "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE, "compiled_by": COMPILED_BY,
+                                "facts_left_out": [{"id": i, "names": n} for i, n in flagged], "licence": LICENCE,
+                "code_licence": {MCP_FILE: CODE_LICENCE}, "compiled_by": COMPILED_BY,
                 "files": {str(x.relative_to(root)): {"bytes": x.stat().st_size, "sha256": _sha(x)} for x in files}}
     (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -1166,7 +1282,7 @@ def put(c: obs.Client, folder: Path, *, replace: bool = False) -> list[str]:
 # --------------------------------------------------------------------------- the public repository (owner side)
 
 # into the root, README.md over the one there; LICENSE is the repository's own, the put never touches it
-GITHUB_FILES = ("README.md", "facts.md", "facts.jsonl", "services.md", "topics", MCP_FILE)
+GITHUB_FILES = ("README.md", "facts.md", "facts.jsonl", "services.md", "topics", MCP_FILE, CODE_LICENCE_FILE)
 STALE_PRICES = "prices"                     # a folder of an older release; the put removes it from the repository
 GITHUB_ASSETS = ("HOW-TO.pdf", "MANIFEST.json")                                    # with the zip, on the release
 PERSON_ENV = "AWB_DATASET_AUTHOR"           # the old settings: gone, but a value still set is searched for
@@ -1233,6 +1349,20 @@ def _git(clone: Path, *args: str) -> list[str]:
     """A git command on the clone that names the clone as a safe directory, so git needs no global setting; only that
     path, never every directory. _run adds the settings of GIT_FIXED."""
     return ["git", "-c", "safe.directory=%s" % Path(clone).resolve(), *args]
+
+
+def release_dates(p: config.Paths, day: str) -> list[str] | None:
+    """The release dates up to `day` for the first screen of the README: the date tags of the clone of the public
+    repository before `day`, then `day`. None without a clone (a build that never published), so the README names
+    no count it cannot know. Only `git tag --list`, nothing is fetched or written."""
+    clone = clone_dir(p)
+    if not (clone / ".git").is_dir():
+        return None
+    try:
+        tags = _run(_git(clone, "tag", "--list"), cwd=clone).stdout.split()
+    except DatasetError:
+        return None
+    return sorted({t for t in tags if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t) and t < day}) + [day]
 
 
 def check_clone(clone: Path) -> None:

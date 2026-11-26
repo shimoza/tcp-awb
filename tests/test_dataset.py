@@ -201,7 +201,8 @@ def test_the_readme_the_prompt_and_the_pdf_name_the_sources_and_the_apache_attri
     attribution = ("The documentation facts draw on the repositories of github.com/opentelekomcloud-docs, licensed "
                    "under the %s (www.apache.org/licenses/LICENSE-2.0)." % dataset.DOCS_LICENCE)
     readme, prompt = (built.folder / "README.md").read_text(), (built.folder / "PROMPT.md").read_text()
-    for name, text, after in (("README.md", readme, "## Use"), ("PROMPT.md", prompt, "## Three steps")):
+    # B-110: the README opens with its first screen ("## Use" first), the sources follow it before the coverage
+    for name, text, after in (("README.md", readme, "## What the facts cover"), ("PROMPT.md", prompt, "## Three steps")):
         assert sources in text and attribution in text, name
         assert text.index("come from the vendor documentation") < text.index(sources) < text.index(after), name
         assert text.index("## Dates and licence") < text.index(attribution) < text.index("The full licence text"), name

@@ -1495,16 +1495,25 @@ awb dataset build
 
 That writes `~/tcp-shared/datasets/tcp-facts-<date>/`, its zip and `tcp-facts-<date>.mcpb` (the one-click extension for Claude Desktop): `facts.md` with every fact on one line, grouped
 by topic and small enough for one chat, one file per topic under `topics/`, `facts.jsonl` with the metadata, the
-list of orderable services, a `PROMPT.md` and a `HOW-TO.pdf`. A fact leaves the dataset only when something invalidates it (retired or superseded, refuted by a recheck, a service the service description no longer offers), never for its date: an expired fact stays, marked `recheck due` with its check date in `facts.md` and in the README table "Facts with a recheck due". Every fact carries its validation level, from its grade, its check block and its check date alone: V4 kept live (a live fact whose read or write block the weekly recheck takes), V3 live, V2 contract, V1 docs and V0 recheck due (past its check date). It is `level` in `facts.jsonl`, `(KB-XXXX, V3 live, checked DATE)` in `facts.md` and `topics/`, the counts in `MANIFEST.json` and the table "Validation levels" in the README, PROMPT.md and HOW-TO.pdf, two plain lines per level with its count. No level stands for a confirmation from outside. The dataset holds no price list (no `prices/` folder, no
+list of orderable services, a `PROMPT.md` and a `HOW-TO.pdf`. A fact leaves the dataset only when something invalidates it (retired or superseded, refuted by a recheck, a service the service description no longer offers), never for its date: an expired fact stays, marked `recheck due` with its check date in `facts.md` and counted in the freshness line of the README. A contract fact whose source cites the current revision of the service description (or cites none and was checked on or after it) is not due for its date while that revision is current; a new revision requests its recheck. Source notes of the import of 2026-10-20 leave as "earlier private knowledge base", not "old setup". Every fact carries its validation level, from its grade, its check block and its check date alone: V4 kept live (a live fact whose read or write block the weekly recheck takes), V3 live, V2 contract, V1 docs and V0 recheck due (past its check date). It is `level` in `facts.jsonl`, `(KB-XXXX, V3 live, checked DATE)` in `facts.md` and `topics/`, the counts in `MANIFEST.json` and the table "Validation levels" in the README, PROMPT.md and HOW-TO.pdf, two plain lines per level with its count. No level stands for a confirmation from outside. The dataset holds no price list (no `prices/` folder, no
 price file in `MANIFEST.json`): prices come live from the public price API with `--live` of the MCP server. Every text file
 opens with the rules for the assistant that reads it, so a person attaches `facts.md` to ChatGPT, Claude or a local
 model and types `Use the attached TCP Facts. Answer: <question>`. The dataset carries a best-before date of 30 days. Its README, PROMPT.md and HOW-TO.pdf warn against customer data in prompts to a public model.
+The README opens with a first screen for a reader of the public repository: one sentence what it is and for whom,
+the three ways to use it (attach `facts.md`, the one-click `tcp-facts.mcpb`, `claude mcp add`), "What this proves"
+(the facts, the facts tested live, the services and the weekly releases, counted from the date tags of the local
+clone, each with the jq or gh command that checks it), one example fact, one freshness line (the facts with a recheck
+due and the jq command that lists them, the facts with a weekly automated check, level V4, and the check periods of
+the rest), the release date and the licence line. It holds no table of fact ids, names only files of the repository
+and calls `MANIFEST.json`, `HOW-TO.pdf` and the `.mcpb` release assets. The facts are CC BY 4.0; `tcp_facts_mcp.py`
+carries an Apache-2.0 header and every build carries `LICENSE-CODE`, the Apache License 2.0 of this repository.
 Its README, PROMPT.md and HOW-TO.pdf also carry "What the facts cover", counted from the facts at each build: how
 many orderable services per section of the service description have a plain fact that says what the service is and
 does (a statement that opens with the service's name), the requirement areas (facts that open with "T Cloud Public
 (TCP)" and a verb, each with its id), an example of checking a requirement and citing the fact id, and the contract
 matters the dataset never holds (certificates and attestations, SLA values, support hours and response times, prices
-and subcontractors as commitments).
+and subcontractors as commitments), then how many facts name a certificate or an attestation as a public source lists
+it and in which topics.
 How much the dataset helps a model is measured with the evaluation set in `eval/tcp-facts/` (50 questions with expected
 answers and fact ids, a scorer and a runner that asks a model with and without the facts; see its README).
 The files and the PDF metadata say who compiled them: `TCP Facts, github.com/shimoza/tcp-facts`, never a person.

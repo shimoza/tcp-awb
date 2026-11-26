@@ -207,7 +207,8 @@ def test_ks_an_expired_fact_stays_in_the_build_marked_recheck_due(home, facts, t
     facts_md = (built.folder / "facts.md").read_text(encoding="utf-8")
     assert "(%s, V0 recheck due, live, checked %s)" % (due.id, due.checked) in facts_md
     readme = (built.folder / "README.md").read_text(encoding="utf-8")
-    assert "| %s | live | %s | recheck due |" % (due.id, due.checked) in readme
+    # B-110: counted in the freshness line of the first screen, no table of ids
+    assert "Freshness: 1 of the %d facts wait for a recheck" % len(rows) in readme and "| %s |" % due.id not in readme
     assert json.loads((built.folder / "MANIFEST.json").read_text(encoding="utf-8"))["recheck_due"] == 1
 
 
