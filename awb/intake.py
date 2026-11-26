@@ -3,8 +3,8 @@
 `run` takes files from the vault inbox (or anywhere), reads each one with `awb.extract`, finds registered
 forms and structured data in everything detection can see and writes one sanitised Markdown copy per file to
 `<shared>/outbox/<CUST>/<file id>.md` (`<shared>/outbox/<tcp-xxxx>/` for a project without a customer): the
-registered forms become their codes, structured data its tokens and every string the candidate rules of
-`awb.wipe` recognise as a name a token of its class ([person 1], [company 1], [place 1], [name 1]), numbered per run; the forms of every wiped person and company are learned and wiped wherever
+registered forms become their codes, structured data (a mail, bank data, a phone number) its tokens and every
+string the candidate rules of `awb.wipe` recognise as a name a token of its class ([person 1], [company 1], [place 1], [name 1]), numbered per run; the forms of every wiped person and company are learned and wiped wherever
 they stand again in the run (wipe mode, T4). Nothing stops for a name: `run(..., review=True)` is the one stop, for
 the rare case where a name must stay distinguishable by a code. Every output is checked once more before it
 counts. Originals move to
@@ -17,6 +17,10 @@ original and private report of the run is sealed right after it is written (`sea
 plaintext inside the vault and is counted in `IntakeResult.unsealed`. When the daemon answers and refuses the seal
 (locked, busy with a reload, refused), the run is undone: its originals go back where they came from, its outputs,
 pictures and reports are removed and the run fails, so nothing of it stays in the vault in plaintext (D-T2h).
+
+The entry keeps registered names and real secrets only (DMZ 1, 2026-11-25): an IP address, a host name and a web address
+(`patterns.ENTRY_KEPT`), a hash, a UUID and a tenant or project number stay as written, no finding and no token; the
+engine of the run is `_Engine(entries, entry=True)`. The laptop clean builds its engine without it.
 
 The original file name is treated as text: it is scanned and never used for an output. Nothing in this
 module writes a matched value, a form or an original name into an exception, a log line or the public side.
@@ -510,6 +514,11 @@ def _readable(word: str, text: str) -> bool:
     return word.casefold() in text.casefold()
 
 
+ENTRY_KEPT_CASES = ("gateway https://gw.qvelmar-demo.net/v1/tokens on 198.51.100.7 and 2001:db8:abcd::17",
+                    "Server: srv-app01.corp.qvelmar-demo.net, the VMs and the IPs of a pre-shared key")
+"""Texts the engine of the entry (DMZ 1) must return as they are: the self-test of the intake checks it."""
+
+
 def selftest() -> list[str]:
     """Every case of awb.planted, run through an engine of its own with an invented register: the matcher must
     report the case's class and the second check must find the cases marked for it. After the sanitising
@@ -549,6 +558,11 @@ def selftest() -> list[str]:
             if term not in clean:
                 failures.append("control term %d is wiped" % i)
                 break
+    e = _Engine(planted.entries(), entry=True)
+    for text in ENTRY_KEPT_CASES:
+        e.detect("selftest detect", text)
+        if e.sanitize(text, "selftest")[0] != text:
+            failures.append("entry: an address, a host name or a web address is not kept as written")
     e = _Engine(planted.entries())
     label, text = planted.CUSTOMER_CASE
     e.detect("selftest detect", text)
@@ -612,7 +626,7 @@ def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | 
     entries = register.load(p.register)
     cust, is_new = _resolve_customer(customer, entries, p)
     _validate_redo(files, redo, p, cust)
-    engine = _Engine(entries)
+    engine = _Engine(entries, entry=True)
     engine.keep = tuple(load_keep(p))
     engine.wipe.trusted = trusted
     now = datetime.now()
@@ -835,7 +849,7 @@ def _run_text(customer: str, p: config.Paths, screened, shape, write, label: str
     encrypted = vault_encrypted(p)
     entries = register.load(p.register)
     cust, is_new = _resolve_customer(customer, entries, p)
-    engine = _Engine(entries)
+    engine = _Engine(entries, entry=True)
     engine.keep = tuple(load_keep(p))
     now = datetime.now()
     body, reader, counts, notes, size = shape(engine, screened)
@@ -1045,7 +1059,7 @@ def wipe_text(text: str, p: config.Paths) -> str:
     failed = selftest()
     if failed:
         raise IntakeError("the intake failed its self-test: %s" % "; ".join(failed))
-    engine = _Engine(register.load(p.register))
+    engine = _Engine(register.load(p.register), entry=True)
     engine.keep = tuple(load_keep(p))
     engine.detect("text detect", text)
     clean, _ = engine.sanitize(text, "text output")

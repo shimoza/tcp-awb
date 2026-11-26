@@ -243,7 +243,7 @@ def test_wipe_run_end_to_end(home):
 
     # the name check finds nothing in any output or in the public report
     for out in res.outputs + [res.public_report]:
-        assert check.check_file(out, home.register) == [], "check hit in %s" % out.name
+        assert check.check_file(out, home.register, entry=True) == [], "check hit in %s" % out.name
 
     # what must stay, stays: the control name and the keep words
     named = (out_dir / ("%s.md" % by_name[files["named"].name])).read_text(encoding="utf-8")
@@ -306,7 +306,8 @@ def test_a_clean_run_with_a_known_customer_wipes_nothing(home):
     assert not res.blocked and res.candidates == 0 and not res.wiped
     (out,) = res.outputs
     text = out.read_text(encoding="utf-8")
-    assert fx.PERSON_CODE in text and fx.PLACE_CODE in text and re.search(r"\bIP-[A-Z2-7]{4}\b", text)
+    assert fx.PERSON_CODE in text and fx.PLACE_CODE in text
+    assert "Server 198.51.100.4" in text and not re.search(r"\bIP-[A-Z2-7]{4}\b", text)   # DMZ 1: an address stays
     fx.assert_no_fixture_name(text)
     public = res.public_report.read_text(encoding="utf-8")
     assert "## Wiped" not in public and "candidates were reviewed" not in public
@@ -318,10 +319,13 @@ def test_same_value_same_token_and_different_values_differ(home):
     a.write_text("server 198.51.100.4 und 198.51.100.5\n", encoding="utf-8")
     b.write_text("wieder 198.51.100.4\n", encoding="utf-8")
     res = intake.run([a, b], fx.CUSTOMER_CODE, home)
-    ta = re.findall(r"\bIP-[A-Z2-7]{4}\b", res.outputs[0].read_text(encoding="utf-8"))
-    tb = re.findall(r"\bIP-[A-Z2-7]{4}\b", res.outputs[1].read_text(encoding="utf-8"))
-    assert len(ta) == 2 and ta[0] != ta[1]
+    # DMZ 1: an address is kept as written, so the same value stays the same and different values differ
+    address = r"\b198\.51\.100\.\d\b"
+    ta = re.findall(address, res.outputs[0].read_text(encoding="utf-8"))
+    tb = re.findall(address, res.outputs[1].read_text(encoding="utf-8"))
+    assert ta == ["198.51.100.4", "198.51.100.5"]
     assert tb == [ta[0]]
+    assert not re.search(r"\bIP-[A-Z2-7]{4}\b", res.outputs[0].read_text(encoding="utf-8"))
 
 
 def test_final_check_failure_drops_output_and_keeps_original(home, monkeypatch):

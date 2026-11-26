@@ -117,7 +117,7 @@ def paste(text: str, root: Path, name: str | None = None, today: date | None = N
         raise PasteError("the text is over %d MB: split it" % (MAX_BYTES // (1024 * 1024)))
     if name is not None and not NAME_RE.fullmatch(name):
         raise PasteError("--as takes lower case letters, digits and hyphens, up to 40")
-    hits = hooks.name_hits(text)
+    hits = hooks.name_hits(text, entry=True)
     if name is not None and hooks.name_hits(name):
         raise PasteRefused("the name of --as carries a registered name: choose a code or a plain word")
     secrets = hooks._secret_hits(text)

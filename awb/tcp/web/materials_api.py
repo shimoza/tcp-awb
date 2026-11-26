@@ -319,7 +319,7 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
         return local_call(PUBLISH_SOCKET,'/internal/projects/'+row['project']+'/materials','POST',{'id':row['id'],'customer':row['customer'],'text':text,'sha256':digest(text.encode())})
     def checked(self,text):
         if len(text.encode())>MAX_TEXT:raise Problem(422,'Extracted text is too large. Split this document into smaller files.')
-        if check.screen(text,check.checker(self.p.register)).found:
+        if check.screen(text,check.checker(self.p.register),allow=check.patterns.ENTRY_KEPT).found:
             raise Problem(422,'The working copy contains protected values. Owner review is required.')
         return text
     def process(self,ident):
@@ -361,7 +361,7 @@ CREATE INDEX IF NOT EXISTS import_project ON imports(project,created);
                     with extract.temp_root(Path(folder)):
                         ex=extract.extract(original)
                     if ex.state!='ok' or ex.meta.get(extract.INCOMPLETE):raise Problem(422,'The document could not be read completely. Provide a supported text version.')
-                    if check.check_file(original,self.p.register):raise Problem(422,'This task description may contain private information. Use the customer source or ask the owner to review it.')
+                    if check.check_file(original,self.p.register,entry=True):raise Problem(422,'This task description may contain private information. Use the customer source or ask the owner to review it.')
                     # wipe mode (decision 16): a name the candidate rules recognise becomes a token, nothing holds
                     text=intake.wipe_text(ex.text,self.p)
                 if not text.strip():raise Problem(422,'This file contains no readable text.')

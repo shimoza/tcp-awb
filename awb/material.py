@@ -58,7 +58,7 @@ def screen(text: str) -> None:
 
     found = [(f.cls, f.line) for f in gate._scan_text("material", text, None) if f.cls in SCREENED]
     names = [("name" if h.get("cls") == "name" else str(h.get("cls", "unknown")), h.get("start", 0))
-             for h in hooks.name_hits(text) if isinstance(h, dict)]
+             for h in hooks.name_hits(text, entry=True) if isinstance(h, dict)]
     found += _lines(text, [(c, o if isinstance(o, int) and o >= 0 else 0) for c, o in names])
     if found:
         found = sorted(set(found), key=lambda f: (f[1], f[0]))

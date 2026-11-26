@@ -1,8 +1,8 @@
 """The candidate rules of the intake and the forms they teach (wipe mode, T4 of 2026-10-08).
 
 The intake replaces every registered form by its code (the matcher) and every piece of structured data by its
-token (the patterns). The rules here find what neither knows: strings shaped like the name of a person, a company or
-a place. In wipe mode every string they recognise becomes a neutral token of its class, without a stop:
+token (the patterns; at the entry not an address, a host name or a web address, DMZ 1). The rules here find what
+neither knows: strings shaped like the name of a person, a company or a place. In wipe mode every string they recognise becomes a neutral token of its class, without a stop:
 
     person    [person 1]   a title, a salutation, a sign-off, a mail header, a speaker label, a person label or
                            column, a by-line, an initial, "Last, First", a login, a first name of the list ...
@@ -10,6 +10,10 @@ a place. In wipe mode every string they recognise becomes a neutral token of its
                            mail address whose local part names a person
     place     [place 1]    a street and number, a postcode and town, a place label or column
     unknown   [name 1]     a run of capitalised words that no list knows, an identifier, a lone word in a heading
+
+A technical word is never a candidate of any class (`_technical_word`): an acronym of up to four capitals or its
+plural (VMs, IPs, ECSs), a hyphen compound in lower case (pre-shared-key) and a word of the section intake-seed of
+rules/allowed-terms.txt.
 
 The numbers count per class within one import run and restart with the next one: they tell two persons of one mail
 chain apart and link nothing across imports. `collect` gives the spans of a text with their class and the rule that

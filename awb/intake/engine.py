@@ -144,7 +144,10 @@ class _Engine:
     registered forms, the tokens of structured data and, in `wipe`, the tokens of the candidates and the forms the
     run learned."""
 
-    def __init__(self, entries: list[register.Entry]):
+    def __init__(self, entries: list[register.Entry], entry: bool = False):
+        self.entry = entry
+        """The engine of the entry (DMZ 1): an address, a host name and a web address (`patterns.ENTRY_KEPT`) are kept as
+        written, no finding and no token, and no form is learned from them. The laptop clean builds its engine without it."""
         self.matcher = Matcher(register.forms_for_matching(entries))
         self.forms = len({(e.code, e.form) for e in entries if e.status == "active"})
         # short active forms: a fresh code must not carry one, not even inside the random part
@@ -155,6 +158,7 @@ class _Engine:
         self.tokens: dict[tuple[str, str], str] = {}
         self.hits: dict[tuple[str, str], _report.Hit] = {}
         self.wipe = wipe.WipeState()
+        self.wipe.entry = entry
         # the second check (T-13): every registered variant as a skeleton, compared over whole words
         self._skeletons = {s for s in (skeleton(v) for v, _ in register.forms_for_matching(entries))
                            if len(s) >= _SKELETON_MIN}
@@ -230,12 +234,18 @@ class _Engine:
         """Registered forms and structured data."""
         return self.matcher.find(text), patterns.find_structured(text)
 
+    def data(self, spans: list[Span]) -> list[Span]:
+        """The structured spans the run reports: all of them, at the entry without the kept classes. The candidate rules
+        still read every span as ground they do not guess on (a word of an address is no name)."""
+        return patterns.entry_view(spans) if self.entry else spans
+
     def spans(self, text: str, candidates: bool = True) -> tuple[list[Span], list[Span]]:
         """Registered forms, and structured data with the candidates and the learned forms of the run (wipe mode)."""
-        names, structured = self.raw_spans(text)
+        names, every = self.raw_spans(text)
+        structured = self.data(every)
         if not candidates:
             return names, structured
-        return names, structured + wipe.wipe_spans(self.wipe, text, names, structured)
+        return names, structured + wipe.wipe_spans(self.wipe, text, names, every)
 
     def detect(self, where: str, text: str, names_only: bool = False) -> list[str]:
         """Record every registered form and piece of structured data of `text` with its token, learn the forms of
@@ -247,7 +257,7 @@ class _Engine:
         n = normalize.normalize(text)
         names = self.matcher.find(n.text)
         structured = [] if names_only else patterns.find_structured(n.text)
-        for s in _resolve(names, structured):
+        for s in _resolve(names, self.data(structured)):
             value = n.text[s.start:s.end]
             first = normalize.original_span(n, s.start, s.end)[0]
             self.record(where, Span(first, first + len(value), s.cls, s.code), value, self.token_for(s, value))

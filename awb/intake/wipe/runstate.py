@@ -14,7 +14,7 @@ from awb.intake.wipe.basic import _COMPANY_RE, _Mask, _SPACED_RE, _TITLES, _mail
 from awb.intake.wipe.lexicon import (_CODE_KIND_WORDS, _EXTRA_KNOWN, _FIRST_NAMES, _GENERIC_COMPANY_WORDS, _GERMAN_ADJ,
                                      _GERMAN_FUNCTION, _GERMAN_KNOWN, _PARTICLE_WORDS, _PRODUCT_LABEL_RE,
                                      _generic_local, _generic_word, _known_word, _letters)
-from awb.intake.wipe.lexicon import _TECH_FORMS, _TECH_MULTI, _code_spans, _plain_value, _tech_spans
+from awb.intake.wipe.lexicon import _TECH_FORMS, _TECH_MULTI, _code_spans, _plain_value, _tech_spans, _technical_value
 from awb.intake.wipe.proposed import (PROPOSED_RULES, _DC_RE, _blank_marks, _name_shaped, _plausible, _run_rule_exempt,
                                       _token_spans, _trim_run, _value_words)
 from awb.intake.wipe.learned import _Learned, _TITLES_EXTRA, _domain_label, _host_labels
@@ -95,6 +95,7 @@ class WipeState:
 
     def __init__(self, keep: tuple[str, ...] = (), trusted: bool = False):
         self.trusted = trusted   # `awb import --trusted`: no guessed name is wiped, of any class
+        self.entry = False       # the engine of the entry (DMZ 1): the host of a web address teaches no form
         self.tokens: dict[tuple[str, str], str] = {}
         self.numbers: Counter = Counter()
         self.learned = _Learned()
@@ -222,6 +223,8 @@ def _candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Spa
         value = re.sub(r"\s+", " ", text[a:b]).strip()
         if not value or keep_key(value) in keep_keys:
             continue
+        if _technical_value(value):
+            continue   # VMs, IPs, ECSs, pre-shared-key and the words of the allowed terms: no name of any class
         if cls == "unknown" and _plain_value(value) and not (learned and value.casefold() in learned):
             continue   # Outcome, Worked, SCORECARD: a plain English word on its own is no name
         if cls == "unknown" and learned:
@@ -314,6 +317,8 @@ def learn(state: WipeState, text: str, names: list[Span], structured: list[Span]
         _learn(state, "person", " ".join(p for p in re.split(r"[._-]", local) if p), ("person", _canon(local)))
     # the distinctive label of a mail host names the company behind it; the other labels of a mail or URL host
     for s in structured:
+        if state.entry and s.cls in ("url", "ip"):
+            continue
         value = text[s.start:s.end]
         # a mail address, a URL with a scheme or a bare host of three labels or more names a host; a bare
         # "intake.run" of two labels may be code or a file and teaches nothing

@@ -92,10 +92,13 @@ def test_the_default_mode_still_masks_and_refuses_what_it_did(project):  # noqa:
                "eth0 ether 52:54:00:12:34:56 and call +49 30 1234567\n")
     path, counts, outside = paste.paste(listing, project, today=date(2026, 10, 8))
     assert path == project / "notes" / "pastes" / "2026-10-08-1.txt"
-    assert counts == {"ip": 1, "url": 3, "mac": 1, "phone": 1} and outside == 0
+    # DMZ 1 (2026-11-25): an address and a web address are kept as written; a MAC address and a phone number are masked
+    assert counts == {"mac": 1, "phone": 1} and outside == 0
     text = path.read_text(encoding="utf-8")
-    assert "[ip]" in text and text.count("[url]") == 3 and "[phone]" in text and "[mac]" in text
-    for value in ("198.51.100.23", "qrtvb", "52:54:00", "1234567"):
+    assert "[phone]" in text and "[mac]" in text and "[ip]" not in text and "[url]" not in text
+    for value in ("198.51.100.23", "qrtvb"):
+        assert value in text
+    for value in ("52:54:00", "1234567"):
         assert value not in text
     assert "0001-req.txt" in text and "06:02:11" in text
     second, _, _ = paste.paste("plain text\n", project, today=date(2026, 10, 8))

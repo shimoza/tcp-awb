@@ -88,6 +88,18 @@ def reserved_value(value: str, cls: str) -> bool:
     return False
 
 
+ENTRY_KEPT = ("ip", "url")
+"""The classes the entry of customer material (the intake, the paste door, the material door) never reports and never
+turns into a token (DMZ 1, 2026-11-25): an address, a host name and a web address are technical data, in a handover
+kit as much as anywhere. Mails, bank data, phone numbers and the rest of `codes.DATA_KINDS` stay findings there. The
+other checks (the laptop clean, the exits) read every class as before."""
+
+
+def entry_view(spans):
+    """`spans` (a Span or a public hit with a `cls`) without the classes of ENTRY_KEPT."""
+    return [s for s in spans if (s["cls"] if isinstance(s, dict) else s.cls) not in ENTRY_KEPT]
+
+
 # --------------------------------------------------------------------------- hosts
 
 _CC_TLDS = (

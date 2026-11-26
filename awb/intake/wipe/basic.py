@@ -597,7 +597,7 @@ def unknown_candidates(text: str, known: list[Span], rules=_ALL_RULES, keep=()) 
     them (case and whitespace aside) is dropped. The result is ordered by position, without duplicates. It goes
     to the private report only.
     """
-    found = _collect_values(text, known, rules)
+    found = [c for c in _collect_values(text, known, rules) if not _technical_value(c)]
     if keep:
         kept = {keep_key(k) for k in keep}
         found = [c for c in found if keep_key(c) not in kept]
@@ -605,5 +605,5 @@ def unknown_candidates(text: str, known: list[Span], rules=_ALL_RULES, keep=()) 
 
 
 # the names of the later families this one calls; they import this module, so these come after its own
-from awb.intake.wipe.lexicon import _FIRST_NAMES, _ROLE_WORDS  # noqa: E402
+from awb.intake.wipe.lexicon import _FIRST_NAMES, _ROLE_WORDS, _technical_value  # noqa: E402
 from awb.intake.wipe.runstate import keep_key  # noqa: E402

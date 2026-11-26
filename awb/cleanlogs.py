@@ -53,7 +53,8 @@ INTERNAL_SUFFIXES = ("local", "lan", "internal", "intern", "corp", "intra", "int
 
 _PLACEHOLDER = re.compile(r"(?i)^(?:\*+|x+|<[^<>]*>|\$\{[^}]*\}|\{\{[^}]*\}\}|%[A-Za-z_]+%|\$[A-Za-z_]\w*|null|none|"
                           r"nil|true|false|redacted|\[redacted\]|\[secret\]|changeme|password|secret|\?+|-|\.+|"
-                          r"\[[a-z ]+\d*\])$")
+                          r"\$\([^)]*\)|\$env:[A-Za-z_]\w*|\[[a-z ]+\d*\])$")
+"""A value that names no secret: a mask, a variable or a reference of a script ({{token}}, ${TOKEN}, $(call), $env:TOKEN)."""
 
 _SECRET_LONG = r"pass(?:word|wd|wort|phrase)|kennwort|secret|token|api_?key|credentials?"
 """Key words that end a field name with or without a separator before them (dbpassword, db_password)."""
@@ -62,7 +63,14 @@ _SECRET_SHORT = (r"pass|pwd|pw|access_?key(?:_?id)?|private_?key|auth_?token|bea
 """Key words that are a secret only as a whole word or after a separator (task=... is no sk)."""
 _SECRET_FIELD_RE = re.compile(
     r"""(?ix)(?P<key>(?<![\w-])(?:[\w.-]*(?:%s)|(?:[\w.-]*[_.-])?(?:%s))) (?P<sep>["']?\s*(?:=|:|=>)\s*)"""
-    r"""(?P<q>["'])?(?P<value>(?(q)[^"'\n]+|[^\s,;&"'<>\]\)}]+))""" % (_SECRET_LONG, _SECRET_SHORT))
+    r"""(?P<q>["'])?(?P<value>(?(q)[^"'\n]+|(?:\{\{[^}\n]*\}\}|\$\{[^}\n]*\}|\$\([^)\n]*\)|[^\s,;&"'<>\]\)}]+)))"""
+    % (_SECRET_LONG, _SECRET_SHORT))
+_SET_CALL_RE = re.compile(
+    r"""(?ix)(?P<key>\.(?:set|setnx|upsert|add)\(\s*\\?["'](?:[\w.-]*(?:%s)|(?:[\w.-]*[_.-])?(?:%s))\\?["'])"""
+    r"""(?P<sep>\s*,\s*)(?P<q>\\?["'])(?P<value>[^"'\\\n]+)""" % (_SECRET_LONG, _SECRET_SHORT))
+"""A script call that sets a variable of a secret name to a literal: pm.environment.set("password", "..."). A call that
+sets it to another variable or to a response (pm.response.json().access_token) has no quote after the comma and no
+match: it reads and sets a variable and holds no secret."""
 _SECRET_FLAG_RE = re.compile(r"""(?i)(?<![\w-])(?P<key>-p|--password|--passwd|--pass|--secret|--token|--api-key|"""
                              r"""--access-key|--secret-key|--sk|--ak)(?P<sep>[ \t=]+)(?P<q>["'])?"""
                              r"""(?P<value>(?(q)[^"'\n]+|[^\s"']+))""")
@@ -273,10 +281,17 @@ def wipe_secrets(text: str, counts: Counter) -> str:
         counts["secret"] += 1
         return m.group("key") + m.group("sep") + (m.group("q") or "") + SECRET
 
-    text = _AUTH_HEADER_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + SECRET)[1], text)
+    def header(m):
+        if _PLACEHOLDER.match(m.group("value")):
+            return m.group(0)      # Authorization: Bearer {{token}}, $TOKEN: the header names a variable
+        counts["secret"] += 1
+        return m.group("key") + SECRET
+
+    text = _AUTH_HEADER_RE.sub(header, text)
     text = _USERINFO_RE.sub(lambda m: (counts.update(["secret"]), m.group("scheme") + m.group("user") + ":" + SECRET
                                        + "@")[1], text)
     text = _SECRET_FIELD_RE.sub(field, text)
+    text = _SET_CALL_RE.sub(field, text)
     text = _SECRET_FLAG_RE.sub(field, text)
     text = _GLUED_PASSWORD_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + SECRET)[1], text)
     text = _GLUED_QUOTED_PASSWORD_RE.sub(lambda m: (counts.update(["secret"]), m.group("key") + m.group("q") + SECRET

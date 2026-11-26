@@ -543,8 +543,10 @@ def test_the_chat_door_refuses_as_before(home, daemon):
 
 
 def test_the_materials_door_refuses_as_before(home, tmp_path):
-    for cls in ("name", "hidden-name") + STRUCTURED + SECRETS:
+    # DMZ 1 (2026-11-25): the entry keeps an address, a host name and a web address as written
+    for cls in ("name", "hidden-name") + tuple(c for c in STRUCTURED if c != "ip") + SECRETS:
         assert _materials_refuses(home, tmp_path, DOOR_INPUTS[cls]), cls
+    assert not _materials_refuses(home, tmp_path, DOOR_INPUTS["ip"])
     assert not _materials_refuses(home, tmp_path, DOOR_CLEAN)
 
 

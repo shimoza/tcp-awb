@@ -1632,8 +1632,16 @@ customer data out of the model as far as it can:
 - `awb import CODE` turns documents into working copies with a code (`CUST-XXXX`) in place of every registered
   name and a token (`[person 1]`, `[company 1]`, `[place 1]`, `[name 1]`) in place of every other name the rules
   recognise, without a stop and without a review. While it runs it prints `checking 13 files` and then one line per
-  file (`file 3 of 13: F-XXXX, 0.8 s`) on standard error, with the file id and never a name. It also takes out bank data, tax ids, phone numbers, addresses,
-  secrets and hidden text. What the rules do not recognise passes (a first name alone in prose, a name in a picture),
+  file (`file 3 of 13: F-XXXX, 0.8 s`) on standard error, with the file id and never a name. It also takes out bank data, tax ids, phone numbers, mail addresses,
+  secrets and hidden text. The entry keeps registered names and real secrets only (DMZ 1, the owner's word of
+  2026-11-25): IP addresses, host names, web addresses (the platform's endpoints included), hashes, UUIDs and tenant,
+  domain or project numbers arrive as written, never a finding and never a token, so that a technical handover (Terraform,
+  a Postman collection) stays usable. A technical word is never a name: `VMs`, `IPs`, `ECSs`, `VPCs`, `SGs`, an acronym
+  or its plural, a hyphen compound in lower case such as `pre-shared-key` and the words of `rules/allowed-terms.txt`. A
+  script line that only reads or sets a variable (`pm.environment.set("token", pm.response.json().access_token)`,
+  `{{token}}`, `$env:TOKEN`) is no secret; a literal password or key still is `[secret]`. The same entry rules hold for
+  `awb import --paste`, `awb paste`, `awb material add`, `awb start --from`, `awb inbox take`, the bucket folder `in/`
+  and the console. The laptop clean (`awb clean`) is another zone and keeps its tokens. What the rules do not recognise passes (a first name alone in prose, a name in a picture),
   and the limits are written down. It is tested with 1,188 invented cases of structured data and written forms and
   405 cases of unregistered names in mails, transcripts, decks, code, tables, German and Russian text
   (`calibration/redteam/`).
@@ -1652,7 +1660,7 @@ customer data out of the model as far as it can:
   the project session. Write `material:` and the text in the chat; the session pipes what follows that word, unchanged, to
   the command inside the project folder and reports the one line it prints (the file name). The text passes the secret scan, the
   home-path rule, your blocklist and the name check through the check socket of the work user. A hit of any of them (a
-  secret, a name, a mail or web address) refuses the whole text with its class and line, never the value, and nothing is
+  secret, a name, a mail address, bank data or a phone number; an IP address, a host name or a web address is no hit) refuses the whole text with its class and line, never the value, and nothing is
   written. On a pass the text lands in `input/` of the project as `note-<date>-<n>.md` (`mail-`, `transcript-` with `.md`,
   `table-` with `.csv` by kind) and one line goes to the ledger. Nothing is wiped or rewritten, so a text that may hold
   names still goes in through `awb import CODE --paste` in your own terminal, which stays as it is.
@@ -1684,8 +1692,10 @@ customer data out of the model as far as it can:
   folder, a key folder or the session records is refused before it runs and logged. The shell part reads the command
   line as the shell splits it and refuses a path it cannot read (a variable, a quote or an escape inside it, a cd it
   cannot follow), so a path a program builds at run time still gets past it; the guard keeps an honest session in its
-  lane and is no fence against a hostile one. Text is no path: a / of a sed or awk program, of a quoted sentence or of
-  a here-document body passes, and text is refused only when it names a place inside a refused one. A loop
+  lane and is no fence against a hostile one. Text is no path: a / of a sed or awk program, of the pattern of a grep,
+  egrep, fgrep or rg (a URL or a regular expression with slashes, the value of `-e` and of `--glob`), of a quoted
+  sentence or of a here-document body passes, and text is refused only when it names a place inside a refused one;
+  the files a search names stay paths. A loop
   `for f in ch1/en.md ch2/de.md; do sed -n 1,5p "$f"; done` passes when its body passes for one path; a list item
   that is a variable, a substitution, an absolute or home path or has a `..` is refused. The Workflow tool
   runs only the Workbench's own `review.js`, `request-check.js` and `final-check.js` of the installed code, by

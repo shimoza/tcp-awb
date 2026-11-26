@@ -876,7 +876,9 @@ def test_t8_awb_paste_command_line(project, monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO(THREE_URLS))
     assert paste.main(["--as", "build-log"]) == 0
     out = capsys.readouterr().out
-    assert "notes/pastes/" in out and "build-log.txt" in out and "masked url 3" in out
+    assert "notes/pastes/" in out and "build-log.txt" in out and "masked nothing" in out
+    (written,) = (project / "notes" / "pastes").glob("*-build-log.txt")
+    assert written.read_text(encoding="utf-8") == THREE_URLS    # DMZ 1: a web address is kept as written
     monkeypatch.setattr(sys, "stdin", io.StringIO("call %s\n" % fixtures.PERSON_FORMS[0]))
     assert paste.main([]) == 2
     cap = capsys.readouterr()

@@ -147,8 +147,10 @@ def test_intake_wipes_then_checks(con, home):
     assert code == 2, "--force is gone"
 
     code, out, _ = con.run("check", "--register", str(home.register), *map(str, outputs))
-    assert code == 0 and out == ""
-    code, out, _ = con.run("check", *map(str, outputs), str(home.outbox / cust / "intake-report.md"))
+    # DMZ 1 (2026-11-25): the copies keep the address as written, which `awb check` (an exit check) still reports: the
+    # only hit is the one address, no name
+    assert code == 1 and [json.loads(line)["cls"] for line in out.splitlines()] == ["ip"]
+    code, out, _ = con.run("check", str(home.outbox / cust / "intake-report.md"))
     assert code == 0
 
     probe = home.shared / "probe.txt"

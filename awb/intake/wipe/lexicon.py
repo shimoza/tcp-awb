@@ -271,6 +271,30 @@ def _plain_value(value: str) -> bool:
     return bool(parts) and all(p.isalpha() and _common_word(p) for p in parts)
 
 
+_TECH_PLURAL_RE = re.compile(r"[a-z]?[A-Z]{2,6}(?:s|es)")
+_TECH_ACRONYM_RE = re.compile(r"[A-Z][A-Z0-9]{1,3}")
+_TECH_COMPOUND_RE = re.compile(r"[A-Za-z][a-z0-9]*(?:-[a-z0-9]+)+")
+
+
+def _technical_word(word: str) -> bool:
+    """A word that is a technical term by its shape or by the list, never a person or a place (DMZ 1): an acronym of
+    up to four capitals (ECS, VPC) and the plural of one (VMs, IPs, ECSs, VPCs, SGs, vCPUs); a hyphen compound in
+    lower case, its first letter a capital at most (pre-shared, pre-shared-key, web-01), none of whose parts is a first
+    name (anna-lena); a word of the section intake-seed of rules/allowed-terms.txt."""
+    word = word.strip(".,;:!?()[]\"'")
+    if not word:
+        return False
+    if _TECH_PLURAL_RE.fullmatch(word) or _TECH_ACRONYM_RE.fullmatch(word) or word.casefold() in _EXTRA_KNOWN:
+        return True
+    return bool(_TECH_COMPOUND_RE.fullmatch(word)) and not any(p in _FIRST_NAMES for p in word.casefold().split("-"))
+
+
+def _technical_value(value: str) -> bool:
+    """A candidate whose every word is a technical word (`_technical_word`): no name of any class."""
+    words = value.split()
+    return bool(words) and all(_technical_word(w) for w in words)
+
+
 _ORG_WORDS = frozenset(("team", "teams", "abteilung", "gruppe", "leitung", "büro", "board", "gremium", "ausschuss",
                         "referat", "bereich", "support", "service", "desk", "office", "committee", "council",
                         "department", "unit", "division", "management", "vorstand", "geschäftsführung", "betriebsrat",

@@ -424,8 +424,10 @@ def _require_register(mod, reg: Path) -> None:
         raise Unavailable("no register found")
 
 
-def name_hits(text: str, p: config.Paths | None = None) -> list[dict]:
-    """`check.check_text` over `text` with the Workbench register. Raises Unavailable when it cannot run.
+def name_hits(text: str, p: config.Paths | None = None, entry: bool = False) -> list[dict]:
+    """`check.check_text` over `text` with the Workbench register. Raises Unavailable when it cannot run. `entry` is
+    the check of a door that takes customer material in (`awb paste`, `awb material add`): an address, a host name and
+    a web address are no hit there (DMZ 1); the prompt and the other hooks read every class.
 
     A check module without the remote path would call a text clean when the register cannot be read here; that
     case counts as unavailable too, and so does a readable vault folder without any register.
@@ -438,7 +440,8 @@ def name_hits(text: str, p: config.Paths | None = None) -> list[dict]:
     if not _readable(reg) and not hasattr(mod, "CheckUnavailable"):
         raise Unavailable("no readable register and no vault daemon")
     _require_register(mod, reg)
-    hits = _with_rate_wait(mod, lambda: mod.check_text(text, reg))
+    hits = _with_rate_wait(mod, (lambda: mod.check_text(text, reg, entry=True)) if entry
+                           else (lambda: mod.check_text(text, reg)))
     return [h for h in hits if isinstance(h, dict)]
 
 

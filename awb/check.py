@@ -289,12 +289,15 @@ def _scan(text: str, matcher: Matcher, allow: frozenset = frozenset()) -> list[d
     return hits
 
 
-def check_text(text: str, register_path: Path | None) -> list[dict]:
+def check_text(text: str, register_path: Path | None, entry: bool = False) -> list[dict]:
     """Every name and structured hit in `text` as {start, length, cls}, what hides behind a base64 or hex block
     and under a bidi override included (positions past the end of `text` point into those views). Local when
     the register is readable, else through the vault daemon. Raises RegisterError on a bad register and
-    CheckUnavailable (a RegisterError) when the names cannot be checked at all."""
-    return checker(register_path).scan(with_hidden_views(text))
+    CheckUnavailable (a RegisterError) when the names cannot be checked at all. `entry` is the check of the entry
+    of customer material (DMZ 1): an address, a host name and a web address (`patterns.ENTRY_KEPT`) are no hit;
+    every other check reads every class."""
+    hits = checker(register_path).scan(with_hidden_views(text))
+    return patterns.entry_view(hits) if entry else hits
 
 
 SECRET_CLASSES = ("secret", "private-key", "token", "homepath")
@@ -507,14 +510,15 @@ def _path_hits(path: Path, matcher) -> list[dict]:
     return [{"start": 0, "length": 0, "cls": PATH}] if hit else []
 
 
-def check_file(path: Path, register_path: Path | None, code: bool = False) -> list[dict]:
+def check_file(path: Path, register_path: Path | None, code: bool = False, entry: bool = False) -> list[dict]:
     """Every hit in the file as {start, length, cls}, a `path` record first when its name carries a registered
     form. An OSError of the read is raised to the caller, CheckUnavailable when names cannot be checked. `code`
     reads a file with a suffix of `patterns.CODE_SUFFIXES` in the code view (`awb check`, `awb xchg put`): a
-    dotted reference there is not a web address; names, mails and every other class stay."""
+    dotted reference there is not a web address; names, mails and every other class stay. `entry` reads the file as the
+    entry of customer material does (see `check_text`)."""
     names = checker(register_path)
     hits = _check_file(Path(path), names, code)
-    return _path_hits(path, names) + hits
+    return _path_hits(path, names) + (patterns.entry_view(hits) if entry else hits)
 
 
 def printable_path(path, index: int, matcher) -> str:

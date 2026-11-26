@@ -761,6 +761,69 @@ def _programs(words: list) -> set[int]:
     return out
 
 
+_GREP = ("grep", "egrep", "fgrep", "rg")
+_SEARCH_SHORT_TEXT = {"rg": "gtTjMEmABCrd"}
+_SEARCH_SHORT_TEXT_GREP = "mABCdD"
+"""The short options of grep and rg whose value is no path: a count, a context, a glob, a type, a replacement."""
+_SEARCH_LONG_TEXT = frozenset((
+    "regexp", "max-count", "after-context", "before-context", "context", "include", "exclude", "exclude-dir",
+    "directories", "devices", "label", "binary-files", "glob", "iglob", "type", "type-not", "type-add", "replace",
+    "threads", "max-columns", "max-depth", "maxdepth", "engine", "sort", "sortr", "colors", "encoding"))
+_SEARCH_LONG_FILE = frozenset(("file", "exclude-from", "ignore-file", "pre"))
+"""The long options of grep and rg that take a value: a text, or a file that stays a path."""
+
+
+def _search_patterns(words: list) -> set[int]:
+    """The indexes of the words that are a search pattern or a glob of grep, egrep, fgrep and rg, not a path (DMZ 1,
+    ask 2026-11-25-tcp-x7k2-1): the value of -e and --regexp, the first operand when no -e, -f or --file gives the
+    patterns, and the value of the options that take a count, a glob or a type. A URL or a regular expression with
+    slashes there is no search of the root. The files of the search (and -f FILE) stay paths, so a real path outside
+    the project is refused as before."""
+    out: set[int] = set()
+    for n, (w, _, cmd) in enumerate(words):
+        if not cmd or w.dynamic or os.path.basename(w.value) not in _GREP:
+            continue
+        name = os.path.basename(w.value)
+        text_short = _SEARCH_SHORT_TEXT.get(name, _SEARCH_SHORT_TEXT_GREP)
+        given, expect, m = False, None, n + 1
+        while m < len(words) and not words[m][2]:
+            t = words[m][0]
+            v = "" if t.dynamic else t.value
+            if expect is not None:
+                if expect == "text":
+                    out.add(m)
+                expect = None
+            elif v == "--":
+                if not given and m + 1 < len(words) and not words[m + 1][2]:
+                    out.add(m + 1)
+                break
+            elif v.startswith("--"):
+                key = v[2:].split("=", 1)[0]
+                if key in _SEARCH_LONG_TEXT or key in _SEARCH_LONG_FILE:
+                    given = given or key == "regexp" or key == "file"
+                    if "=" in v:
+                        if key in _SEARCH_LONG_TEXT:
+                            out.add(m)
+                    else:
+                        expect = "text" if key in _SEARCH_LONG_TEXT else "file"
+            elif v.startswith("-") and len(v) > 1:
+                for k, ch in enumerate(v[1:]):
+                    rest = v[k + 2:]
+                    if ch in "ef" or ch in text_short:
+                        given = given or ch in "ef"
+                        if rest:
+                            if ch in "eg":
+                                out.add(m)
+                        else:
+                            expect = "file" if ch == "f" else "text"
+                        break
+            elif not given:
+                out.add(m)
+                given = True
+            m += 1
+    return out
+
+
 _CLOUD_CALL_VALUED = frozenset(("--tenant", "--role", "--region", "--query", "--body", "--project", "--scope", "--header"))
 """The options of `awb cloud call` that take a value (COMMANDS.md)."""
 
@@ -852,7 +915,7 @@ def _shell_checks(command: str, cwd: Path, home: Path) -> list:
     cds = [n for n, (w, _, cmd) in enumerate(words) if cmd and not w.dynamic and w.value in _CD_WORDS]
     exact = len(lists) == 1 and all(i in _ShellReader.EXACT for i in reader.items if isinstance(i, str))
     targets = {n: _cd_target(words, n) for n in cds}
-    programs = _programs(words) | _api_paths(words)
+    programs = _programs(words) | _api_paths(words) | _search_patterns(words)
     visited, here = [cwd], [cwd]
     work = 0
 

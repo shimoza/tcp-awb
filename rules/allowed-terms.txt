@@ -374,3 +374,11 @@ zürich
 österreich
 übergang
 übernahme
+# plurals and hyphen compounds of cloud texts: never a person or a place (DMZ 1, ask 2026-11-25-tcp-x7k2-1)
+ecss
+ips
+pre-shared
+pre-shared-key
+sgs
+vms
+vpcs
