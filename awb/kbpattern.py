@@ -11,7 +11,12 @@ module, in the session of the source project, because only that session may see 
     <shared>/patterns/fingerprints/H.tsv      class and salted hash of each distinctive string of one project (5.3)
 
 Header keys, in this order: id, scope, packages, kind, tags, support (the number of distinct projects, never
-which), facts (KB ids the card rests on), checked, file (script cards only), retired and why (only when retired).
+which), facts (KB ids the card rests on), checked, sub, reason, grade and until (lesson cards only), file (script
+cards only), retired and why (only when retired).
+
+A lesson card (DESIGN 8, step L1) is one of four sorts (SUBS) and is a lead, not a fact: its grade is always
+`said` and it is best before LESSON_DAYS days after its date (`checked`). `find` and `list` leave a lesson past
+its best-before out unless `--all` is given. Without `--sub` a lesson is a `gotcha` (the command says so). A `decision` carries the reason it was taken with `--why`.
 
 `add` refuses what `kb add` refuses (not English, a price; no name, structured data, code or secret check runs
 inside, B-089), an unknown tag, kind or KB id, a near duplicate of a card
@@ -35,12 +40,12 @@ carries its file, checked like a deliverable: the same screens and the same fing
 
 Cards never go into the TCP Facts dataset: `kb.load`, `kb.export` and the dataset build read `entries/` only.
 
-    awb kb pattern add --package SLUG --kind KIND --tag T... [--fact KB-XXXX]... [--file PATH] [--project DIR]
-                       [--force-new] [--checked D] STATEMENT|-
+    awb kb pattern add --package SLUG --kind KIND [--sub SUB] [--why TEXT] --tag T... [--fact KB-XXXX]...
+                       [--file PATH] [--project DIR] [--force-new] [--checked D] STATEMENT|-
     awb kb pattern support [--project DIR] PAT-XXXX
-    awb kb pattern find [--package SLUG] [--kind KIND] WORDS...
+    awb kb pattern find [--package SLUG] [--kind KIND] [--all] WORDS...
     awb kb pattern show PAT-XXXX
-    awb kb pattern list [--package SLUG]
+    awb kb pattern list [--package SLUG] [--all]
     awb kb pattern retire --why TEXT PAT-XXXX
 
 Exit codes: 0 ok, 1 refused, 2 usage or error.
@@ -58,7 +63,7 @@ import stat
 import sys
 import unicodedata
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -73,7 +78,16 @@ _FILE_RE = re.compile(ID + r"\.md")
 KINDS = ("signal", "sizing-rule", "step", "lesson", "question", "objection", "script", "risk")
 CUSTOMER_KINDS = ("signal", "question", "objection", "risk")
 """Kinds that state something about customers: a released package carries them only with support 2 (5.4)."""
-KEYS = ("id", "scope", "packages", "kind", "tags", "support", "facts", "checked", "file", "retired", "why")
+SUBS = ("dead-end", "working-path", "gotcha", "decision")
+"""The sorts of a lesson card: a way that led nowhere, a way that worked, a trap, a choice with its reason."""
+DEFAULT_SUB = "gotcha"
+"""The sort of a lesson written without --sub; the command says so in one line."""
+LESSON_DAYS = 90
+"""A lesson is best before this many days after its date."""
+LESSON_GRADE = "said"
+KEYS = ("id", "scope", "packages", "kind", "tags", "support", "facts", "checked", "sub", "reason", "grade", "until",
+        "file", "retired", "why")
+LESSON_KEYS = ("sub", "grade", "until")
 REQUIRED = ("id", "scope", "packages", "kind", "tags", "support", "facts", "checked")
 SLUG = r"[a-z0-9][a-z0-9-]{1,47}"
 SLUG_RE = re.compile(SLUG)
@@ -124,10 +138,18 @@ class Card:
     file: str = ""
     retired: str = ""
     why: str = ""
+    sub: str = ""
+    reason: str = ""
+    grade: str = ""
+    until: str = ""
 
     @property
     def is_retired(self) -> bool:
         return bool(self.retired)
+
+    def is_lapsed(self, today: date | None = None) -> bool:
+        """Whether a lesson is past its best-before; no other card lapses."""
+        return bool(self.until) and (today or date.today()).isoformat() > self.until
 
     @property
     def about_customers(self) -> bool:
@@ -407,6 +429,12 @@ def support_of(card_id: str, p: config.Paths | None = None) -> int:
     return len({h for c, h in _support_rows(p) if c == card_id})
 
 
+def supported_by(code: str, p: config.Paths | None = None) -> set[str]:
+    """The ids of the cards the project `code` counts for: the project that wrote a card is one of them."""
+    mine = hashed("project:" + code, salt(p))
+    return {c for c, h in _support_rows(p) if h == mine}
+
+
 def _add_support(card_id: str, code: str, p: config.Paths | None = None) -> tuple[int, bool]:
     """(support now, whether this project was new for the card)."""
     key = salt(p)
@@ -433,6 +461,11 @@ def render(c: Card) -> str:
     lines = ["id: %s" % c.id, "scope: %s" % c.scope, "packages: %s" % ", ".join(c.packages), "kind: %s" % c.kind,
              "tags: %s" % ", ".join(c.tags), "support: %d" % c.support,
              "facts: %s" % (", ".join(c.facts) if c.facts else "none"), "checked: %s" % c.checked]
+    if c.kind == "lesson":
+        lines.append("sub: %s" % c.sub)
+        if c.reason:
+            lines.append("reason: %s" % c.reason)
+        lines += ["grade: %s" % c.grade, "until: %s" % c.until]
     if c.file:
         lines.append("file: %s" % c.file)
     if c.retired:
@@ -463,11 +496,22 @@ def parse(text: str, name: str = "card") -> Card:
     facts = () if head["facts"] == "none" else tuple(f.strip() for f in head["facts"].split(","))
     if any(not kb.ID_RE.fullmatch(f) for f in facts):
         raise PatternError("%s: facts must be KB ids" % name)
+    if head["kind"] == "lesson":
+        if head.get("sub") not in SUBS or head.get("grade") != LESSON_GRADE \
+                or not kb._valid_date(head.get("until", "")):
+            raise PatternError("%s: a lesson needs sub (%s), grade %s and until (a date)"
+                               % (name, ", ".join(SUBS), LESSON_GRADE))
+        if (head["sub"] == "decision") != bool(head.get("reason")):
+            raise PatternError("%s: only a decision carries a reason, and it always does" % name)
+    elif any(k in head for k in (*LESSON_KEYS, "reason")):
+        raise PatternError("%s: sub, reason, grade and until belong to a lesson" % name)
     statement = "\n".join(lines[cut + 1:]).strip()
     return Card(id=head["id"], scope=head["scope"], packages=tuple(s.strip() for s in head["packages"].split(",")),
                 kind=head["kind"], tags=tuple(t.strip() for t in head["tags"].split(",")),
                 support=int(head["support"]), facts=facts, checked=head["checked"], statement=statement,
-                file=head.get("file", ""), retired=head.get("retired", ""), why=head.get("why", ""))
+                file=head.get("file", ""), retired=head.get("retired", ""), why=head.get("why", ""),
+                sub=head.get("sub", ""), reason=head.get("reason", ""), grade=head.get("grade", ""),
+                until=head.get("until", ""))
 
 
 def load(where=None) -> list[Card]:
@@ -572,7 +616,8 @@ def _script_text(path: Path) -> tuple[str, str]:
 def add(statement: str, *, packages: Sequence[str], kind: str, tags: Sequence[str], facts: Sequence[str] = (),
         file: Path | None = None, project: Path | None = None, force_new: bool = False,
         checked: str | date | None = None, scope: str = "tcp", where=None, register_path: Path | None = None,
-        p: config.Paths | None = None, today: date | None = None) -> Card:
+        p: config.Paths | None = None, today: date | None = None, sub: str | None = None,
+        reason: str | None = None) -> Card:
     """Check a card and write it, count the source project as its first support and write the project's
     fingerprints. Raises Refused (reasons and the most similar cards) or PatternError; nothing is written unless
     every check passed, but the fingerprints, which are written in every case."""
@@ -583,6 +628,16 @@ def add(statement: str, *, packages: Sequence[str], kind: str, tags: Sequence[st
         raise PatternError("kind must be one of: %s" % ", ".join(KINDS))
     if (kind == "script") != (file is not None):
         raise PatternError("a script card carries one --file and only a script card does")
+    if kind == "lesson" and sub is None:
+        sub = DEFAULT_SUB
+    if kind == "lesson" and sub not in SUBS:
+        raise PatternError("a lesson card takes --sub %s" % "|".join(SUBS))
+    if kind != "lesson" and sub is not None:
+        raise PatternError("--sub belongs to a lesson card only")
+    if sub == "decision" and not (reason or "").strip():
+        raise PatternError("a decision lesson needs --why")
+    if sub != "decision" and reason is not None:
+        raise PatternError("--why belongs to a decision lesson only")
     code, proj = project_root(project)
     checked = kb._checked(checked, today)
     statement = kb._clean_statement(statement)
@@ -592,9 +647,14 @@ def add(statement: str, *, packages: Sequence[str], kind: str, tags: Sequence[st
     reasons += _fact_problems(facts, where)
     reg = kb.register_of(register_path)
     reasons += kb.text_problems("the statement", statement, reg)
+    if reason is not None:
+        reason = kb._one_line_field(reason, "the reason why")
+        reasons += kb.text_problems("the reason why", reason, reg)
     prints = fingerprints(proj, where)
     write_fingerprints(code, prints, p)
     reasons += fingerprint_problems("the statement", statement, prints)
+    if reason is not None:
+        reasons += fingerprint_problems("the reason why", reason, prints)
     script = None
     if file is not None:
         script = _script_text(Path(file))
@@ -612,7 +672,10 @@ def add(statement: str, *, packages: Sequence[str], kind: str, tags: Sequence[st
     d.mkdir(parents=True, exist_ok=True)
     cid = _new_id(d)
     card = Card(id=cid, scope=scope, packages=tuple(pkgs), kind=kind, tags=tuple(tag_list), support=1,
-                facts=tuple(facts), checked=checked, statement=statement, file=script[0] if script else "")
+                facts=tuple(facts), checked=checked, statement=statement, file=script[0] if script else "",
+                sub=sub or "", reason=reason or "", grade=LESSON_GRADE if kind == "lesson" else "",
+                until=(date.fromisoformat(checked) + timedelta(days=LESSON_DAYS)).isoformat()
+                if kind == "lesson" else "")
     if script:
         target = d / FILES / cid
         target.mkdir(parents=True, exist_ok=True)
@@ -658,12 +721,13 @@ def retire(card_id: str, why: str, *, where=None, register_path: Path | None = N
 
 
 def find(query: str | Sequence[str], where=None, *, package: str | None = None, kind: str | None = None,
-         include_retired: bool = False) -> list[tuple[float, Card]]:
+         include_retired: bool = False, include_lapsed: bool = False,
+         today: date | None = None) -> list[tuple[float, Card]]:
     q = kb.words(query if isinstance(query, str) else " ".join(query))
     out = []
     for c in load(where):
         if (c.is_retired and not include_retired) or (package and package not in c.packages) \
-                or (kind and c.kind != kind):
+                or (kind and c.kind != kind) or (c.is_lapsed(today) and not include_lapsed):
             continue
         w = kb.words(c.statement + " " + " ".join(c.tags))
         if q & w:
@@ -687,9 +751,11 @@ def screen(cards: Sequence[Card], register_path: Path | None = None) -> tuple[li
 
 def _line(c: Card, score: float | None = None) -> str:
     parts = [c.id] + (["%.2f" % score] if score is not None else [])
-    parts += [c.kind, "support %d" % c.support, ",".join(c.packages)]
+    parts += [c.kind + ("/" + c.sub if c.sub else ""), "support %d" % c.support, ",".join(c.packages)]
     if c.is_retired:
         parts.append("RETIRED")
+    if c.is_lapsed():
+        parts.append("LAPSED %s" % c.until)
     parts.append(kb._one_line(c.statement))
     return "  ".join(parts)
 
@@ -709,7 +775,8 @@ def _cmd_add(args) -> int:
     statement = kb._statement_of(args.statement)
     try:
         card = add(statement, packages=args.package, kind=args.kind, tags=args.tag, facts=args.fact,
-                   file=args.file, project=args.project, force_new=args.force_new, checked=args.checked)
+                   file=args.file, project=args.project, force_new=args.force_new, checked=args.checked,
+                   sub=args.sub, reason=args.why)
     except Refused as ref:
         for r in ref.reasons:
             print("awb kb pattern add: refused: %s" % r, file=sys.stderr)
@@ -717,7 +784,12 @@ def _cmd_add(args) -> int:
             print("most similar cards:")
             _print_cards(ref.similar)
         return 1
-    print("added %s (kind %s, support %d, packages %s)" % (card.id, card.kind, card.support, ", ".join(card.packages)))
+    print("added %s (kind %s, support %d, packages %s)" % (card.id, card.kind + ("/" + card.sub if card.sub else ""),
+                                                          card.support, ", ".join(card.packages)))
+    if card.kind == "lesson" and args.sub is None:
+        print("no --sub given: the lesson is a %s; say --sub %s when it is another sort" % (card.sub, "|".join(SUBS)))
+    if card.until:
+        print("grade %s, best before %s" % (card.grade, card.until))
     return 0
 
 
@@ -728,7 +800,7 @@ def _cmd_support(args) -> int:
 
 
 def _cmd_find(args) -> int:
-    hits = find(args.words, package=args.package, kind=args.kind)
+    hits = find(args.words, package=args.package, kind=args.kind, include_lapsed=args.all)
     if not hits:
         print("no card matches")
         return 0
@@ -737,7 +809,8 @@ def _cmd_find(args) -> int:
 
 
 def _cmd_list(args) -> int:
-    cards = [c for c in load() if not c.is_retired and (not args.package or args.package in c.packages)]
+    cards = [c for c in load() if not c.is_retired and (not args.package or args.package in c.packages)
+             and (args.all or not c.is_lapsed())]
     if not cards:
         print("no cards")
         return 0
@@ -777,6 +850,8 @@ def _parser():
     s = sub.add_parser("add", help="check a card and add it, in the session of its source project")
     s.add_argument("--package", action="append", required=True, help="a package slug (repeat or comma list)")
     s.add_argument("--kind", required=True, help=", ".join(KINDS))
+    s.add_argument("--sub", default=None, help="the sort of a lesson (%s; default %s)" % (", ".join(SUBS), DEFAULT_SUB))
+    s.add_argument("--why", default=None, help="the reason of a decision lesson (required for one)")
     s.add_argument("--tag", action="append", required=True, help="a tag of rules/tags.txt (repeat or comma list)")
     s.add_argument("--fact", action="append", default=[], help="a KB id the card rests on (repeat)")
     s.add_argument("--file", type=Path, default=None, help="the file of a script card")
@@ -794,11 +869,13 @@ def _parser():
     s = sub.add_parser("find", help="cards ranked by word overlap")
     s.add_argument("--package", default=None)
     s.add_argument("--kind", default=None, choices=KINDS)
+    s.add_argument("--all", action="store_true", help="a lesson past its best-before too")
     s.add_argument("words", nargs="+")
     s.set_defaults(func=_cmd_find)
 
     s = sub.add_parser("list", help="the standing cards, of one package with --package")
     s.add_argument("--package", default=None)
+    s.add_argument("--all", action="store_true", help="a lesson past its best-before too")
     s.set_defaults(func=_cmd_list)
 
     s = sub.add_parser("show", help="one card")

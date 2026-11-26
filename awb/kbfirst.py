@@ -19,6 +19,11 @@ shares at least MIN_UNITS content words with the query, so a short "ok, go on" f
 `kb.screen`, which checks no content (B-089). When the knowledge base cannot run, the
 block is left out and the prompt goes on: this is a lead, never a gate.
 
+After the facts the block adds, under the line LESSONS_HEAD, at most MAX_LESSONS lesson cards (awb/kbpattern.py,
+DESIGN 8) whose words match the prompt, as leads and never as facts: the cards of the project of the session itself
+are left out, as are those past their best-before, retired or screened out. A project that cannot be told by its
+folder name gets no lessons.
+
 What a session was told lives in the session mark of awb/rulesync.py under the key "kb": the time of the last
 prompt and the ids told.
 """
@@ -28,13 +33,15 @@ import re
 import time
 from pathlib import Path
 
-from awb import config
+from awb import codes, config
 
 SILENCE = 2 * 3600
 """Seconds without a prompt after which the next prompt starts a new task."""
 MAX_FACTS = 10
 MAX_CHARS = 1500
 """The block never grows past this many characters: the closest facts first, the rest stay behind `awb kb find`."""
+MAX_LESSONS = 3
+LESSONS_HEAD = "Learned in other projects (leads, not facts)"
 MIN_UNITS = 2
 """Content words of the query a fact must share to count."""
 LINE_WIDTH = 120
@@ -107,19 +114,50 @@ def closest(prompt: str, root: Path | None, scope: str = "tcp", where=None,
     return len(found) - withheld, shown
 
 
-def render(facts: list, count: int | None = None) -> str:
-    """The block: HEAD with the count, then one line per fact while MAX_FACTS and MAX_CHARS allow."""
+def lessons(prompt: str, root: Path | None, where=None, p: config.Paths | None = None) -> list:
+    """The closest MAX_LESSONS lesson cards that share at least MIN_UNITS content words with the prompt and that
+    the project of `root` did not write. Raises what the cards or the check raise."""
+    from awb import kb, kbpattern
+
+    if root is None or not codes.PROJECT_RE.fullmatch(Path(root).name):
+        return []
+    units = [u for u in kb.concepts(prompt[:_MAX_QUERY]) if not u <= kb._QUERY_STOP]
+    if len(units) < MIN_UNITS:
+        return []
+    own = kbpattern.supported_by(Path(root).name, p)
+    out = []
+    for _, c in kbpattern.find(prompt[:_MAX_QUERY], where, kind="lesson"):
+        cw = kb.words(c.statement) | kb.words(" ".join(c.tags))
+        if c.id not in own and sum(1 for u in units if u & cw) >= MIN_UNITS:
+            out.append(c)
+    shown, _ = kbpattern.screen(out[:MAX_LESSONS], p.register if p else None)
+    return shown
+
+
+def _lesson_line(c) -> str:
     from awb import kb
 
-    lines = [HEAD % (len(facts) if count is None else count)]
-    size = len(lines[0])
+    text = c.statement + (" Why: %s" % c.reason if c.reason else "")
+    return "%s %s %s: %s" % (c.id, c.sub, c.checked, kb._one_line(text, LINE_WIDTH))
+
+
+def render(facts: list, count: int | None = None, leads: list = ()) -> str:
+    """The block: HEAD with the count, then one line per fact while MAX_FACTS and MAX_CHARS allow, then the lesson
+    cards under LESSONS_HEAD; their room is kept free first, so ten facts never push them out."""
+    from awb import kb
+
+    tail = [_lesson_line(c) for c in leads[:MAX_LESSONS]]
+    tail = [LESSONS_HEAD] + tail if tail else []
+    room = MAX_CHARS - sum(1 + len(l) for l in tail)
+    lines = [HEAD % (len(facts) if count is None else count)] if facts else []
+    size = sum(1 + len(l) for l in lines) - 1
     for e in facts[:MAX_FACTS]:
         line = "%s %s %s: %s" % (e.id, e.grade, e.checked, kb._one_line(e.statement, LINE_WIDTH))
-        if size + 1 + len(line) > MAX_CHARS:
+        if size + 1 + len(line) > room:
             break
         lines.append(line)
         size += 1 + len(line)
-    return "\n".join(lines)
+    return "\n".join(lines + tail)
 
 
 def block(p: config.Paths, session_id: str | None, root: Path | None, prompt: str, scope: str = "tcp",
@@ -151,9 +189,13 @@ def _block(p, session_id, root, prompt, scope, now, where) -> str | None:
             count, facts = closest(prompt, root, scope, where if where is not None else p, p.register)
         except Exception:
             count, facts = 0, []
-        ids = [e.id for e in facts[:MAX_FACTS]]
-        if facts and (first or not set(ids) <= set(told)):
-            said = render(facts, count)
+        try:
+            leads = lessons(prompt, root, where if where is not None else p, p)
+        except Exception:
+            leads = []
+        ids = [e.id for e in facts[:MAX_FACTS]] + [c.id for c in leads]
+        if (facts or leads) and (first or not set(ids) <= set(told)):
+            said = render(facts, count, leads)
             new_state["told"] = (told + [i for i in ids if i not in told])[-200:]
     mark["kb"] = new_state     # no digest here: a mark without one still gets the rules notice (rulesync)
     rulesync._write_mark(path, mark)
