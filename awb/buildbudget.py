@@ -129,6 +129,22 @@ def find_limit(texts: list[bytes | str | None], wall: float) -> tuple[bool, int 
     return False, None
 
 
+def empty_api_error(obj: dict | None) -> bool:
+    """A result that ends on an API error with 0 input and 0 output tokens: the subscription limit of the login that
+    names no text (B-073). api_error is the terminal_reason or the subtype, or an api_error_status is there."""
+    if not isinstance(obj, dict):
+        return False
+    status = obj.get("api_error_status")
+    if not (obj.get("terminal_reason") == "api_error" or obj.get("subtype") == "api_error"
+            or (status is not None and status is not False and status != "")):
+        return False
+    usage = obj.get("usage")
+    if not isinstance(usage, dict):
+        return False
+    tokens = [usage.get("input_tokens"), usage.get("output_tokens")]
+    return all(isinstance(t, int) and not isinstance(t, bool) and t == 0 for t in tokens)
+
+
 def fallback_model(model: str, title: str) -> str:
     """The model of a block on the key fallback: opus becomes sonnet unless the title names a security review."""
     if model == "opus" and not SECURITY_RE.search(title or ""):

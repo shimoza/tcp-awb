@@ -607,6 +607,8 @@ class Runner:
                                                   h.wall())
             if found:
                 return self.limit_hit(ctx, reset)
+            if buildbudget.empty_api_error(obj):
+                return self.limit_hit(ctx, None)
         if state == "asked":
             clean(h, ctx, "key")
             self._checks_log(ctx)

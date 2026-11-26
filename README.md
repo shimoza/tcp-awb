@@ -1804,7 +1804,8 @@ the build user's home only the token fields (`accessToken`, `refreshToken`, `exp
 of the task that names another or none stays where it is and the run's `result.md` says so in one line (a task
 cannot replace your login with its own). `build_model = key` in `/etc/awb/paths.conf` switches
 to a copy of the Workbench's key (`/etc/awb/build-model.key`, yours alone, 400) in one line. `build_model = auto`
-runs on your login and, after a subscription limit (the 5-hour or the weekly one), holds the task as `held: usage
+runs on your login and, after a subscription limit (the 5-hour or the weekly one, also a run that ends with api_error
+and 0 tokens, which is how the login shows a limit with no text), holds the task as `held: usage
 limit`, runs it again and the next ones on that key until the reset (sonnet, opus only for a block whose title names
 a security review) and goes back to the login then; `key_week_cap_usd` (25 unless you write another) caps the key
 runs of a week, at the cap the queue waits as `key cap`. Each switch is one mail with the spend of the week, and
