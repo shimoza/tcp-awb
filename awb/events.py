@@ -75,6 +75,8 @@ READ_MAX = 1024 * 1024
 HISTORY = 10
 """The ETA of a task, a check or a deploy: the median duration of the last HISTORY ended items of its kind."""
 RUNNING_MAX = 200
+ENDED_OK_MAX = 5
+"""The ok lines the ended block of the owner status shows; the older ones become one line "and N more ended ok"."""
 KIND_SHOWN = {"task": "build task", "check": "check", "deploy": "deploy", "lab": "lab window", "ask": "dev ask",
               "labrun": "lab run", "job": "timer job", "vault": "vault", "keys": "key service", "login": "login",
               "budget": "build budget", "transfer": "winlab transfer"}
@@ -350,7 +352,8 @@ def _what(item: dict, ended: bool = False) -> str:
 
 def status_lines(board: Path | None = None, now: dt.datetime | None = None, hours: int = 24) -> list[str]:
     """The two blocks `awb owner status` prints first: Running now (item, since, ETA) and Ended in the last
-    `hours` hours (red, stopped and needs-you marked in capitals)."""
+    `hours` hours (red, stopped and needs-you marked in capitals): one line per (kind, id), the latest end, every
+    line that is not ok and the newest ENDED_OK_MAX ok lines with "and N more ended ok" for the rest."""
     now = _now(now)
     today = now.astimezone().date()
     events = read(board)
@@ -362,14 +365,24 @@ def status_lines(board: Path | None = None, now: dt.datetime | None = None, hour
     if not running:
         lines.append("  nothing runs")
     lines.append("Ended in the last %d h" % hours)
-    ended = ended_since(events, now - dt.timedelta(hours=hours), now)
+    ended = list({(i["kind"], i["id"]): i for i in ended_since(events, now - dt.timedelta(hours=hours), now)}.values())
+    ended.sort(key=lambda i: i["end"])
+    shown, ok_seen = [], 0
     for i in reversed(ended):
+        if i["outcome"] == "ok":
+            ok_seen += 1
+            if ok_seen > ENDED_OK_MAX:
+                continue
+        shown.append(i)
+    for i in shown:
         mark = "ok" if i["outcome"] == "ok" else i["outcome"].upper()
         started = " (started %s)" % _hm(i["start"], today) if i["start"] else ""
         if i["kind"] in STATE_KINDS:
             started = " (%s since %s)" % ("lapsed" if i["kind"] == "login" else "locked",
                                           _hm(i["start"], today)) if i["start"] else ""
         lines.append("  %s %s at %s%s" % (mark, _what(i, ended=True), _hm(i["end"], today), started))
+    if ok_seen > ENDED_OK_MAX:
+        lines.append("  and %d more ended ok" % (ok_seen - ENDED_OK_MAX))
     if not ended:
         lines.append("  nothing ended")
     return lines

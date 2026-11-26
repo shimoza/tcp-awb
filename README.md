@@ -504,7 +504,8 @@ both from the status file of `awb owner status --write`, rebuilt at most every f
 name check and withheld with its class on a finding. They are read only for now. `awb owner status` opens with
 "Running now" (each build task, check, deploy, lab window, winlab transfer, dev ask, lab run and timer job that started and has not
 ended, with its start and ETA, overdue when the ETA passed, and the vault or the key service while locked and the
-Claude login of the build user while lapsed) and "Ended in the last 24 h" (red, stopped and needs-you in capitals),
+Claude login of the build user while lapsed) and "Ended in the last 24 h" (one line per item, the latest end; red, stopped and needs-you in capitals and all shown, at most
+5 ok lines and "and N more ended ok" for the rest),
 both from the events file `<shared>/build/events.jsonl` that the runner, `sudo awb deploy`, `awb winlab`, the dev
 asks, `awb lab run` and the owner's minute timer append to; the status file and `GET /api/owner/state` carry them as
 `running` and `ended`. The minute timer mails one push per event that needs you (a red end, an end that needs you,
