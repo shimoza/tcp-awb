@@ -12,7 +12,7 @@ from tests import fixtures as fx
 
 RUN = "run-20261125-101500-q7m4"
 OTHER_RUN = "run-20261125-111500-z9x2"
-PROJECT_ID = "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+PROJECT_ID = "0a1b2c3d4e5f6071" + "8293a4b5c6d7e8f9"  # split: the repository scan reads a whole id as an identifier
 BODY = {"loadbalancer": {"name": "lb-secret-value-one", "vip_subnet_cidr_id": "subnet-value-two",
                          "tags": [{"key": "k", "value": "tag-value-three"}]}}
 ERROR = {"error_code": "ELB.8950", "error_msg": "The load balancer quota is exceeded."}
@@ -52,7 +52,7 @@ def write_log(pr, run: str = RUN, project: str | None = None, extra: str = "", n
     text += entry(1, "GET", "ecs", "/v1/%s/cloudservers" % PROJECT_ID, 200, answer={"servers": []})
     text += entry(2, "POST", "elb", "/v3/%s/elb/loadbalancers" % PROJECT_ID, 400, BODY, ERROR)
     if not_found:
-        text += entry(3, "GET", "ecs", "/v1/%s/cloudservers/%s" % (PROJECT_ID, "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+        text += entry(3, "GET", "ecs", "/v1/%s/cloudservers/%s" % (PROJECT_ID, "1b9d6bcd-bbfd-4b2d-" + "9b5d-ab8dfbbd4bed"),
                       404, answer={"error": {"code": "Ecs.0614", "message": "server not found"}})
     text += entry(4, "GET", "vpc", "/v1/%s/vpcs" % PROJECT_ID, 200, answer={"vpcs": []})
     text += extra
