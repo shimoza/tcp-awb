@@ -180,8 +180,8 @@ runs `awb projects kind CODE query` once for a customer project before its first
 An ask project (`awb start ask --goal "..."`, his own terminal or his assistant session) is the one place where only the
 owner types. It never has a customer and no material ever enters it: `awb import`, the paste door, `awb paste`, `awb
 material`, `awb inbox take`, `awb xchg`, `awb bucket pull` and `awb fetch` refuse it with one line. In return the
-draft gate of the stop hook and the commit gate of its repository look for secrets only (the prompt, write and start
-hooks read no content in any project, below), and the tool guard lets a shell path it cannot read pass
+draft gate of the stop hook looks for secrets only and the commit gate of its repository runs no content check (no
+hook and no commit gate reads content inside a project, below), and the tool guard lets a shell path it cannot read pass
 while every refused place (another project, a key folder, the client's folder, the session records) still refuses.
 The session answers from the facts first (`awb kb find`), then the public docs (`awb doc fetch`), then a call on a
 test tenant (`awb cloud call`); it names the source of each answer and writes a verified
@@ -281,11 +281,11 @@ of an earlier run of the project on the tenant. The call log is
 `notes/lab-runs/<run>.log` of the project; a boot script (user_data) is written there only as a placeholder with its
 length, a password the image prints on its serial console (the `user:password` lines after cloud-init's "Set the
 following 'random' passwords", a chpasswd line and its list, `password for USER: x`) as [secret] in the answer of the
-service and in the log, and the commit gate checks the log for secrets only. A log that grows over 2 MiB (a run log or a Windows
+service and in the log; the commit gate checks no content of a project (DMZ 3). A log that grows over 2 MiB (a run log or a Windows
 lab log under `notes/winlab/`) moves to `full/` beside it (the writer adds it to the project's `.gitignore`) and
 git keeps `<run>.summary.md`: start, end, calls, errors, created resources, the path of the full log and its
 SHA-256 (`awb/lablog.py`, written again at the end of the run). After the move the full log is the run log: every
-append and `awb lab obs put` or `get` writes there. The commit gate refuses any text file over 8 MiB at
+append and `awb lab obs put` or `get` writes there. The commit gate (also inside a project) refuses any text file over 8 MiB at
 once as `too-large` and names this rule. A run open for more than two hours or ended with failed deletes shows in
 `awb owner status` and the 08:00 mail. The module docs are in `awb/tcp/labadmin.py` and `awb/labclient.py`.
 
@@ -547,8 +547,10 @@ sudo awb deploy
 ```
 
 Before anything is installed the plan runs the commit gate over every commit between the live release and the
-target (the same checks a commit gets) and refuses on a finding, naming the commit and the class only; the dry run
-shows the verdict as `# gate: ...`.
+target and refuses on a finding, naming the commit and the class only; the dry run shows the verdict as `# gate: ...`.
+The deploy runs no content check (DMZ 3): a name, a secret, a path or an id passes, and no register is needed. A
+message that names an assistant as co-author and a text file over 8 MiB still refuse. The names and secrets are
+checked where the commits leave, at the push.
 The deploy installs the commit as a release of its own and restarts only what the change touched, plus every running
 service that still runs an older release (started before the last deploy switched the release, the console gateway
 for one): the plan and the dry run show it as `runs an older release`. The running services of the web side (those
@@ -663,9 +665,9 @@ while it stays unchanged.
 every id: domains, projects, users, groups, resources, request ids, the header and claims of a JWT. Only passwords
 and logins are masked; temporary tokens and keys are shortened to 8 characters and their length; a permanent key
 is never written. A file written inside a project stays as written: the write hook runs no secret check, no name
-check and no mask there (DMZ 2). `awb paste --own` does the shortening for a pasted output and the commit gate of a
-project passes ids (it still refuses a name and a secret). Customer names never enter: the entry checks are
-unchanged.
+check and no mask there (DMZ 2). `awb paste --own` does the shortening for a pasted output. The commit gate of a
+project, an ask project included, runs no content check (DMZ 3, below): a name, an IP address, a UUID and a key all
+pass. Customer names never enter: the entry checks are unchanged.
 
 **Texts in the architect's own voice.** `awb write check` measures a text against the architect's style and a
 drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no
@@ -1389,7 +1391,7 @@ A refusal sends nothing. A command goes out only after three guards: it is not e
 reference (nothing is filled in for a lab machine) and nothing in it names the machine's own state (`awb-winlab`, the
 ssh keys). No name check and no secret check runs on a command, a put or a get (the owner's word of 2026-11-25: WinLab
 is used only from his lab laptop and only with images downloaded from the internet, so no customer data can be there;
-the checks of the main work laptop, `awb intake`, `awb doc fetch` and the commit gate, stay). A VM guest password never passes through the session:
+the checks of the main work laptop, `awb intake`, `awb doc fetch` and the exit check of the push, stay). A VM guest password never passes through the session:
 `--vm VM` names the VM and the laptop reads the credential from `%ProgramData%\awb-winlab\vm\<VM>.txt`, which you
 write there yourself (first line the user, second the password; the command refuses a file anyone but
 Administrators and SYSTEM may read). The CLIXML progress records of powershell.exe are stripped, the output lands
@@ -1619,7 +1621,7 @@ be confidential and need a clearance first (`--grade said`). Assumptions stay ou
 expired ones only on request (`--include-expired`, marked `"expired": true`). Every entry passes the name check once
 more before it is written. That check lets a registered form pass only inside the full name of a service of
 `rules/services.tsv`, written as the service description writes it: a service named like a customer stays a fact
-and the same word anywhere else still withholds the entry. The intake and the commit gate keep the plain check.
+and the same word anywhere else still withholds the entry. The intake and the exit check of the push keep the plain check.
 
 A dataset ages. Facts about availability expire after 30 days, API facts after 180. Use the `checked` and `expires`
 fields. Take a fresh export rather than an old one.
@@ -1679,6 +1681,15 @@ customer data out of the model as far as it can:
   checked for names or secrets and not masked; outside a project folder the write hook keeps its name and secret
   checks. The start and the compaction show SCOPE.md, STATE.md, OPEN.md and the pinned block as written. The writing
   check of a deliverable (banned words, vendor names) and the bidi override stay.
+- The commit gate runs no content check inside (DMZ 3, the same word of 2026-11-25). A commit in a project folder (an
+  ask project too), in a build clone and in the working copy of the public repository `tcp-awb` passes with names, IP
+  addresses, UUIDs, hashes, tenant numbers, home paths and keys; its hooks run `awb gate --staged --inside` and
+  `--message --inside`. Three things stay there because they are no content: a co-author line that names an assistant
+  (the commit-msg hook of a project takes it out), an item of a project's `OPEN.md` without a date and a text file over
+  8 MiB. A commit of the public repository is checked at its push: `pre-push`, the push of `main` by the runner and
+  the merge message of `awb pr take` keep the registered names, secrets, private keys, tokens, home paths and your
+  blocklist, and never report an id (32 hex, a UUID, a tenant, domain or project number), an address or a host name.
+  The runner's prompt, its result lines (subjects, test ids, the end of the suite log) and the deploy check no content.
 - Hook notes go into one footer line (Q-0005): the start of a project session tells it to put every note of the
   hooks (a notice, a release line, a receipt, a request, the reason a reply was held) into one line under its
   answer, `Notes: ` and the notes joined with `; `, never a paragraph and never above the answer. A prompt that is
@@ -1953,7 +1964,7 @@ Make the take check the size of a file before the get. ...
 
 ```bash
 awb build draft E1 --out task.md   # an add file from finding E1 of docs/review-2026-10-13.md, never queued
-awb build add task.md        # checked (the grammar, the gate with the register), then written atomically
+awb build add task.md        # checked (the grammar and the size, no content check), then written atomically
 awb build list               # id, state, since when, waits on what
 awb build status --ended     # each run that ended since the last call, once
 awb build show B-012         # the agent's last message, in your own terminal only
@@ -2007,13 +2018,14 @@ hollow-test check never judge it against an old baseline. `CHANGELOG.md` and `bu
 `awb pr take` (lines of one week and section on both sides, rows by id); the driver is a copy of the runner's own
 `awb/mergedriver.py`, never the branch's. A rebase that conflicts in any other file is `red: rebase conflict` and the
 check line names the files. The
-checks: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate with the
-register, the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
+checks: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate
+(no content check: only a co-author line that names an assistant and a text over 8 MiB are red), the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
 still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. When the whole
 suite has failures, the failed nodes alone run once more in the same suite unit; when they pass the check passes
 with a line `flaky: NODE...` in `checks.log` and `result.md`; a node flaky a second time in seven days adds a line
 to `build/queue/FLAKY.md` for you. The baseline, the block's `check` and the hollow-test check never rerun. Green moves `main`
-in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the gate over the whole range and ends
+in `main.git` (a rebase first when `main` moved), pushes it to GitHub after the exit gate with the register over the whole range (names, secrets, keys, tokens, home
+paths and your blocklist; an id is no finding) and ends
 `done`. Otherwise the run is `hung`, `red: <reason>`, `asked`, `stopped: <subtype>`, `stale` or `held: <reason>`,
 and nothing moves. The session's unit has no loopback (in the host's network namespace it would reach sshd and the
 web units), so its prompt tells the agent to run only the module tests that need no network and leaves the whole
@@ -2046,7 +2058,8 @@ until the runner starts again and reports the task itself. The unit has `MemoryM
 A branch from outside, a pull request of a cloud session, is never tested in your shell: its tests and its
 `conftest.py` would run as you with the vault readable. Fetch it into your working copy and run `awb build check
 REF` there. The runner takes the commit into the quarantine of `main.git` and runs on it what it runs for a task:
-the gate with the register over every commit message and changed file, the whole suite and the hollow-test check,
+the gate (a co-author line that names an assistant, a text over 8 MiB; no content check), the whole suite and the
+hollow-test check,
 as `awb-build` in the task's suite unit. When `main` moved past the branch's merge base, its changes go onto the
 `main` of now first (`git merge-tree` in `main.git`, no working tree, CHANGELOG.md and build/tests.json by the merge
 drivers) and the suite runs on that; a conflict in another file is `red: rebase conflict` with the file names. It goes through the runner's lock, so
@@ -2068,8 +2081,9 @@ per ended one: id, state, time and the path of `result.md`. It exits 0 when each
 account other than the repository's owner (and refuses without gh), fetches pull request N, rebases it onto your
 `main` in a temporary worktree (a conflict in `build/tests.json` merged by id, one in `CHANGELOG.md` by week, any
 other one stops it), runs `awb build check` on the result (`--allow-protected` is passed on) and only when that
-passed merges it with `--no-ff`, pushes `main` to origin and to `main.git` of the build and closes the pull request
-with a comment that names the merge commit. On a failure `main` stays as it was. It never deploys;
+passed merges it with `--no-ff` (the merge message gets the exit check: names, secrets, paths and the blocklist, no
+id), pushes `main` to origin and to `main.git` of the build and closes the pull request with a comment that names the
+merge commit. On a failure `main` stays as it was. It never deploys;
 `awb pr take N --dry-run` prints the steps.
 
 What the build side does not prove (the accepted limits of `presentations/self-build/THREAT-MODEL.md`, section 6):
@@ -2083,8 +2097,9 @@ What the build side does not prove (the accepted limits of `presentations/self-b
 - `result.md` carries commit subjects and a diff stat the agent chose, after `awb check`. A subject line is a short
   channel that stays open; `message.txt` is for your terminal only.
 - The address list of a task is resolved when it starts; an endpoint that moves during the task ends it `stopped`.
-- A name the gate does not know (a first name alone, a lower-case nickname) can pass the scan into `result.md` on
-  this host; it never reaches the board, the mail or GitHub without the register check of the commit.
+- `result.md` shows the commit subjects, the test ids and the last lines of the suite log as written: the build side
+  runs no content check inside (DMZ 3). A name never reaches GitHub, because the push of `main` has the exit check with
+  the register.
 
 The agent's free text stays out of your sessions: add one line to the `deny` list of `permissions` in your own
 `~/.claude/settings.json`, `"Read(//srv/awb-build/runs/**/message.txt)"`, and read the message with
@@ -2096,8 +2111,8 @@ The agent's free text stays out of your sessions: add one line to the `deny` lis
 |---|---|
 | `awb/` | the package and the `awb` command; `awb/tcp/` holds what belongs to TCP |
 | `rules/` | one rule per file with its reason and what enforces it, plus the data files of the checks |
-| `hooks/` | git hooks: `pre-commit`, `commit-msg` and `pre-push` run the gate (`git config core.hooksPath hooks` installs them) |
-| `hooks-build/` | the commit gate of the build clones: every check but the name check, which the runner makes with the register |
+| `hooks/` | git hooks: `pre-commit` and `commit-msg` run no content check (a commit here is checked at its push), `pre-push` runs the exit check (`git config core.hooksPath hooks` installs them) |
+| `hooks-build/` | the commit gate of the build clones: no content check, only the size limit and the co-author line; the push of `main` has the exit check |
 | `seal/` | setup and verification of the two-user seal, the service units, the work user's client settings |
 | `plugin/` | the Claude Code plugin: skills, workers and hooks, its manifest in `plugin/.claude-plugin/plugin.json` |
 | `.claude-plugin/` | `marketplace.json` makes this repository the marketplace of the plugin |

@@ -264,21 +264,33 @@ def test_the_tool_guard_lets_an_unreadable_path_pass_but_no_refused_place(home, 
     assert guard(other, "cat $X/notes.txt") == toolguard.UNREADABLE
 
 
-def test_the_commit_gate_of_an_ask_project_checks_secrets_only(home, monkeypatch, capsys):
+def test_the_commit_gate_of_an_ask_project_checks_secrets_only(home, monkeypatch, capsys, tmp_path):
+    # B-087: a commit inside a project (an ask project too) runs no content check: a name and a secret pass; the
+    # attribution of an assistant and a text over the size limit are still refused
     folder = granted(home)
+    capsys.readouterr()
     (folder / "notes.md").write_text("%s\n" % NAME_TEXT, encoding="utf-8")
     subprocess.run(["git", "-C", str(folder), "add", "notes.md"], check=True)
     assert gate.main(["--staged", "--repo", str(folder)]) == 0
     (folder / "keys.md").write_text("%s\n" % SECRET_LINE, encoding="utf-8")
     subprocess.run(["git", "-C", str(folder), "add", "keys.md"], check=True)
+    assert gate.main(["--staged", "--repo", str(folder)]) == 0
+    assert capsys.readouterr().out == ""
+    (folder / "big.md").write_text("x" * (gate.TEXT_LIMIT + 1), encoding="utf-8")
+    subprocess.run(["git", "-C", str(folder), "add", "big.md"], check=True)
     assert gate.main(["--staged", "--repo", str(folder)]) == 1
-    assert "secret" in capsys.readouterr().out
+    assert capsys.readouterr().out == "too-large  big.md:0\n"
+    msg = tmp_path / "MSG"
+    msg.write_text("note\n\nCo-Authored-By: Clau" + "de <noreply@anthropic.com>\n", encoding="utf-8")
+    assert gate.main(["--message", str(msg), "--repo", str(folder)]) == 1
+    assert "attribution  commit message:3" in capsys.readouterr().out
 
     other = granted(home, "project")
+    capsys.readouterr()
     (other / "notes.md").write_text("%s\n" % NAME_TEXT, encoding="utf-8")
     subprocess.run(["git", "-C", str(other), "add", "notes.md"], check=True)
-    assert gate.main(["--staged", "--repo", str(other)]) == 1
-    assert "name" in capsys.readouterr().out
+    assert gate.main(["--staged", "--repo", str(other)]) == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_kb_add_from_an_ask_project_runs_every_check(home, monkeypatch, capsys):

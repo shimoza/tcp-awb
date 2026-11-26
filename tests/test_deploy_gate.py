@@ -33,41 +33,46 @@ def repo_with_history(tmp_path: Path) -> tuple[Path, list[str]]:
 
 
 def test_the_gate_scans_the_range_and_names_commit_and_class_only(tmp_path, register_path):
-    """Planted: a registered name in a file of one commit and a home path in the message of the next. The verdict
-    carries the commit, the class and where, never the value, the path or the author."""
+    """B-087: the deploy is inside and runs no content check. A registered name in a file and a home path in a
+    message pass; a message that names an assistant as co-author is the finding. The verdict carries the commit,
+    the class and where, never the value, the path or the author."""
     repo, (c0, c1, c2) = repo_with_history(tmp_path)
     v = deploy.owner_gate(repo, c0, c2, register_path)
-    assert v["from"] == c0 and v["to"] == c2 and v["commits"] == 2
-    assert sorted(v["findings"]) == sorted([(c1[:10], "name", "file", 1), (c2[:10], "homepath", "message", 1)])
+    assert v == {"from": c0, "to": c2, "commits": 2, "findings": []}
+    assert deploy.gate_note(v) == "gate: 2 commits %s..%s, clean" % (c0[:7], c2[:7])
+    (repo / "d.txt").write_text("fourth\n", encoding="utf-8")
+    c3 = commit(repo, "fourth\n\nCo-Authored-By: Clau" + "de <noreply@anthropic.com>")
+    v = deploy.owner_gate(repo, c0, c3, register_path)
+    assert v["from"] == c0 and v["to"] == c3 and v["commits"] == 3
+    assert v["findings"] == [(c3[:10], "attribution", "message", 1)]
     note, refusal = deploy.gate_note(v), deploy.gate_refusal(v)
-    assert note == "gate: 2 commits %s..%s, 2 findings" % (c0[:7], c2[:7])
-    assert "commit %s: name x1" % c1[:7] in refusal
-    assert "commit %s: homepath in the message x1" % c2[:7] in refusal
-    assert refusal.startswith("the gate refuses the target %s: " % c2[:7]) and refusal.endswith("nothing was changed")
+    assert note == "gate: 3 commits %s..%s, 1 finding" % (c0[:7], c3[:7])
+    assert refusal == "the gate refuses the target %s: commit %s: attribution in the message x1; nothing was changed" \
+        % (c3[:7], c3[:7])
     for text in (note, refusal, json.dumps(v)):
         assert fx.CUSTOMER_FORMS[0] not in text and "builder" not in text and "b.txt" not in text
     # one commit, clean: the note says so
     one = deploy.owner_gate(repo, c1, c2, register_path)
-    assert one["commits"] == 1 and len(one["findings"]) == 1
+    assert one["commits"] == 1 and one["findings"] == []
     assert deploy.gate_note(deploy.owner_gate(repo, c0, c1, register_path)) == \
-        "gate: 1 commit %s..%s, 1 finding" % (c0[:7], c1[:7])
+        "gate: 1 commit %s..%s, clean" % (c0[:7], c1[:7])
     # the deployed commit itself, and a rollback to an ancestor: nothing new is gated
     assert deploy.owner_gate(repo, c2, c2, register_path) == {"from": c2, "to": c2, "commits": 0, "findings": []}
     assert deploy.owner_gate(repo, c2, c0, register_path)["commits"] == 0
     assert deploy.gate_note(deploy.owner_gate(repo, c2, c0, register_path)) == \
         "gate: 0 commits %s..%s, clean" % (c2[:7], c0[:7])
     # no deployed commit: the whole history of the target
-    whole = deploy.owner_gate(repo, None, c2, register_path)
-    assert whole["commits"] == 3 and sorted(whole["findings"]) == sorted(v["findings"])
+    whole = deploy.owner_gate(repo, None, c3, register_path)
+    assert whole["commits"] == 4 and whole["findings"] == v["findings"]
     assert deploy.gate_note(whole) == \
-        "gate: 3 commits up to %s (no deployed commit: the whole history), 2 findings" % c2[:7]
+        "gate: 4 commits up to %s (no deployed commit: the whole history), 1 finding" % c3[:7]
 
 
 def test_a_gate_that_cannot_run_refuses(tmp_path, register_path):
-    """Planted: no register at the path, and a target that is no commit: both are Refused, nothing is scanned."""
+    """Planted: a target that is no commit is Refused, nothing is scanned. No register is needed any more: the
+    deploy checks no name."""
     repo, (c0, _c1, c2) = repo_with_history(tmp_path)
-    with pytest.raises(deploy.Refused, match="finds no register"):
-        deploy.owner_gate(repo, c0, c2, tmp_path / "no-register.tsv")
+    assert deploy.owner_gate(repo, c0, c2, tmp_path / "no-register.tsv")["findings"] == []
     with pytest.raises(deploy.Refused, match="could not run"):
         deploy.owner_gate(repo, c0, "f" * 40, register_path)
 
@@ -138,16 +143,23 @@ def test_the_plan_carries_the_verdict_and_a_finding_refuses_it(world, tmp_path, 
 
 
 @not_as_root
-def test_without_a_working_gate_the_plan_is_refused(world, tmp_path, capsys):
-    """Planted: the test environment has no readable register and no vault daemon, so the real gate cannot run:
-    the plan child must refuse rather than hand root a plan without a verdict."""
+def test_without_a_working_gate_the_plan_is_refused(world, tmp_path, capsys, monkeypatch):
+    """Planted: git fails inside the gate, so the real gate cannot run: the plan child must refuse rather than hand
+    root a plan without a verdict. (A missing register no longer stops it: the deploy checks no name.)"""
+    from awb import gate
+
     repo, _c0, _c1 = gated_repo(world, tmp_path)
     host = plan_host(world, repo)
     assert host.gate is None
+
+    def broken(*_a, **_k):
+        raise gate.GateError("git failed")
+
+    monkeypatch.setattr(gate, "range_commits", broken)
     assert deploy._owner_main(["plan", "--json"], host) == 2
     cap = capsys.readouterr()
     assert cap.out == ""
-    assert "awb deploy: the gate finds no register" in cap.err or "awb deploy: the gate could not run" in cap.err
+    assert "awb deploy: the gate could not run" in cap.err
     assert deploy._owner_main(["dry-run"], host, deploy.Options(dry_run=True)) == 2
     assert "awb deploy: the gate " in capsys.readouterr().err
 

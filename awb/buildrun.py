@@ -24,7 +24,7 @@ The checks (DESIGN.md section 5), in order, the first failure sets the state:
     3  the last message is an answer        asked
     4  a commit and nothing else moved      red: no commit, red: dirty tree, red: second branch, ...
     5  the commits are his                  red: identity
-    6  the commits pass the gate            red: gate <class>; a name check that cannot run is held: checks pending
+    6  the commits pass the gate            red: gate attribution, red: gate too-large (no content check inside)
     7  the commits stay inside the task     red: outside paths, red: link or submodule
     8  the bookkeeping is there             red: changelog, red: tests.json, red: rules list lost lines
     9  the whole suite on a fresh export    red: suite, hung: suite (A7: the failed nodes run once more in the same
@@ -449,7 +449,7 @@ class Runner:
         self.phase(ctx, "prep")
         self._snapshot_task(ctx)
         try:
-            prompt = build.read_prompt(task, h.queue, h.register, names=True)
+            prompt = build.read_prompt(task, h.queue)
         except build.PromptHeld:
             return self.finish(ctx, "held: prompt")
         snapshot_prompt(h, ctx, prompt)
@@ -1135,25 +1135,15 @@ def next_step(ctx: Ctx, state: str) -> str:
 
 
 def _subjects(host: Host, ctx: Ctx) -> list[str]:
-    """`<short> <subject>` of every commit after the gate's classes with the register; a subject with a finding, or
-    one that cannot be checked, is withheld."""
+    """`<short> <subject>` of every commit as written: control characters out, capped. No content check: the
+    result is inside (B-087)."""
     out = []
     fields = commit_fields(host, ctx.commits) if ctx.commits else {}
-    try:
-        matcher = _matcher(host.register)
-    except Exception:
-        matcher = None
-    from awb import gate
-
     for c in ctx.commits:
         f = fields.get(c)
         subject = f[4].split("\n", 1)[0] if f else ""
         subject = "".join(ch for ch in subject if ch.isprintable())[:120]
-        if matcher is None:
-            out.append("%s (subject withheld: the name check cannot run)" % c[:7])
-            continue
-        found = gate._scan_text("subject", subject, matcher)
-        out.append("%s (subject withheld: %s)" % (c[:7], found[0].cls) if found else "%s %s" % (c[:7], subject))
+        out.append("%s %s" % (c[:7], subject))
     return out
 
 

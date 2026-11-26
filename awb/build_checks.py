@@ -329,20 +329,26 @@ def diff_entries(host: Host, a: str, b: str) -> list[tuple[str | None, str, str,
     return entries
 
 
-def scan_commits(host: Host, commits: list[str], matcher, identity: tuple[str, str] | None) -> list[tuple[str, str]]:
-    """The gate over commits as `awb gate --pushed` does: every added or changed file of every commit (content and
-    path), author, committer and message (the owner's identity passes, as his own repository's does). Returns (where,
-    class) pairs; where is a commit's short hash or `<short>:<path>` only after the path passed the scan."""
+def scan_commits(host: Host, commits: list[str], matcher, identity: tuple[str, str] | None,
+                 inside: bool = False) -> list[tuple[str, str]]:
+    """The gate over commits as `awb gate --pushed` does, the exit check of the public push: every added or changed
+    file of every commit (content and path), author, committer and message (the owner's identity passes, as his own
+    repository's does); the identifier class is no finding (B-087). `inside` runs no content check (the commits of a
+    task, before main): the attribution and the size limit of a text only. Returns (where, class) pairs; where is a
+    commit's short hash or `<short>:<path>` only after the path passed the scan."""
     from awb import gate
 
     out: list[tuple[str, str]] = []
     own = set(identity or ())
     for commit, f in commit_fields(host, commits).items():
+        if inside:
+            out += [(commit[:10], c) for c in sorted({x.cls for x in gate._attribution("commit", f[4])})]
+            continue
         lines = [x for x in f[:4] if x not in own]
         text = "\n".join(lines + f[4].split("\n"))
         found = {x.cls for x in gate._scan_text("commit", text, matcher)}
         found |= {x.cls for x in gate._attribution("commit", f[4])}
-        out += [(commit[:10], c) for c in sorted(found)]
+        out += [(commit[:10], c) for c in sorted(found - gate.EXIT_FREE)]
     seen: set[str] = set()
     for commit in commits:
         raw = git(host, "diff-tree", "--root", "-r", "-m", "--no-commit-id", "--raw", "-z", "--no-abbrev",
@@ -351,28 +357,29 @@ def scan_commits(host: Host, commits: list[str], matcher, identity: tuple[str, s
             if mode == "160000" or blob in seen:
                 continue
             seen.add(blob)
-            found = {x.cls for x in gate._scan_text(rel, rel, matcher)}
             data = git(host, "cat-file", "blob", blob, check=False)
-            if data.returncode:
-                found.add("opaque")
+            if inside:
+                found = {x.cls for x in gate._inside_bytes(rel, data.stdout)} if not data.returncode else set()
             else:
-                found |= {x.cls for x in gate._scan_bytes(rel, data.stdout, matcher, host.main_git / rel)}
+                found = {x.cls for x in gate._scan_text(rel, rel, matcher)}
+                if data.returncode:
+                    found.add("opaque")
+                else:
+                    found |= {x.cls for x in gate._scan_bytes(rel, data.stdout, matcher, host.main_git / rel)}
+                found -= gate.EXIT_FREE
             out += [("%s:%s" % (commit[:10], "a path"), c) for c in sorted(found)]
     return out
 
 
 def check_gate(host: Host, ctx: Ctx, identity) -> None:
-    """The gate's self-test, then the gate with the register over every commit. A name check that cannot run is
-    `held: checks pending` (rerun when the vault opens), never red."""
-    from awb import gate, register as reg
+    """The gate over the commits of a task: no content check, they are inside (B-087). A co-author line that names an
+    assistant and a text over the size limit are red. The names, secrets and paths are checked where the commits
+    leave: the runner's push of main (push_main), so the gate's self-test still has to pass first."""
+    from awb import gate
 
     if gate.selftest(None):
         raise _fail(ctx, 6, "held: gate selftest")
-    try:
-        matcher = _matcher(host.register)
-        found = scan_commits(host, ctx.commits, matcher, identity)
-    except reg.RegisterError:
-        raise _fail(ctx, 6, "held: checks pending") from None
+    found = scan_commits(host, ctx.commits, None, identity, inside=True)
     if found:
         raise _fail(ctx, 6, "red: gate %s" % found[0][1])
     _ok(ctx, 6)
@@ -673,20 +680,10 @@ def baseline(host: Host, ctx: Ctx) -> dict[str, str] | None:
     return got
 
 
-def _tail(text: str, matcher) -> list[str]:
-    """The last lines of suite.log for result.md: control characters out, capped, a line with a gate finding
-    withheld."""
-    from awb import gate
-
-    out = []
-    for ln in text.split("\n")[-TAIL_LINES:]:
-        ln = "".join(c for c in ln if c == "\t" or c.isprintable())[:200]
-        try:
-            hit = gate._scan_text("suite", ln, matcher) if ln.strip() else []
-        except Exception:
-            hit = [None]
-        out.append("(line withheld)" if hit else ln)
-    return out
+def _tail(text: str) -> list[str]:
+    """The last lines of suite.log for result.md: control characters out, capped. No content check: the result is
+    inside (B-087)."""
+    return ["".join(c for c in ln if c == "\t" or c.isprintable())[:200] for ln in text.split("\n")[-TAIL_LINES:]]
 
 
 def check_suite(host: Host, ctx: Ctx) -> dict[str, str]:
@@ -715,11 +712,7 @@ def check_suite(host: Host, ctx: Ctx) -> dict[str, str]:
             rerun_log = _take(out / "rerun.log", host.uid(), LOG_MAX) or b""
             _write(ctx.folder / "suite.log", log + b"\n--- the rerun of the failed nodes (A7)\n" + rerun_log)
     if (ended.code != 0 and not flaky) or got is None:
-        try:
-            matcher = _matcher(host.register)
-        except Exception:
-            matcher = None
-        ctx.tail = _tail(log.decode("utf-8", "replace"), matcher)
+        ctx.tail = _tail(log.decode("utf-8", "replace"))
         raise _fail(ctx, 9, "red: suite")
     _ok(ctx, 9, "%(passed)d passed, %(failed)d failed, %(skipped)d skipped" % ctx.suite +
         ("; %d passed on the one rerun" % len(flaky) if flaky else ""))
@@ -730,17 +723,10 @@ def check_suite(host: Host, ctx: Ctx) -> dict[str, str]:
     return got
 
 
-def _node_shown(node: str, matcher) -> str:
+def _node_shown(node: str) -> str:
     """A node id of the build user's junit file as the owner's records and build/queue may carry it: test file,
-    class and function names and a short parameter id, after the gate's classes with the register; else withheld."""
-    from awb import gate
-
-    if matcher is None or len(node) > 200 or not _NODE_SHOWN_RE.fullmatch(node):
-        return "(node withheld)"
-    try:
-        return "(node withheld)" if gate._scan_text("node", node, matcher) else node
-    except Exception:
-        return "(node withheld)"
+    class and function names and a short parameter id; any other shape is withheld. No content check (B-087)."""
+    return node if len(node) <= 200 and _NODE_SHOWN_RE.fullmatch(node) else "(node withheld)"
 
 
 def note_flaky(host: Host, ctx: Ctx, nodes: list[str]) -> None:
@@ -749,11 +735,7 @@ def note_flaky(host: Host, ctx: Ctx, nodes: list[str]) -> None:
     time in FLAKY_DAYS days adds a line to build/queue/FLAKY.md for the owner."""
     import hashlib
 
-    try:
-        matcher = _matcher(host.register)
-    except Exception:
-        matcher = None
-    shown = [_node_shown(i, matcher) for i in nodes]
+    shown = [_node_shown(i) for i in nodes]
     ctx.lines.append("flaky: %s" % " ".join(shown))
     _write(ctx.folder / "flaky.txt", "\n".join(shown) + "\n")
     now = int(host.wall())

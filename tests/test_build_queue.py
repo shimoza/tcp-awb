@@ -202,13 +202,17 @@ def test_the_prompt_is_read_without_following_a_link_and_a_link_is_held(places, 
 @pytest.mark.parametrize("planted,cls", [(PLANTED_NAME, "name"), (PLANTED_TOKEN, "token"),
                                          (PLANTED_HOME, "homepath")])
 def test_a_prompt_with_a_planted_value_is_held_by_its_class(places, register_path, planted, cls):
+    # B-087: the prompt is inside, no content check: a name, a token or a home path is read as written
     q, _ = places
     queue(q, BLOCK)
     (q / "B-012.md").write_text("line one\nsee %s\n" % planted, encoding="utf-8")
     (t,), _ = build.read_queue(q)
-    with pytest.raises(build.PromptHeld) as err:
+    assert build.read_prompt(t, q, register_path) == "line one\nsee %s\n" % planted
+    assert build.list_lines(q)[0].startswith("B-012  new  ")
+    # what stays: a file that is empty, no UTF-8 or holds a NUL byte is held
+    (q / "B-012.md").write_bytes(b"line one\x00\n")
+    with pytest.raises(build.PromptHeld, match="NUL"):
         build.read_prompt(t, q, register_path)
-    assert str(err.value) == "the prompt carries %s on line 2" % cls and planted not in str(err.value)
 
 
 # --------------------------------------------------------------------------- add
@@ -238,14 +242,13 @@ def test_add_writes_the_prompt_and_the_block_and_the_queue_then_holds_the_task(p
                                          (PLANTED_HOME, "homepath")])
 def test_add_refuses_a_planted_form_token_or_home_path_and_writes_nothing(places, tmp_path, register_path, capsys,
                                                                           planted, cls):
+    # B-087: the prompt is inside, no content check: the file is added as it is written
     q, _ = places
-    (q / "QUEUE.md").write_text("old\n", encoding="utf-8")
     f = add_file(tmp_path, prompt="first\nsecond with %s\n" % planted)
-    assert build.cmd_add(str(f), register=register_path) == 2
-    err = capsys.readouterr().err
-    assert "add refused: the file carries %s on line" % cls in err and planted not in err
-    assert sorted(p.name for p in q.iterdir()) == ["QUEUE.md"]
-    assert (q / "QUEUE.md").read_text(encoding="utf-8") == "old\n"
+    assert build.cmd_add(str(f), register=register_path) == 0
+    assert "add refused" not in capsys.readouterr().err
+    assert sorted(p.name for p in q.iterdir()) == [".lock", "B-012.md", "QUEUE.md"]
+    assert planted in (q / "B-012.md").read_text(encoding="utf-8")
 
 
 def test_add_refuses_a_grammar_fault_by_its_key_and_a_file_without_the_separator(places, tmp_path, register_path,
@@ -262,11 +265,12 @@ def test_add_refuses_a_grammar_fault_by_its_key_and_a_file_without_the_separator
 
 
 def test_add_refuses_when_the_name_check_cannot_run(places, tmp_path, home, capsys):
+    # B-087: no name check runs on a prompt, so a register this uid cannot read does not stop the add
     q, _ = places
     home.register.rename(home.register_encrypted)       # a register this uid cannot read; no daemon answers
-    assert build.cmd_add(str(add_file(tmp_path)), register=home.register) == 2
-    assert "the name check cannot run" in capsys.readouterr().err
-    assert list(q.iterdir()) == []
+    assert build.cmd_add(str(add_file(tmp_path)), register=home.register) == 0
+    assert "the name check cannot run" not in capsys.readouterr().err
+    assert sorted(p.name for p in q.iterdir()) == [".lock", "B-012.md", "QUEUE.md"]
 
 
 def test_add_writes_atomically_a_reader_during_the_write_sees_the_old_queue(places, tmp_path, register_path,
@@ -432,12 +436,10 @@ def test_answer_goes_to_an_asked_task_only_and_passes_the_gate(places, register_
     assert build.cmd_answer("B-012", "take 10 MB", r, register_path) == 2
     assert "not asked" in capsys.readouterr().err
     build.write_state(run.folder, "asked")
-    assert build.cmd_answer("B-012", "ask %s about it" % PLANTED_NAME, r, register_path) == 2
-    err = capsys.readouterr().err
-    assert "the answer carries name on line 1" in err and PLANTED_NAME not in err
-    assert not (run.folder / "answer.txt").exists()
-    assert build.cmd_answer("B-012", "take 10 MB", r, register_path) == 0
-    assert (run.folder / "answer.txt").read_text(encoding="utf-8") == "take 10 MB"
+    # B-087: the answer is inside, no content check: a name is written as it is
+    assert build.cmd_answer("B-012", "ask %s about it" % PLANTED_NAME, r, register_path) == 0
+    assert "the answer carries" not in capsys.readouterr().err
+    assert (run.folder / "answer.txt").read_text(encoding="utf-8") == "ask %s about it" % PLANTED_NAME
     assert build.latest("B-012", r).state == "answered"
     assert build.cmd_answer("B-012", "again", r, register_path) == 2
     assert "waits for the runner" in capsys.readouterr().err

@@ -76,10 +76,11 @@ def _build_repo() -> str:
 
 
 def _gate_message(path: Path) -> int:
-    """`awb gate --message FILE` with the vault register: 0 clean, 1 findings, 2 it cannot run."""
+    """`awb gate --message FILE --exit` with the vault register: the exit check of a text that goes public (names,
+    secrets, keys, tokens, home paths, the blocklist; an id is no finding). 0 clean, 1 findings, 2 it cannot run."""
     from awb import gate
 
-    return gate.main(["--message", str(path)])
+    return gate.main(["--message", str(path), "--exit"])
 
 
 @dataclass

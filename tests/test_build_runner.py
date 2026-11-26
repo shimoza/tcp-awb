@@ -436,10 +436,12 @@ def test_live_main_and_not_deployed_come_from_the_deploy_record(world):
 def test_a_subject_with_a_registered_form_is_withheld_from_result_md(world):
     from awb import gate
 
+    # B-087: the result is inside, no content check: the subject is shown as written. The name is stopped where the
+    # commit leaves, at the push of main.
     run = world.run("subject")
-    assert run.state == "red: gate name"
+    assert run.state == "held: push refused"
     text = (run.folder / "result.md").read_text()
-    assert gate._SELFTEST_FORM not in text and "subject withheld: name" in text
+    assert gate._SELFTEST_FORM in text and "subject withheld" not in text
 
 
 def test_the_model_key_is_in_the_home_for_the_session_and_gone_with_it(world, tmp_path):
@@ -460,15 +462,17 @@ def test_the_model_key_is_in_the_home_for_the_session_and_gone_with_it(world, tm
 def test_a_prompt_that_fails_the_name_check_is_held_and_starts_once_it_is_clean(world):
     from awb import gate
 
+    # B-087: the prompt is inside, no content check: a name in it does not hold it
     tid = world.task("good", extra="for %s\n" % gate._SELFTEST_FORM)
     assert world.runner().poll_once()
     run = build.latest(tid, world.runs)
-    assert run.state == "held: prompt" and not world.units.started
-    (world.queue / ("%s.md" % tid)).write_text("SCENARIO: good\n", encoding="utf-8")
+    assert run.state == "done" and world.units.started
+    # what still holds a prompt: one that is empty
+    tid = world.task("good", tid="B-013")
+    (world.queue / ("%s.md" % tid)).write_text("\n", encoding="utf-8")
     world.host.poll = 0.0
     assert world.runner().poll_once()
-    after = build.latest(tid, world.runs)
-    assert (after.n, after.state) == (run.n, "done")
+    assert build.latest(tid, world.runs).state == "held: prompt"
 
 
 # --------------------------------------------------------------------------- the runner itself
@@ -524,12 +528,14 @@ def test_the_preconditions_hold_the_queue_without_a_spawn_and_mail_once(world):
 
 
 def test_a_name_check_that_cannot_run_after_a_run_is_held_and_reruns(world, monkeypatch):
+    # B-087: check 6 runs no name check, so a vault that locks before it holds nothing; the names are checked at the
+    # push of main, and a push whose name check cannot run is held and tried again
     register = world.host.register
-    tid = world.task("good")                 # the prompt's check at the start passes ...
+    tid = world.task("good")
     real = buildrun.check_gate
 
     def unavailable(host, ctx, identity):
-        host.register = world.base / "no-register.tsv"        # ... and the vault locks before check 6
+        host.register = world.base / "no-register.tsv"        # the vault locks before check 6
         try:
             return real(host, ctx, identity)
         finally:
@@ -538,10 +544,17 @@ def test_a_name_check_that_cannot_run_after_a_run_is_held_and_reruns(world, monk
     monkeypatch.setattr(buildrun, "check_gate", unavailable)
     world.runner().poll_once()
     monkeypatch.setattr(buildrun, "check_gate", real)
-    run = build.latest(tid, world.runs)
-    assert run.state == "held: checks pending" and build.line(run) == "build %s held: checks pending" % tid
-    assert world.runner().poll_once()
     assert build.latest(tid, world.runs).state == "done"
+    world.host.register = world.base / "no-register.tsv"      # the vault is locked at the push
+    second = world.task("good", tid="B-014")
+    world.runner().poll_once()
+    run = build.latest(second, world.runs)
+    assert run.state == "held: push pending" and build.line(run) == "build %s held: push pending" % second
+    world.host.register = register
+    later = datetime.now() + timedelta(minutes=11)
+    world.host.now = lambda: later
+    assert world.runner().poll_once()
+    assert build.latest(second, world.runs).state == "done"
 
 
 def test_the_reserved_paths_and_the_depends_order_the_pick(world):
@@ -739,7 +752,7 @@ PLANTED_AWAY = [
     ("n10-coauthor", buildrun, "check_gate", _no_check),
     ("n10-author", buildrun, "check_identity", _no_check),
     ("n11-newline", buildrun, "check_paths", _no_check),
-    ("n11-subject", buildrun, "check_gate", _no_check),
+    ("n11-subject", buildrun, "scan_commits", lambda *args, **kw: []),     # B-087: the exit check of the push
     ("n11-check", build, "_check_tokens", lambda value: tuple(value.split())),
     ("n11-fsmonitor", buildrun, "_hgit", _hgit_with_fsmonitor),
     ("n12-lock", buildrun, "acquire_lock", lambda runs: os.open(os.devnull, os.O_RDONLY)),
@@ -1768,11 +1781,12 @@ def test_a_branch_that_breaks_or_drops_a_test_is_red_and_main_stays(world, capsy
 def test_a_registered_form_in_a_commit_of_the_branch_is_red_gate_before_any_code_runs(world, capsys):
     from awb import gate
 
+    # B-087: the commits of a branch are inside, no content check: the name does not stop the check, it runs the
+    # suite; the name is stopped where main leaves, at the push
     outside_branch(world, message="mention %s" % gate._SELFTEST_FORM)
     rc, out, run = check(world, "pr-1", capsys)
-    assert rc == 1 and run.state == "red: gate name"
-    assert not suite_specs(world) and gate._SELFTEST_FORM not in out
-    assert gate._SELFTEST_FORM not in (run.folder / "result.md").read_text(encoding="utf-8")
+    assert rc == 0 and run.state == "passed"
+    assert suite_specs(world)
 
 
 def test_a_ref_that_is_an_option_a_range_or_unknown_is_refused_and_nothing_is_written(world, capsys):

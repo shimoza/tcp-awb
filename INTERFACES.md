@@ -290,9 +290,17 @@ def scan_message(path: Path, matcher) -> list[Finding]   # a commit message file
 def selftest(register_path: Path | None) -> list[str]   # plants one case per class in a temp folder, expects exactly that class,
                                                        # then a clean file expects nothing, then a commit message; returns failures
 ```
-CLI `awb gate [--staged] [--pushed [--remote NAME]] [--message FILE] [--selftest] [PATH...]`: prints
-`cls  file:line` per finding, exit 1 on findings. `hooks/pre-commit`, `hooks/commit-msg` and `hooks/pre-push`
-(executable, sh) run the gate and refuse the commit or push on exit 1; `install_hook` writes the same three.
+CLI `awb gate [--staged] [--pushed [--remote NAME]] [--message FILE] [--inside] [--exit] [--selftest] [PATH...]`:
+prints `cls  file:line` per finding, exit 1 on findings. B-087: the gate checks content at the exit only. `--pushed`
+(and `--message FILE --exit`, `awb pr take`) is the exit check: the classes name, secret, private-key, token, homepath
+and blocklist (and opaque, attribution, too-large); `EXIT_FREE` (identifier) is never reported. `--staged` and
+`--message` inside run no content check: a project folder (`in_project`) or `--inside` report `INSIDE_KEPT` only
+(attribution, owner-date, too-large) and need no register; `scan_message(path, matcher, inside=False)`,
+`_scan_staged(repo, matcher, inside=False)` and `scan_commits(repo, commits, matcher, inside=False)` take the same
+flag (the deploy and the runner's check 6 call it inside). `ask_repo` and `ASK_CLASSES` are gone: an ask project is a
+project. `hooks/pre-commit` and `hooks/commit-msg` (executable, sh, `--inside`) refuse a commit of this repository only
+for `INSIDE_KEPT`, `hooks/pre-push` runs the exit check; `hooks-build/` passes `--inside --no-register`;
+`install_hook` writes the three hooks of another repository (a project is inside by itself).
 `rules/allow-domains.txt`, `rules/stop-words.txt` are data files read by patterns and intake.
 
 ## `awb/projects.py`
@@ -378,8 +386,8 @@ Since SB2 `awb/build.py` holds the queue and the records; `serve`, `selftest` an
 `block()`), `Note(id, line, kind, reason)` with `kind` "refused" or "incomplete" and `text()`, `ID_RE`, `KEYS`,
 `DEFAULTS`, `ALWAYS_ALLOWED`, `reserving(paths)` (the paths that reserve a path in the pick and in `list_lines`:
 all but `ALWAYS_ALLOWED`). The prompt: `HEADER`, `compose(task, prompt) -> str`, `read_prompt(task, qdir=None,
-register=None, names=True) -> str` (raises `PromptHeld`, the state `held: prompt`), `scan(label, text, register) ->
-list[str]`. The records: `runs_dir() -> Path` (`AWB_BUILD_RUNS`, else `<build_root>/runs`), `RUN_FILES`,
+register=None, names=True) -> str` (raises `PromptHeld`, the state `held: prompt`; `register` and `names` are
+ignored: no content check, B-087; `scan` is gone, `add` and `cmd_answer` check no content either). The records: `runs_dir() -> Path` (`AWB_BUILD_RUNS`, else `<build_root>/runs`), `RUN_FILES`,
 `COMMAND_FILES` (`answer.txt`, `widen.txt`, `widen.log`, `stop-wanted`, `reported`), `STOP_FILE`, `STATES`, `OPEN_STATES`,
 `STATE_RE`, `Run(id, n, folder, state, since)`, `read_state(folder)`, `write_state(folder, state, now=None)` (one
 line `<state>\t<time>`, written atomically), `runs_of(id)`, `latest(id)`, `new_run(id, runs=None, state="queued")`,
@@ -1258,7 +1266,7 @@ points at, else the journal's target) unknown to the repository and, unless `--t
 does not descend from it. The gate (threat model G2): the plan child runs `owner_gated_plan(opts, repo, host,
 show=False)`, which is `owner_plan` followed by `Host.gate` (None: `owner_gate(repo, deployed, target,
 register_path=None) -> verdict`, the commit gate over `gate.range_commits(repo, deployed, target)` with
-`gate.scan_commits`); the verdict (`from`, `to`, `commits`, `findings` as (commit, class, `message` or `file`,
+`gate.scan_commits(..., inside=True)`: no content check and no register, `register_path` is ignored); the verdict (`from`, `to`, `commits`, `findings` as (commit, class, `message` or `file`,
 count)) becomes a note of the plan (`gate_note`) and a finding is Refused with `gate_refusal` (commit and class,
 never a value), as is a gate that cannot run. The root path imports neither
 `getpass` nor `socket` nor `awb.vault` nor `awb.tcp.keys`: every function that does is named `owner_*`.

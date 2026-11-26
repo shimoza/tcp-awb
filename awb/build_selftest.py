@@ -364,15 +364,21 @@ def _case(scenario: str, state: str, **kw) -> Callable[[World], str | None]:
 
 
 def _case_subject(w: World) -> str | None:
+    """B-087: a registered form in a commit subject is no content check inside: result.md shows the subject as
+    written. It is stopped where the commit leaves, at the exit check of the push of main (`held: push refused`)."""
     from awb import gate
 
+    main = ("--git-dir", str(w.root / "main.git"))
+    start = w.g(*main, "rev-parse", "refs/heads/main").strip()
     run = w.run("subject")
-    why = _expect(run, "red: gate name")
+    # the commit stays in main.git (the push refused it); the next cases push from the start again
+    w.g(*main, "update-ref", "refs/heads/main", start)
+    why = _expect(run, "held: push refused")
     if why:
         return why
     text = _text(run.folder / "result.md") or ""
-    if gate._SELFTEST_FORM in text or "subject withheld" not in text:
-        return "the subject reached result.md"
+    if gate._SELFTEST_FORM not in text or "subject withheld" in text:
+        return "the subject was withheld from result.md"
     return None
 
 

@@ -376,29 +376,10 @@ class PromptHeld(Exception):
     """The prompt cannot be sent: the state is `held: prompt`. The message names the reason, never content."""
 
 
-def _register() -> Path:
-    return config.paths().register
-
-
-def scan(label: str, text: str, register: Path | None) -> list[str]:
-    """The gate's classes over a text, one `class line N` per finding. With a register the name class runs too;
-    a register that cannot be checked raises register.RegisterError (check.CheckUnavailable is one)."""
-    from awb import check, gate, register as reg
-
-    matcher = None
-    if register is not None:
-        if check.register_source(Path(register))[0] == check.MISSING:
-            raise reg.RegisterError("no register found, names cannot be checked")
-        matcher = gate._load_matcher(register, rate_wait=gate.RATE_WAIT)
-        if isinstance(matcher, check.RemoteCheck):
-            matcher.ping()
-    return ["%s on line %d" % (f.cls, f.line) for f in gate._scan_text(label, text, matcher)]
-
-
 def read_prompt(task: Task, qdir: Path | None = None, register: Path | None = None, names: bool = True) -> str:
     """The prompt of `task` as the runner snapshots it: a regular file of this uid in the queue folder, opened
-    without following a link, at most PROMPT_MAX bytes, UTF-8 without NUL, clean under the gate's classes (the
-    name class too when `names`; a name check that cannot run holds it as well). Raises PromptHeld."""
+    without following a link, at most PROMPT_MAX bytes, UTF-8 without NUL. No content check: the prompt is inside
+    (B-087). `register` and `names` are kept for the callers and ignored. Raises PromptHeld."""
     qdir = Path(qdir or queue_dir())
     try:
         dfd = _open_dir(qdir)
@@ -415,14 +396,6 @@ def read_prompt(task: Task, qdir: Path | None = None, register: Path | None = No
         raise PromptHeld("the prompt is not UTF-8 text") from None
     if "\x00" in text or not text.strip():
         raise PromptHeld("the prompt is empty or holds a NUL byte")
-    from awb import register as reg
-
-    try:
-        found = scan("prompt", text, (register or _register()) if names else None)
-    except reg.RegisterError:
-        raise PromptHeld("the name check cannot run") from None
-    if found:
-        raise PromptHeld("the prompt carries %s" % found[0])
     return text
 
 
@@ -743,7 +716,7 @@ def list_lines(qdir: Path | None = None, runs: Path | None = None) -> list[str]:
         held = None
         if r is None:
             try:
-                read_prompt(t, qdir, names=False)
+                read_prompt(t, qdir)
             except PromptHeld as err:
                 held = str(err)
         state = r.state if r else ("held: prompt" if held else "new")
@@ -864,10 +837,10 @@ def split_add_file(text: str) -> tuple[str, str]:
 
 
 def add(path: Path, qdir: Path | None = None, runs: Path | None = None, register: Path | None = None) -> Task:
-    """`awb build add FILE`: check the block and the prompt (the grammar; the gate's classes with the register over
-    the whole file), then write `build/queue/<ID>.md` and QUEUE.md, each to a fresh name and renamed over the old
-    one, under the queue's lock. Raises Refused (the message names a key or a class and a line, never a value) and
-    register.RegisterError when the name check cannot run."""
+    """`awb build add FILE`: check the block and the prompt (the grammar and the size; no content check, the prompt is
+    inside), then write `build/queue/<ID>.md` and QUEUE.md, each to a fresh name and renamed over the old one, under
+    the queue's lock. Raises Refused (the message names a key, never a value). `register` is kept for the callers
+    and ignored."""
     qdir = Path(qdir or queue_dir())
     runs = Path(runs or runs_dir())
     try:
@@ -904,9 +877,6 @@ def add(path: Path, qdir: Path | None = None, runs: Path | None = None, register
         raise Refused("prompt is not %s" % "build/queue/<ID>.md")
     if len(prompt.encode("utf-8")) > PROMPT_MAX or not prompt.strip():
         raise Refused("the prompt is empty or larger than %d bytes" % PROMPT_MAX)
-    found = scan("file", text, register or _register())
-    if found:
-        raise Refused("the file carries %s" % found[0])
     if runs_of(tid, runs):
         raise Refused("%s has a run; take a new id or awb build retry %s" % (tid, tid))
     _make_queue_dir(qdir)
@@ -997,7 +967,6 @@ def cmd_answer(tid: str, text: str, runs: Path | None = None, register: Path | N
     r = _known(tid, runs)
     if isinstance(r, str):
         return _err(r)
-    from awb import register as reg
 
     with task_lock(tid, runs):
         r = latest(tid, runs)
@@ -1008,12 +977,6 @@ def cmd_answer(tid: str, text: str, runs: Path | None = None, register: Path | N
             return _err("%s is %s, not asked; awb build retry %s starts it again" % (tid, r.state, tid))
         if not text.strip() or len(text.encode("utf-8")) > ANSWER_MAX or "\x00" in text:
             return _err("the answer is empty or larger than %d bytes" % ANSWER_MAX)
-        try:
-            found = scan("answer", text, register or _register())
-        except reg.RegisterError:
-            return _err("the name check cannot run; unlock the vault (awb vault unlock) and answer again")
-        if found:
-            return _err("the answer carries %s; nothing was written" % found[0])
         _write_atomic(r.folder / "answer.txt", text.encode("utf-8"))
         write_state(r.folder, "answered")
     _out("%s answered; the runner resumes the same session (%s)" % (tid, r.rel))
@@ -1238,14 +1201,10 @@ def cmd_wait(ids: list[str], every: bool = False, timeout: float | None = None, 
 
 
 def cmd_add(path: str, qdir: Path | None = None, runs: Path | None = None, register: Path | None = None) -> int:
-    from awb import register as reg
-
     try:
         task = add(Path(path), qdir, runs, register)
     except Refused as err:
         return _err("add refused: %s; nothing was written" % err)
-    except reg.RegisterError:
-        return _err("the name check cannot run; unlock the vault (awb vault unlock) and add again")
     except OSError as err:
         return _err("the queue could not be written (%s)" % (err.strerror or "error").lower())
     _out("%s added to the queue (build/queue/%s, %s)" % (task.id, QUEUE_FILE, task.prompt))

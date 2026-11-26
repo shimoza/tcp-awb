@@ -1638,8 +1638,9 @@ def _hook_copy(tmp: Path) -> Path:
 
 def test_the_build_hooks_run_the_installed_gate_without_the_register(tmp_path):
     """SB1 item 1: the commit hooks of a build clone run `awb gate --selftest --no-register`, then the staged files
-    or the message, by the interpreter's absolute path, never a .venv of the clone. Planted: a staged secret and a
-    co-author line are refused; a clean commit passes; a .venv/bin/python planted in the clone is never run."""
+    or the message, by the interpreter's absolute path, never a .venv of the clone. Planted: a staged text over the
+    size limit and a co-author line are refused; a clean commit and a staged secret pass (a build clone is inside:
+    no content check, B-087); a .venv/bin/python planted in the clone is never run."""
     for name in ("pre-commit", "commit-msg"):
         text = (HOOKS_BUILD / name).read_text(encoding="utf-8")
         assert os.access(HOOKS_BUILD / name, os.X_OK) and text.startswith("#!/bin/sh\n")
@@ -1667,8 +1668,10 @@ def test_the_build_hooks_run_the_installed_gate_without_the_register(tmp_path):
     res = commit_("ok.py", b"X = 1\n", "a clean commit")
     assert res.returncode == 0, res.stderr
     res = commit_("leak.py", gate._selftest_cases()["secret"], "a secret")
-    assert res.returncode != 0 and "secret" in res.stdout + res.stderr
-    subprocess.run(["git", "-C", str(repo), "rm", "-q", "--cached", "leak.py"], check=True)
+    assert res.returncode == 0, res.stderr                     # B-087: a build clone is inside, no content check
+    res = commit_("big.txt", b"x" * (gate.TEXT_LIMIT + 1), "a big text")
+    assert res.returncode != 0 and "too-large" in res.stdout + res.stderr
+    subprocess.run(["git", "-C", str(repo), "rm", "-q", "--cached", "big.txt"], check=True)
     res = commit_("ok2.py", b"Y = 2\n", "a change\n\nCo-Authored-By: Claude <noreply@" + "anthropic.com>")
     assert res.returncode != 0 and "attribution" in res.stdout + res.stderr
     assert not (tmp_path / "trap-ran").exists()

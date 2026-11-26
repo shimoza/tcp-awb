@@ -442,23 +442,29 @@ def refusal_lines(result: subprocess.CompletedProcess) -> list[str]:
 
 
 def test_hook_refuses_a_finding_and_lets_a_clean_commit_pass(tmp_path, register_path, monkeypatch):
+    # B-087: the commit of this repository runs no content check (its push is checked); a text over the size limit
+    # is still refused
     monkeypatch.setenv("PYTHONPATH", str(ROOT))
     repo = hook_repo(tmp_path)
     (repo / "notes.txt").write_text(PLANTED["token"] + "\n", encoding="utf-8")
     assert git(repo, "add", "notes.txt").returncode == 0
-    refused = commit(repo)
-    assert refused.returncode != 0
-    assert len(refusal_lines(refused)) == 2
-    assert "token  notes.txt:1" in refused.stdout + refused.stderr
-    assert git(repo, "rev-parse", "--verify", "-q", "HEAD").returncode != 0
-    # the hook itself exits with the gate's code
-    assert run_hook(repo).returncode == 1
-
-    (repo / "notes.txt").write_text(CLEAN, encoding="utf-8")
-    assert git(repo, "add", "notes.txt").returncode == 0
     passed = commit(repo)
     assert passed.returncode == 0, refusal_lines(passed)
     assert git(repo, "rev-parse", "--verify", "-q", "HEAD").returncode == 0
+
+    (repo / "big.txt").write_text("x" * (gate.TEXT_LIMIT + 1), encoding="utf-8")
+    assert git(repo, "add", "big.txt").returncode == 0
+    refused = commit(repo)
+    assert refused.returncode != 0
+    assert "too-large  big.txt:0" in refused.stdout + refused.stderr
+    assert PLANTED["token"] not in refused.stdout + refused.stderr
+    # the hook itself exits with the gate's code
+    assert run_hook(repo).returncode == 1
+
+    (repo / "big.txt").write_text(CLEAN, encoding="utf-8")
+    assert git(repo, "add", "big.txt").returncode == 0
+    passed = commit(repo)
+    assert passed.returncode == 0, refusal_lines(passed)
 
 
 def test_hook_refuses_without_the_virtual_environment(tmp_path, register_path):
@@ -1193,17 +1199,20 @@ def test_the_workbench_has_its_own_commit_msg_hook():
 
 
 def test_the_repository_hooks_refuse_a_commit_message_with_a_finding(tmp_path, register_path, monkeypatch):
+    # B-087: the message of a commit of this repository is checked at the push; a co-author line that names an
+    # assistant is still refused
     monkeypatch.setenv("PYTHONPATH", str(ROOT))
     repo = hook_repo(tmp_path)
     (repo / "notes.txt").write_text(CLEAN, encoding="utf-8")
     assert git(repo, "add", "notes.txt").returncode == 0
     refused = git(repo, "-c", "core.hooksPath=%s" % HOOK.parent, "commit", "-q", "-m",
-                  "notes\n\nlog under /ho" + "me/builder/awb.log")
+                  "notes\n\nCo-Authored-By: Clau" + "de <noreply@anthropic.com>")
     assert refused.returncode != 0
-    assert "homepath  commit message:3" in refused.stdout + refused.stderr
+    assert "attribution  commit message:3" in refused.stdout + refused.stderr
     assert any("commit message" in line for line in refusal_lines(refused))
     assert git(repo, "rev-parse", "--verify", "-q", "HEAD").returncode != 0
-    passed = git(repo, "-c", "core.hooksPath=%s" % HOOK.parent, "commit", "-q", "-m", "notes\n\n# a comment\nclean")
+    passed = git(repo, "-c", "core.hooksPath=%s" % HOOK.parent, "commit", "-q", "-m",
+                 "notes\n\n# a comment\nlog under /ho" + "me/builder/awb.log")
     assert passed.returncode == 0, refusal_lines(passed)
 
 

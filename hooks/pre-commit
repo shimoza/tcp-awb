@@ -1,7 +1,8 @@
 #!/bin/sh
-# Workbench commit gate. First proves that the gate can still find every class (its self-test), then refuses the
-# commit when the staged content or a staged path carries a finding (name, secret, private key, token, home
-# path, blocklist word, id or a binary file).
+# Workbench commit gate of this repository (the working copy of the public repository). A commit here is checked at
+# its push (hooks/pre-push: names, secrets, private keys, tokens, home paths and the owner's blocklist), not at its
+# commit, so this hook runs no content check: the gate with --inside refuses only what is no content (a text over
+# the size limit).
 # Runs the gate with the repository's own virtual environment, so it works before the awb console script
 # exists. Install with: git config core.hooksPath hooks
 
@@ -20,7 +21,7 @@ if ! "$python" -m awb.gate --selftest >/dev/null 2>&1; then
     echo "awb gate: run .venv/bin/awb gate --selftest to see which class it no longer finds." >&2
     exit 1
 fi
-"$python" -m awb.gate --staged
+"$python" -m awb.gate --staged --inside
 code=$?
 
 if [ "$code" -ne 0 ]; then

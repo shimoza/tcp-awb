@@ -60,11 +60,13 @@ his copy is not on `main` or his `main` has commits main.git lacks; the target i
 as green in runs/<ID>/<n>/commit, which must be on that `main`. The run records are read here without importing
 awb.build, so a change of the runner's module restarts no unit that imports this one.
 
-The gate (threat model G2): before a release is installed the owner's plan child runs the commit gate (`awb gate`,
-the same checks a commit and a push get: every file of every commit, the author, the committer and the message) over
-the commits from the deployed release to the target, the whole history when no release is deployed. One finding
-refuses the plan with the commit and the class and never a value, so root installs nothing; a gate that cannot run
-(no register, git failed) refuses too. The verdict is a note of the plan (`# gate: ...`), so the dry run shows it.
+The gate (threat model G2): before a release is installed the owner's plan child runs the commit gate over the
+commits from the deployed release to the target, the whole history when no release is deployed. The deploy is
+inside: it runs no content check (B-087, the owner's word of 2026-11-25), no name, secret, path or id is looked for
+and no register is needed; the names and secrets are checked where the commits leave, at the push. What stays is a
+co-author line that names an assistant in a message and a text over the size limit. One finding refuses the plan
+with the commit and the class and never a value, so root installs nothing; a gate that cannot run (git failed)
+refuses too. The verdict is a note of the plan (`# gate: ...`), so the dry run shows it.
 
 The page step (B-046) comes after the units: the console page of the release (PAGE) goes live when its bytes differ
 from the live page of the web folder (publish.SRV), through the checks as the owner and the backup of
@@ -1495,23 +1497,16 @@ def released_asks(run: Callable, repo: Path, target: str) -> list[str]:
 
 def owner_gate(repo: Path, deployed: str | None, target: str, register_path: Path | None = None) -> dict:
     """The commit gate over the commits the deploy would make root code: deployed..target, or every commit the
-    target reaches when no release is deployed. The register is the vault's unless a path is given (tests). The
-    verdict: `from`, `to`, `commits` (the count) and `findings`, a list of (commit id, class, where, count) with
-    `where` "message" (the author, the committer or the message) or "file". A value never leaves the gate; a
-    gate that cannot run is Refused."""
-    from awb import check, gate, register
+    target reaches when no release is deployed. The deploy is inside: no content check and no register
+    (`register_path` is kept for the callers and ignored). The verdict: `from`, `to`, `commits` (the count) and
+    `findings`, a list of (commit id, class, where, count) with `where` "message" (the commit message) or "file". A
+    value never leaves the gate; a gate that cannot run is Refused."""
+    from awb import gate
 
-    if register_path is None:
-        register_path = config.paths().register
     try:
-        if check.register_source(Path(register_path))[0] == check.MISSING:
-            raise Refused("the gate finds no register, names cannot be checked: nothing was changed")
-        matcher = gate._load_matcher(register_path, rate_wait=gate.RATE_WAIT)
-        if isinstance(matcher, check.RemoteCheck):
-            matcher.ping()
         commits = gate.range_commits(repo, deployed, target)
-        findings = gate.scan_commits(repo, commits, matcher)
-    except (gate.GateError, register.RegisterError) as err:   # check.CheckUnavailable is a RegisterError
+        findings = gate.scan_commits(repo, commits, None, inside=True)
+    except gate.GateError as err:
         raise Refused("the gate could not run (%s): nothing was changed" % err) from None
     counts: dict[tuple[str, str, str], int] = {}
     for f in findings:

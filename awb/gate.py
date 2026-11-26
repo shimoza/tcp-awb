@@ -38,6 +38,15 @@ Classes of findings:
                  silently clean. A workbook (.xlsx) is read with awb/xlsxlite.py `gate_text` and checked like a
                  text; it is opaque only when it cannot be read safely (see `_scan_xlsx`)
 
+Where the gate checks (B-087, the owner's word of 2026-11-25): at the EXIT only. A push of a public repository
+(`--pushed`, the runner's push of main, `awb pr take`) keeps the classes name, secret, private-key, token, homepath
+and blocklist and never reports an identifier (an id, an IP address, a host name, a hash, a tenant number is no
+finding). A commit inside runs no content check: a project folder (also an ask project), a build clone and the
+working copy of a public repository, whose commit is checked at its push (`--inside`; the hooks of the build clone
+and of this repository pass it), and the deploy. What stays there is no content check: a co-author line that names
+an assistant (the commit-msg hook takes it out of a message), an owner item without a date, a text over the size
+limit (`INSIDE_KEPT`).
+
 Every detector runs over the text as given and, when it differs, over its normalised form (awb.normalize:
 escapes, entities, percent encoding, invisible characters, terminal colour sequences) with the hits mapped
 back, and over what the base64 and hex blocks of the text decode to (such a finding is on the line of the
@@ -1345,9 +1354,10 @@ def strip_attribution(path: Path) -> int:
     return removed
 
 
-def scan_message(path: Path, matcher: Matcher | None) -> list[Finding]:
+def scan_message(path: Path, matcher: Matcher | None, inside: bool = False) -> list[Finding]:
     """Findings of a commit message file (the commit-msg hook gives its path), labelled "commit message". A
-    co-author or generator line that names Claude is a finding of the class attribution."""
+    co-author or generator line that names Claude is a finding of the class attribution. `inside` runs no content
+    check: the attribution is the only finding (B-087)."""
     try:
         data = Path(path).read_bytes()
     except OSError:
@@ -1355,6 +1365,9 @@ def scan_message(path: Path, matcher: Matcher | None) -> list[Finding]:
     found: list[Finding] = []
     for raw in _decodings(data):
         text = message_text(raw)
+        if inside:
+            found.extend(_attribution(MESSAGE_LABEL, text))
+            continue
         found.extend(_scan_text(MESSAGE_LABEL, text, matcher) + _attribution(MESSAGE_LABEL, text))
         found.extend(f for f in _scan_text(MESSAGE_LABEL, _comment_lines(raw), None) if f.cls in _COMMENT_CLASSES)
         found.extend(_candidates(MESSAGE_LABEL, text, {f.line for f in found if f.cls == "name"}))
@@ -1543,19 +1556,27 @@ def _owner_dates(top: Path, rel: str, data: bytes, label: str) -> list[Finding]:
     return [Finding(label, line, "owner-date") for line in opensweep.undated(_decode(data), old)]
 
 
-def _scan_staged(repo: Path, matcher: Matcher | None) -> list[Finding]:
-    """Scan what the commit will carry: the staged content from the index and the staged path names."""
+def _inside_bytes(label: str, data: bytes) -> list[Finding]:
+    """The one check of a file inside: the size limit of a text (TEXT_LIMIT). No content is read."""
+    return [Finding(label, 0, "too-large")] if len(data) > TEXT_LIMIT and not _is_opaque(label, data) else []
+
+
+def _scan_staged(repo: Path, matcher: Matcher | None, inside: bool = False) -> list[Finding]:
+    """Scan what the commit will carry: the staged content from the index and the staged path names. `inside`
+    runs no content check (a project, a build clone, the working copy of a public repository, whose push is
+    checked): the size limit of a text stays, and the dated owner items of a project's OPEN.md."""
     top = _toplevel(Path(repo))
     entries = [e for e in _staged_entries(top) if e[1] != "160000"]
     blobs = _read_blobs(top, [blob_id for _, _, blob_id in entries])
     out: list[Finding] = []
     for rel, _, blob_id in entries:
-        found = {Finding(rel, 0, f.cls) for f in _scan_text(rel, rel, matcher)}
+        found = set() if inside else {Finding(rel, 0, f.cls) for f in _scan_text(rel, rel, matcher)}
         data = blobs.get(blob_id)
         if data is None:
-            found.add(Finding(rel, 0, "opaque"))
+            if not inside:
+                found.add(Finding(rel, 0, "opaque"))
         else:
-            found.update(_scan_bytes(rel, data, matcher, top / rel))
+            found.update(_inside_bytes(rel, data) if inside else _scan_bytes(rel, data, matcher, top / rel))
             if Path(rel).name == "OPEN.md" and in_project((top / rel).parent):
                 found.update(_owner_dates(top, rel, data, rel))
         out.extend(sorted(found, key=_order))
@@ -1818,16 +1839,20 @@ def range_commits(repo: Path, old: str | None, new: str) -> list[str]:
     return os.fsdecode(out).split()
 
 
-def scan_commits(repo: Path, commits: list[str], matcher: Matcher | None) -> list[Finding]:
+def scan_commits(repo: Path, commits: list[str], matcher: Matcher | None, inside: bool = False) -> list[Finding]:
     """Scan a list of commits as a push is scanned: every file of every commit, as that commit has it, and the
-    author, the committer and the message of each ("commit <id>", line 0). The same checks a commit gets from
-    the commit and the push hooks; the deploy runs them over deployed..target."""
+    author, the committer and the message of each ("commit <id>", line 0): the exit check of a public repository
+    (`main` leaves the identifier class out of what it prints). With `inside` (the deploy over deployed..target)
+    no content is checked: the attribution and the size limit of a text stay (B-087)."""
     top = _toplevel(Path(repo))
     out: list[Finding] = []
     owner = _owner_identity(top)
     for commit, text in _commit_texts(top, commits).items():
         label = "commit " + commit[:10]
         lines = text.split("\n")
+        if inside:
+            out.extend(sorted({Finding(label, 0, f.cls) for f in _attribution(label, text)}, key=_order))
+            continue
         # author name and mail, committer name and mail: the owner's own identity passes, the message never does
         scanned = "\n".join([x for x in lines[:4] if x not in owner] + lines[4:]) if owner else text
         out.extend(sorted({Finding(label, 0, f.cls) for f in _scan_text(label, scanned, matcher) + _attribution(label, text)},
@@ -1843,8 +1868,11 @@ def scan_commits(repo: Path, commits: list[str], matcher: Matcher | None) -> lis
     blobs = _read_blobs(top, [blob_id for _, blob_id, _ in entries])
     for rel, blob_id, commit in entries:
         label = "%s:%s" % (commit, rel)
-        found = {Finding(label, 0, f.cls) for f in _scan_text(rel, rel, matcher)}
         data = blobs.get(blob_id)
+        if inside:
+            out.extend(_inside_bytes(label, data) if data is not None else [])
+            continue
+        found = {Finding(label, 0, f.cls) for f in _scan_text(rel, rel, matcher)}
         if data is None:
             found.add(Finding(label, 0, "opaque"))
         else:
@@ -2004,31 +2032,19 @@ def _expand(paths: Iterable[Path]) -> list[Path]:
 
 
 PROJECT_FREE = ("identifier",)
-"""The classes a commit of a Workbench project passes (task GT, 2026-10-27): a log of our own lab runs keeps its
-ids (domains, projects, users, resources, request ids, 32-hex and UUIDs). Names, secrets, private keys, tokens,
-home paths and the blocklist still refuse."""
+"""The classes `awb gate PATH` left out of a check run in a project folder (task GT, 2026-10-27): a log of our own
+lab runs keeps its ids. A commit of a project runs no content check at all (INSIDE_KEPT)."""
 
 
-ASK_CLASSES = ("secret", "private-key", "token")
-"""The classes a commit of an ask project refuses (awb/askkind.py): the secrets alone, and no register is needed."""
+EXIT_FREE = frozenset(("identifier",))
+"""The classes the exit check of a public repository does not report (B-087, the owner's word of 2026-11-25): an
+id is never a finding. The exit keeps the registered names, secrets, private keys, tokens, home paths and the
+blocklist."""
 
-
-def ask_repo(where: Path) -> bool:
-    """True when `where` lies in a project folder the owner granted the kind ask (askkind.is_ask, never a file of
-    the project)."""
-    from awb import askkind, codes
-
-    try:
-        d = Path(os.path.realpath(where))
-    except (OSError, ValueError):
-        return False
-    for c in (d, *d.parents):
-        try:
-            if codes.is_project_code(c.name) and (c / "SCOPE.md").is_file():
-                return askkind.is_ask(c)
-        except OSError:
-            return False
-    return False
+INSIDE_KEPT = frozenset(("attribution", "owner-date", "too-large"))
+"""What a check inside still reports (a commit of a project, a build clone or the working copy of a public
+repository, the deploy): a co-author line that names an assistant, an owner item without a date and a text over the
+size limit. No name, secret, key, token, path or id is looked for there; the exit checks them at the push."""
 
 
 def in_project(where: Path) -> bool:
@@ -2071,6 +2087,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--strip-attribution", action="store_true",
                     help="with --message: take a co-author or generator line naming Claude out of the message "
                          "file first instead of refusing it (the commit-msg hook of a project does the same itself)")
+    ap.add_argument("--inside", action="store_true",
+                    help="with --staged or --message: run no content check (a build clone, the working copy of a "
+                         "public repository: its push is checked). A project folder is inside without the flag")
+    ap.add_argument("--exit", action="store_true", dest="exit_check",
+                    help="with --message: the exit check of a text that goes public (names, secrets, keys, tokens, "
+                         "paths, the blocklist; no id), also in a project folder (awb pr take)")
     ap.add_argument("--selftest", action="store_true", help="prove that every class can be found")
     ap.add_argument("--register", type=Path, default=None, help="register file (default: the vault register)")
     ap.add_argument("--no-register", action="store_true",
@@ -2124,10 +2146,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     findings: list[Finding] = []
-    ask = (args.staged or args.message is not None) and not args.paths and not args.pushed \
-        and ask_repo(args.repo if args.repo is not None else Path.cwd())
+    here = args.repo if args.repo is not None else Path.cwd()
+    # a commit inside (a project, an ask project, a build clone, the working copy of a public repository) runs no
+    # content check; the exit checks (a push, a merge message) do (B-087)
+    inside = (args.staged or args.message is not None) and not args.paths and not args.pushed \
+        and not args.exit_check and (args.inside or in_project(here))
     try:
-        if args.no_register or ask:
+        if args.no_register or inside:
             register_path = None
         elif check.register_source(Path(register_path))[0] == check.MISSING:
             print("awb gate: no register found, names cannot be checked; give --register PATH or --no-register "
@@ -2137,22 +2162,24 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(matcher, check.RemoteCheck):
             matcher.ping()
         if args.staged:
-            findings.extend(_scan_staged(args.repo if args.repo is not None else Path.cwd(), matcher))
+            findings.extend(_scan_staged(here, matcher, inside))
         if args.pushed:
-            findings.extend(_scan_pushed(args.repo if args.repo is not None else Path.cwd(), updates, matcher,
-                                         args.remote or None))
+            findings.extend(_scan_pushed(here, updates, matcher, args.remote or None))
         if args.message:
             if args.strip_attribution:
                 stripped = strip_attribution(args.message)
                 if stripped:
                     print(STRIPPED_LINE % stripped, file=sys.stderr)
-            findings.extend(scan_message(args.message, matcher))
+            findings.extend(scan_message(args.message, matcher, inside))
         if args.paths:
             findings.extend(_scan_paths(_expand(args.paths), matcher))
-        if in_project(args.repo if args.repo is not None else Path.cwd()):
-            findings = [f for f in findings if f.cls not in PROJECT_FREE]
-        if ask:
-            findings = [f for f in findings if f.cls in ASK_CLASSES]
+        if inside:
+            findings = [f for f in findings if f.cls in INSIDE_KEPT]
+        elif args.paths and not (args.staged or args.pushed or args.message):
+            if in_project(here):
+                findings = [f for f in findings if f.cls not in PROJECT_FREE]
+        else:
+            findings = [f for f in findings if f.cls not in EXIT_FREE]
         lines = ["%s  %s:%d" % (f.cls, withheld_path(masked_path(f.file, matcher)), f.line) for f in findings]
     except (GateError, register.RegisterError) as err:   # check.CheckUnavailable is a RegisterError
         print("awb gate: %s" % err, file=sys.stderr)
