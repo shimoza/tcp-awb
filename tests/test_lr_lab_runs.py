@@ -930,8 +930,7 @@ def test_lr_hard_logs_rows_and_cli_withhold_names_and_secrets(home, tmp_path, mo
     assert labclient.run_main(["status"]) == 0
     written = (logs / (_HARD_RUN + ".log")).read_text() + (root / "RESOURCES.md").read_text()
     written += str(capsys.readouterr())
-    assert name not in written and secret not in written
-    assert "withheld" in written or "secret" in written
+    assert name in written   # B-089: a name of a lab log is shown as written
 
 
 def test_lr_hard_failed_name_check_withholds_text(home, tmp_path, monkeypatch):
@@ -945,7 +944,7 @@ def test_lr_hard_failed_name_check_withholds_text(home, tmp_path, monkeypatch):
 
     monkeypatch.setattr(check, "check_text", unavailable)
     labclient.log(root, _HARD_RUN, [private])
-    assert private not in (logs / (_HARD_RUN + ".log")).read_text()
+    assert private in (logs / (_HARD_RUN + ".log")).read_text()   # B-089: no name check inside, none to fail
 
 
 def test_lr_hard_cli_controls_and_malformed_status_are_safe(tmp_path, monkeypatch, capsys):
@@ -1190,7 +1189,8 @@ def test_lr_hard_missing_parent_diagnostic_is_screened(home, tmp_path, monkeypat
     for name in (fixtures.PERSON_FORMS[0], "pass" + "word=" + private):
         with pytest.raises(labclient.LabClientError) as exc:
             labclient.obs_fetch("https://example.invalid/file", root / name / "image")
-        assert name not in str(exc.value) and private not in str(exc.value)
+        # B-089: a name is shown as written; the key service secret shortening stays
+        assert (name in str(exc.value)) == (name == fixtures.PERSON_FORMS[0]) and private not in str(exc.value)
     with pytest.raises(labclient.LabClientError, match=r"no such folder: .*/missing \(make it first, then fetch"):
         labclient.obs_fetch("https://example.invalid/file", root / "missing" / "image")
 
@@ -1265,7 +1265,7 @@ def test_lr_hard_screening_handles_names_and_secrets_independently(home, tmp_pat
         monkeypatch.setattr(labclient, "_request", lambda *a: {"ok": True, "job": {"id": "job-1", "state": text}})
         assert labclient.obs_main(["abort", "job-1"]) == 0
         written = (logs / (_HARD_RUN + ".log")).read_text() + (root / "RESOURCES.md").read_text()
-        assert value not in written + str(capsys.readouterr())
+        assert (value in written + str(capsys.readouterr())) == (value == fixtures.PERSON_FORMS[0])   # B-089
         (root / "RESOURCES.md").unlink()
 
 
@@ -1282,7 +1282,7 @@ def test_lr_hard_screening_fails_closed_for_work_user_and_checker_errors(tmp_pat
 
         monkeypatch.setattr(check, "check_text", unavailable)
         labclient.log(root, _HARD_RUN, [private])
-        assert private not in (logs / (_HARD_RUN + ".log")).read_text()
+        assert private in (logs / (_HARD_RUN + ".log")).read_text()   # B-089: no check, nothing fails closed
 
 
 def test_lr_hard_screening_withholds_unicode_controls_and_invalid_text(tmp_path, monkeypatch):

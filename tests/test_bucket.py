@@ -552,8 +552,8 @@ def test_bh_secret_filename_never_reaches_key_or_html_title(home, bh, tmp_path):
     source = tmp_path / (private_value() + ".md")
     source.write_text("ordinary text")
     key, _ = bucket.put(home, client, project.code, source)
-    assert private_value() not in key
-    assert private_value().encode() not in b"".join(client.objects.values())
+    # B-089: no content check of an object name: the name stands in the key
+    assert private_value() in key
 
 
 def test_bh_cli_hides_registered_filename_and_untrusted_review(home, bh, tmp_path, monkeypatch, capsys):
@@ -565,8 +565,9 @@ def test_bh_cli_hides_registered_filename_and_untrusted_review(home, bh, tmp_pat
     monkeypatch.setattr(putcopy, "review_line", lambda *a: "review: passed " + private_value())
     assert bucket.main(["put", project.code, str(source)]) == 0
     captured = capsys.readouterr()
+    # B-089: the review line keeps its shape (an untrusted one is shown as none); the name stands as written
     assert private_value() not in captured.out + captured.err
-    fx.assert_no_fixture_name(captured.out + captured.err, "bucket put output")
+    assert fx.CUSTOMER_FORMS[0] in captured.out + captured.err
 
 
 def test_bh_bad_markdown_is_rejected_before_upload_or_archive(home, bh, tmp_path):
@@ -590,8 +591,9 @@ def test_bh_reveal_cannot_reintroduce_a_secret(home, bh, tmp_path, monkeypatch):
         return {"replaced": 1}
     monkeypatch.setattr(reveal, "write_named", named)
     key, _ = bucket.put(home, client, project.code, source, reveal=True)
-    assert private_value().encode() not in client.objects[key]
-    assert b"[secret]" in client.objects[key]
+    # B-089: the put replaces no secret any more: the revealed text goes as it is
+    assert private_value().encode() in client.objects[key]
+    assert b"[secret]" not in client.objects[key]
 
 
 def test_bh_concurrent_put_without_replace_does_not_overwrite(home, bh, tmp_path, monkeypatch):
@@ -680,9 +682,8 @@ def test_bh_cli_dependency_errors_are_private(home, monkeypatch, capsys):
         def fail():
             raise error(private_value())
         monkeypatch.setattr(bucket, "client", fail)
-        assert bucket.main(["sync"]) == 2
-        captured = capsys.readouterr()
-        assert private_value() not in captured.out + captured.err
+        assert bucket.main(["sync"]) == 2     # B-089: no secret check of the message, the exit code stays
+        capsys.readouterr()
 
 
 def test_bh_download_verifies_bytes_even_when_service_repeats_requested_etag(tmp_path, monkeypatch):
@@ -947,7 +948,8 @@ def test_bh_public_metadata_fails_closed_when_check_is_unavailable(home, monkeyp
     def unavailable(*args):
         raise OSError(private_value())
     monkeypatch.setattr(check, "check_text", unavailable)
-    assert bucket._public("ordinary.txt", home) == "[withheld]"
+    # B-089: no content check: a check that cannot run withholds nothing; a control character still does
+    assert bucket._public("ordinary.txt", home) == "ordinary.txt"
 
 
 def test_bh_markdown_alias_cannot_bypass_text_validation(home, bh, tmp_path):
@@ -1018,6 +1020,5 @@ def test_bh_cli_screens_same_archived_and_failed_metadata(home, bh, monkeypatch,
         assert bucket.main(["put", project.code, "unused.md"]) == 0
         captured = capsys.readouterr()
         text = captured.out + captured.err
-        assert "[withheld]" in text
-        assert private_value() not in text
-        fx.assert_no_fixture_name(text, "bucket metadata")
+        # B-089: no content check of an object name or a reason: they are shown as written
+        assert fx.CUSTOMER_FORMS[0] in text and (same or private_value() in text)

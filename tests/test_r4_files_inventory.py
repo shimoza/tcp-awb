@@ -81,21 +81,22 @@ def test_r4_host_lists_every_project_file_with_hashes_and_withholds_a_name(plant
     out = tmp_path / "host.tsv"
     code, stdout, err = run(["files", "inventory", "--host", "--out", str(out)], capsys)
     assert code == 0, err
-    assert "6 files of the host, 1 path withheld" in stdout
+    # B-089: the inventory goes to the owner and runs no content check: a path with a name stands as written
+    assert "6 files of the host, 0 paths withheld" in stdout
     rows = inventory.read(out)
     assert sorted((r["project"], r["path"]) for r in rows) == [
-        ("tcp-b3np", "SCOPE.md"), ("tcp-b3np", "closed.md"), ("tcp-q7m4", "SCOPE.md"), ("tcp-q7m4", "[withheld]"),
-        ("tcp-q7m4", "deliverables/offer v1.md"), ("tcp-q7m4", "deliverables/offer v2.md")]
+        ("tcp-b3np", "SCOPE.md"), ("tcp-b3np", "closed.md"), ("tcp-q7m4", "SCOPE.md"),
+        ("tcp-q7m4", "deliverables/offer v1.md"), ("tcp-q7m4", "deliverables/offer v2.md"),
+        ("tcp-q7m4", "notes for %s.md" % NAME)]
     by_path = {r["path"]: r for r in rows}
     v1, v2 = by_path["deliverables/offer v1.md"], by_path["deliverables/offer v2.md"]
     assert v1["sha256"] == hashlib.sha256(b"one\n").hexdigest() and v1["md5"] == hashlib.md5(b"one\n").hexdigest()
     assert (v1["size"], v1["suffix"], v1["place"], v1["mtime"]) == ("4", ".md", "host", "2026-10-01T08:00:00Z")
     assert v1["group"] == v2["group"] == "tcp-q7m4/offer.md" and (v2["rank"], v1["rank"]) == ("1", "2")
-    hidden = by_path["[withheld]"]
-    assert hidden["sha256"] == hashlib.sha256(b"x\n").hexdigest() and hidden["size"] == "2"
-    assert (hidden["project"], hidden["suffix"], hidden["group"], hidden["rank"]) == ("tcp-q7m4", ".md", "[withheld]", "")
+    named = by_path["notes for %s.md" % NAME]
+    assert named["sha256"] == hashlib.sha256(b"x\n").hexdigest() and named["size"] == "2"
+    assert (named["project"], named["suffix"]) == ("tcp-q7m4", ".md") and named["group"] != "[withheld]"
     assert all(r["id"].startswith("H-") for r in rows) and len({r["id"] for r in rows}) == 6
-    fixtures.assert_no_fixture_name(out.read_text(encoding="utf-8") + stdout + err, "the host inventory")
 
 
 def test_r4_host_writes_to_the_shared_files_folder_by_default(planted, capsys):
@@ -111,7 +112,9 @@ def test_r4_nothing_is_written_when_the_names_cannot_be_checked(planted, tmp_pat
     planted.register.unlink()
     out = tmp_path / "host.tsv"
     code, _, err = run(["files", "inventory", "--host", "--out", str(out)], capsys)
-    assert code == 2 and "nothing is written" in err and not out.exists()
+    # B-089: no content check, so a register that cannot be read stops nothing
+    assert code == 0, err
+    assert out.exists()
 
 
 def test_r4_one_of_host_or_buckets_is_required(planted, capsys):
@@ -123,8 +126,10 @@ def test_r4_a_withheld_path_keeps_a_known_suffix_only(home):
     rows = [filesinv._row("a\tb.md", 1, "", "", "", "", "host"),
             filesinv._row("plain.md", 1, "", "", "", "", "host"),
             filesinv._row("%s.%s" % ("x", fixtures.CUSTOMER_FORMS[1].lower()[:8]), 1, "", "", "", "", "host")]
-    assert filesinv.check(rows, home.register) == 2
-    assert [(r["path"], r["suffix"]) for r in rows] == [("[withheld]", ".md"), ("plain.md", ".md"), ("[withheld]", "")]
+    # B-089: only a path a TSV cell cannot hold (a control character) is withheld; a name in a path stands
+    assert filesinv.check(rows, home.register) == 1
+    assert [(r["path"], r["suffix"]) for r in rows][:2] == [("[withheld]", ".md"), ("plain.md", ".md")]
+    assert rows[2]["path"] == "x.%s" % fixtures.CUSTOMER_FORMS[1].lower()[:8]
 
 
 # --------------------------------------------------------------------------- the buckets
@@ -185,18 +190,19 @@ def test_r4_buckets_lists_both_buckets_with_etags_and_withholds_originals_with_a
     code, stdout, err = run(["files", "inventory", "--buckets", "--out", str(out)], capsys)
     assert code == 0, err
     rows = inventory.read(out)
-    assert "8 files of the buckets, 3 paths withheld; 3 folders not listed (no project)" in stdout
+    # B-089: the inventory goes to the owner and runs no content check: a path with a name stands as written
+    assert "8 files of the buckets, 0 paths withheld; 3 folders not listed (no project)" in stdout
     assert sorted((r["place"], r["path"]) for r in rows) == sorted([
-        ("owner-bucket", base + "in/brief.txt"), ("owner-bucket", "[withheld]"), ("owner-bucket", base + "out/offer.md"),
-        ("owner-bucket", "[withheld]"), ("owner-bucket", "inbox/plain.pdf"),
-        ("lab-bucket", "tcp-q7m4/from-session/2026-10-28/prj-0a1b2c3d4e5f"), ("lab-bucket", "[withheld]"),
-        ("lab-bucket", "inbox/scan.png")])
+        ("owner-bucket", base + "in/brief.txt"), ("owner-bucket", base + "in/%s brief.txt" % NAME),
+        ("owner-bucket", base + "out/offer.md"), ("owner-bucket", "inbox/%s.pdf" % NAME),
+        ("owner-bucket", "inbox/plain.pdf"),
+        ("lab-bucket", "tcp-q7m4/from-session/2026-10-28/prj-0a1b2c3d4e5f"),
+        ("lab-bucket", "tcp-q7m4/in/%s.docx" % NAME), ("lab-bucket", "inbox/scan.png")])
     offer = next(r for r in rows if r["path"].endswith("offer.md"))
     assert offer["md5"] == hashlib.md5(b"offer\n").hexdigest() and offer["sha256"] == ""
     assert (offer["size"], offer["mtime"], offer["project"]) == ("6", "2026-10-20T09:30:00Z", "tcp-q7m4")
     assert {r["project"] for r in rows if r["path"].startswith("inbox/")} == {inventory.NO_PROJECT}
     assert all(r["id"][0] == inventory.PLACES[r["place"]] for r in rows)
-    fixtures.assert_no_fixture_name(out.read_text(encoding="utf-8") + stdout + err, "the bucket inventory")
     assert "somewhere" not in stdout + err
 
 

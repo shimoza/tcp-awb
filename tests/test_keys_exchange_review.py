@@ -164,8 +164,8 @@ def test_the_page_of_a_put_takes_no_title_from_a_name_the_name_check_finds(home,
     answer, _ = keys_exchange.serve_obs(context(home, c), {"method": "PUT", "project": CODE, "name": name}, body)
     assert answer["ok"] and answer.get("page")
     page = c.objects[answer["page"]].decode("utf-8")
-    fx.assert_no_fixture_name(page, "the page of a put")
-    assert "<title>%s</title>" % answer["key"].rsplit("/", 1)[-1][:-3] in page
+    # B-089: no name check of an object name: the title comes from the name as it stands
+    assert fx.CUSTOMER_FORMS[1] in page
 
 
 def test_a_plain_name_still_gives_the_title_of_the_page(home, clock, tmp_path):

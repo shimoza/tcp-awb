@@ -108,12 +108,11 @@ def test_kpi_a_text_with_a_name_or_a_detector_hit_is_withheld(kpi, tmp_path, cap
     code, stdout, err = run(["report", "--codes", "--out", str(out)], capsys)
     assert code == 0, err
     rows = {r.split('","')[0].strip('"'): r.split('","') for r in lines_of(tmp_path / "projects-kpi.csv")[1:]}
-    assert rows["tcp-b3np"][3] == ledger.WITHHELD
-    assert rows["tcp-q7m4"][9].rstrip('"') == ledger.WITHHELD and rows["tcp-q7m4"][7] == "cbr, cce, ecs, obs"
-    assert "projects-kpi.csv written, 6 rows, 2 texts withheld" in stdout
-    assert json.loads((tmp_path / "projects-kpi.meta.json").read_text(encoding="utf-8"))["withheld"] == 2
-    fixtures.assert_no_fixture_name((tmp_path / "projects-kpi.csv").read_text(encoding="utf-8") + stdout + err,
-                                    "the KPI file")
+    # B-089: the KPI file goes to the owner and runs no content check: the texts stand as written
+    assert NAME in rows["tcp-b3np"][3]
+    assert rows["tcp-q7m4"][9].rstrip('"') == "md 2, pdf 1, xlsx 1" and rows["tcp-q7m4"][7] == "cbr, cce, ecs, obs"
+    assert "projects-kpi.csv written, 6 rows, 0 texts withheld" in stdout
+    assert json.loads((tmp_path / "projects-kpi.meta.json").read_text(encoding="utf-8"))["withheld"] == 0
 
 
 def test_kpi_out_named_like_the_kpi_file_is_refused(kpi, tmp_path, capsys):
@@ -146,9 +145,8 @@ def test_kpi_the_sealed_split_hands_the_file_over_and_the_owner_side_checks_it(k
     rows = lines_of(out.with_name("projects-kpi.csv"))[1:]
     assert [r.split('","')[0].strip('"') for r in rows] == [r.split('","')[0].strip('"') for r in ROWS]
     assert rows[1] == ROWS[1], "customer code and kind come from the register"
-    assert rows[4].split('","')[3] == ledger.WITHHELD and "projects-kpi.csv written, 6 rows, 1 text withheld" in stdout
-    fixtures.assert_no_fixture_name(out.with_name("projects-kpi.csv").read_text(encoding="utf-8") + stdout + err,
-                                    "the KPI file")
+    # B-089: no content check on the owner side either: the goal stands as the work side wrote it
+    assert NAME in rows[4].split('","')[3] and "projects-kpi.csv written, 6 rows, 0 texts withheld" in stdout
 
 
 @pytest.mark.parametrize("change, words", [

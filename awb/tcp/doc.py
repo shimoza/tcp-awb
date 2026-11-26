@@ -167,61 +167,21 @@ def _line_of(text: str, at: int) -> str:
     return "line %d of %d" % (text.count("\n", 0, max(at, 0)) + 1, text.count("\n") + 1)
 
 
-MASKED_LINE = "[a line withheld: a secret-like value of the page]"
-
-
-def mask_secret_lines(text: str) -> tuple[str, int]:
-    """`text` with each line that holds a secret, a token or a private key replaced by MASKED_LINE, and the count.
-    A public vendor page shows sample credentials in its examples (tcp-bytg ask 2026-11-24-4: the Veeam cmdlet
-    pages); the rest of the page is still useful. The caller checks the result again and withholds the whole page
-    when anything is left, so a value split over lines never passes."""
-    from awb import check, gate
-
-    out, n = [], 0
-    for line in text.split("\n"):
-        if any(gate.DETECTORS[cls](line) for cls in check.SECRET_CLASSES if cls != "homepath"):
-            out.append(MASKED_LINE)
-            n += 1
-        else:
-            out.append(line)
-    return "\n".join(out), n
-
-
 def private_reason(text: str) -> str | None:
-    """Why `text` is withheld, without its value: the class of the first hit and its line; None when it is public.
-    The same decision as `_public`."""
-    from awb import check, config
-
+    """Why `text` is refused, without its value: a control character and its line; None otherwise. A public page is
+    inside the DMZ and runs no content check (B-089): a name, a sample password or a key shaped value shows whole."""
     try:
         text.encode("utf-8")
         for i, c in enumerate(text):
             if unicodedata.category(c).startswith("C") and c not in "\n\t":
                 return "a control character at %s" % _line_of(text, i)
-        secrets_found = check._secret_classes(text)
-        if secrets_found:
-            return "a secret (%s)" % ", ".join(sorted(secrets_found))
-        register = config.paths().register
-        try:
-            hits = check.check_text(text, register)
-        except check.CheckUnavailable:
-            if config.is_work_user():
-                return "the name check is unavailable"
-            try:
-                register.parent.stat()
-            except FileNotFoundError:
-                hits = []
-            else:
-                return "the name check is unavailable"
-        names = sorted(h.get("start", 0) for h in hits if h.get("cls") == "name")
-        if names:
-            return "%d form(s) of the name register, the first at %s" % (len(names), _line_of(text, names[0]))
         return None
     except Exception:
         return "the check failed"
 
 
 def _public(text: str, fallback: str) -> str:
-    """Withhold private output and checker failures, with an unconfigured development fallback."""
+    """The text, or the fallback when it holds a control character."""
     return text if private_reason(text) is None else fallback
 
 
@@ -324,7 +284,7 @@ def _check_url(url, hosts, allow_query: bool = False) -> tuple[str, str, str]:
             break
         decoded = next_path
     if not _public(url, ""):
-        raise DocError("refused: private URL withheld")
+        raise DocError("refused: the URL has a control character")
     return host, path, query
 
 
@@ -950,15 +910,8 @@ def serve(req: dict, project, limiter: Limiter, ledger_dir, *, getter=https_get,
     except DocError as err:
         return {"ok": False, "error": str(err)}, None
     why = private_reason(page["text"])
-    if why is not None and why.startswith("a secret"):
-        masked, n = mask_secret_lines(page["text"])
-        lines = sum(1 for x in page["text"].split("\n") if x.strip())
-        # a page that is mostly secret-like values stays withheld whole: masking is for a sample line in a long page
-        if n and n * 3 <= lines and private_reason(masked) is None:
-            page = {**page, "text": masked + "\n\n%d line(s) withheld: a secret-like value of the page\n" % n}
-            why = None
     if why is not None:
-        return {"ok": False, "error": "refused: private documentation text withheld (%s)" % why}, None
+        return {"ok": False, "error": "refused: documentation text with a control character (%s)" % why}, None
     text = page["text"]
     data = text.encode("utf-8")
     name = None
@@ -1077,7 +1030,7 @@ def _fetch_cmd(args) -> int:
     text = head + "\n\n" + body
     why = private_reason(text)
     if why is not None:
-        print("refused: private documentation text withheld (%s)" % why, file=sys.stderr)
+        print("refused: documentation text with a control character (%s)" % why, file=sys.stderr)
         return 1
     if out is None:
         sys.stdout.write(text)
@@ -1186,7 +1139,7 @@ def check_new_host(host: str, listed: list[str] | None = None) -> str:
     if text in (current_hosts() if listed is None else listed):
         raise DocError("refused: the host is already on the list")
     if not _public(text, ""):
-        raise DocError("refused: private host withheld")
+        raise DocError("refused: the host has a control character")
     return text
 
 
@@ -1232,7 +1185,7 @@ def add_host(host: str, why: str | None = None, *, path: Path | None = None) -> 
     if len(note) > WHY_MAX or any(ord(c) < 32 or ord(c) > 126 for c in note):
         raise DocError("refused: --why is plain ASCII of at most %d characters" % WHY_MAX)
     if _public(note, "[withheld]") != note:
-        raise DocError("refused: private host note withheld")
+        raise DocError("refused: the host note has a control character")
     line = "%s  # %s%s\n" % (name, datetime.now(timezone.utc).strftime("%Y-%m-%d"), " " + note if note else "")
     try:
         f = Path(f)

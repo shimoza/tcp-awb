@@ -30,9 +30,9 @@ session: `--vm VM` runs the command in the VM with PowerShell Direct and the mac
 Administrators and SYSTEM may read it).
 
 What comes back. powershell.exe over SSH writes CLIXML progress records (`#< CLIXML`, `<Objs ...>`): they are
-stripped and the text of an error or warning record is kept. Output lands by the rules of `awb paste --own`
-(paste.own_text): ids stay, secrets are shortened or replaced, a registered name withholds the output (not printed,
-not logged). Every command, its output, every job and every transfer is logged in notes/winlab/ of the project:
+stripped and the text of an error or warning record is kept. Output lands as it is: ids stay, the key service
+secrets are shortened (awb/labsecrets.py) and no registered name withholds it (B-089, no content check inside).
+Every command, its output, every job and every transfer is logged in notes/winlab/ of the project:
 <date>-<machine>.log, a job's log in jobs/<JOB>.log. A refusal is logged with its reason, never the text.
 
 Files. put takes a regular file of the project's winlab-out/ only (no link, no hard link, no file of input/, the
@@ -720,9 +720,10 @@ def strip_clixml(text: str) -> str:
 
 
 def landed(text: str) -> tuple[str | None, str]:
-    """Output of the machine by the rules of `awb paste --own`: (the text to print and log, a note). None when a
-    registered name withholds it or the name check did not run."""
-    from awb import hooks, paste
+    """Output of the machine as it lands: (the text to print and log, a note). The key service secrets in it are
+    shortened (labsecrets.shorten); no name check and no other secret check runs (B-089). None when the output
+    exceeds the size limit."""
+    from awb import labsecrets, paste
 
     text = strip_clixml(text).replace("\r\n", "\n")
     if not text.strip():
@@ -731,12 +732,8 @@ def landed(text: str) -> tuple[str | None, str]:
     raw = text.encode("utf-8")
     if len(raw) > paste.OWN_MAX_BYTES:
         return None, "withheld: output exceeds the size limit"
-    try:
-        clean, n = paste.own_text(text)
-    except paste.PasteRefused:
-        return None, "withheld: it carries a registered name"
-    except hooks.Unavailable:
-        return None, "withheld: the name check did not run"
+    clean, counts = labsecrets.shorten(text)
+    n = sum(counts.values())
     if n:
         note = ", ".join(x for x in (note, "%d secret(s) shortened or replaced" % n) if x)
     return clean, note

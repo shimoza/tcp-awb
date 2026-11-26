@@ -101,10 +101,6 @@ def test_merge_refusals_write_nothing(home, capsys):
     assert code == 2 and "into itself" in err
     code, _, err = run(["merge", keep.id, other.id], capsys)
     assert code == 1 and "one scope" in err and "nothing was changed" in err
-    name = fixtures.PERSON_FORMS[0]
-    code, out, err = run(["merge", "--why", "said so by %s" % name, keep.id, drop.id], capsys)
-    assert code == 1 and "the reason carries hits of the name check" in err
-    fixtures.assert_no_fixture_name(out + err, "kb merge refusal")
     code, _, err = run(["merge", keep.id, "KB-ZZZZ"], capsys)
     assert code == 2 and "there is no entry KB-ZZZZ" in err
     assert {e.id: text_of(e) for e in (keep, drop, other)} == before
@@ -113,6 +109,11 @@ def test_merge_refusals_write_nothing(home, capsys):
     code, _, err = run(["merge", keep.id, drop.id], capsys)
     assert code == 1 and "%s is retired" % drop.id in err
     assert text_of(keep) == before[keep.id]
+    # B-089: a name in the reason is no refusal inside; the merge is done
+    one = new("Dedicated hosts in eu-de run one ECS flavor family only", tags=["ecs"], force_new=True)
+    two = new("Dedicated hosts in eu-de run a single ECS flavor family", tags=["ecs"], force_new=True)
+    code, out, err = run(["merge", "--why", "said so by %s" % fixtures.PERSON_FORMS[0], one.id, two.id], capsys)
+    assert code == 0 and err == "" and kb.get(two.id, home).is_retired
 
 
 def test_merge_of_two_long_sources_needs_one_source_line(home, capsys):
@@ -164,9 +165,6 @@ def test_renew_refusals_write_nothing(home, capsys):
     code, _, err = run(["renew", e.id, "--source", "the docs again"], capsys)
     assert code == 2 and "web address" in err
     url = "https://%s/obs" % fixtures.CUSTOMER_DOMAIN
-    code, out, err = run(["renew", e.id, "--source", url], capsys)
-    assert code == 1 and "the source carries hits of the name check" in err
-    fixtures.assert_no_fixture_name(out + err, "kb renew refusal")
     future = (TODAY + timedelta(days=3)).isoformat()
     code, _, err = run(["renew", e.id, "--source", "https://example.org/obs", "--checked", future], capsys)
     assert code == 2 and "future" in err
@@ -174,6 +172,10 @@ def test_renew_refusals_write_nothing(home, capsys):
     kb.retire(e.id, "withdrawn for the test")
     code, _, err = run(["renew", e.id, "--source", "https://example.org/obs"], capsys)
     assert code == 1 and "is retired" in err
+    # B-089: a name in the source is no refusal inside
+    f = new(S_KEEP, tags=["ecs"], cls="availability", checked=(TODAY - timedelta(days=40)).isoformat())
+    code, out, err = run(["renew", f.id, "--source", url], capsys)
+    assert code == 0 and err == ""
 
 
 def test_retire_from_the_expired_list(home, capsys):
@@ -214,16 +216,16 @@ def test_find_prints_the_top_and_screens_only_what_it_prints(home, capsys, monke
         seen.append(len(list(group)))
         return real(group, register_path)
 
-    monkeypatch.setattr(kb, "screen", counting)
+    monkeypatch.setattr(kb, "screen", counting)   # B-089: find runs no screen at all
     code, out, _ = run(["find", "--top", "2", "evs", "listed"], capsys)
     lines = [ln for ln in out.splitlines() if ln.startswith("KB-")]
     assert code == 0 and len(lines) == 2
     assert "4 more matches: --top N or --all prints them" in out
-    assert sum(seen) == 2
+    assert sum(seen) == 0
     seen.clear()
     code, out, _ = run(["find", "--all", "evs", "listed"], capsys)
     assert len([ln for ln in out.splitlines() if ln.startswith("KB-")]) == len(entries)
-    assert "more match" not in out and sum(seen) == len(entries)
+    assert "more match" not in out and sum(seen) == 0
     code, out, _ = run(["find", "evs"], capsys)
     assert len([ln for ln in out.splitlines() if ln.startswith("KB-")]) == len(entries)
     code, _, err = run(["find", "--top", "0", "evs"], capsys)
@@ -238,14 +240,13 @@ def test_find_fills_the_top_past_a_withheld_entry(home, capsys):
     register.add(home.register, register.next_code(entries, "ORG"), "ORG", word)
     code, out, _ = run(["find", "--top", "2", "evs", "snapshots", "listed", "daily"], capsys)
     lines = [ln for ln in out.splitlines() if ln.startswith("KB-")]
-    assert code == 0 and len(lines) == 2 and dirty.id not in out
-    assert all(any(ln.startswith(e.id) for e in clean) for ln in lines)
-    assert "1 entry withheld" in out
-    fixtures.assert_no_fixture_name(out, "kb find with a withheld entry")
+    # B-089: find withholds nothing; the entry with the later registered name is printed as written
+    assert code == 0 and len(lines) == 2 and dirty.id in out
+    assert "withheld" not in out
 
 
 def test_find_fails_closed_when_nothing_matches(home, tmp_path, monkeypatch, capsys):
     new(S_KEEP)
     monkeypatch.setenv("AWB_VAULT", str(tmp_path / "no-vault"))
     code, out, err = run(["find", "nothing", "here", "matches"], capsys)
-    assert code == 2 and "name check unavailable" in err and out == ""
+    assert code == 0 and err == "" and "no entry matches" in out    # B-089: find needs no name check

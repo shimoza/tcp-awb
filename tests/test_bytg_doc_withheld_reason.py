@@ -1,8 +1,8 @@
-"""awb doc fetch says why it withholds a page, never the value (ask 2026-11-22-tcp-bytg-1).
+"""awb doc fetch says why it refuses a page, never the value (ask 2026-11-22-tcp-bytg-1).
 
 A public vendor page was refused with "private documentation text withheld" and the project could not tell which
-word was taken as private. The refusal now names the class of the first hit and its line. The name check is a
-stand-in here.
+word was taken as private. B-089: a page runs no content check inside; only a control character is refused, and the
+refusal names its line.
 """
 from __future__ import annotations
 
@@ -18,11 +18,10 @@ def _hits(monkeypatch, hits):
 
 
 def test_bytg_a_name_hit_is_named_by_class_and_line_never_by_value(monkeypatch):
+    # B-089: a registered form of a page is shown as written
     _hits(monkeypatch, [{"start": PAGE.index("wordx"), "length": 5, "cls": "name"}])
-    why = doc.private_reason(PAGE)
-    assert why == "1 form(s) of the name register, the first at line 3 of 5"
-    assert "wordx" not in why
-    assert doc._public(PAGE, "") == ""
+    assert doc.private_reason(PAGE) is None
+    assert doc._public(PAGE, "") == PAGE
 
 
 def test_bytg_a_public_page_has_no_reason_and_stays_whole(monkeypatch):
@@ -32,8 +31,9 @@ def test_bytg_a_public_page_has_no_reason_and_stays_whole(monkeypatch):
 
 
 def test_bytg_a_secret_is_named_by_its_class(monkeypatch):
+    # B-089: a sample password of a vendor page is shown whole
     monkeypatch.setattr(check, "_secret_classes", lambda text: {"password"})
-    assert doc.private_reason(PAGE) == "a secret (password)"
+    assert doc.private_reason(PAGE) is None
 
 
 def test_bytg_a_control_character_is_named_with_its_line():

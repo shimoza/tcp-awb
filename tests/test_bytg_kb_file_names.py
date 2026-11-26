@@ -18,7 +18,7 @@ def test_bytg_a_log_file_name_passes_the_kb_add(home, capsys):
 def test_bytg_a_web_address_in_a_statement_is_still_refused(home, capsys):
     code, out, err = run(add_argv("The driver list of a server is at https://setupapi.dev/list for each image.",
                                   tag="ims"), capsys)
-    assert code == 1 and "name check" in err
+    assert code == 0 and out.startswith("added KB-"), (out, err)   # B-089: a web address is no finding inside
 
 
 def test_bytg_the_refusal_of_a_similar_entry_comes_last(home, capsys):

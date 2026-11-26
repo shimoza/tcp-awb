@@ -686,19 +686,19 @@ def test_the_ui_runs_come_from_a_temporary_queue_and_a_registered_form_in_a_summ
     assert [r["id"] for r in runs] == ["ui-20261008-003", "ui-20261008-002", "ui-20261008-001"]
     assert runs[0]["created"] == "2026-10-08T11:00:00+00:00" and runs[0]["summary"] is None \
         and runs[0]["withheld"] is None
-    assert runs[1]["summary"] is None and runs[1]["withheld"] == "name"
+    # B-089: the status goes to the owner and runs no content check: the summary shows as written
+    assert runs[1]["summary"] == "Built the page for %s." % form and runs[1]["withheld"] is None
     assert runs[2]["summary"] == "Updated [file] and [file] for the owner routes." and runs[2]["withheld"] is None
     doc = status_doc(ui_runs=runs)
     out = tmp_path / "status.json"
     assert owner.write(doc, out) == "passed"
     code, body = owner_actions.answer("/api/ui-runs", owner_actions.read_status(out), time.time())
     text = json.dumps(body)
-    assert code == 200 and [r["withheld"] for r in body["runs"]] == [None, "name", None]
-    for f in fx.ALL_REGISTERED:
-        assert f not in text
+    assert code == 200 and [r["withheld"] for r in body["runs"]] == [None, None, None]
+    assert form in text
     for leak in ("architect-workbench", "ui-tasks", "Task text", "Detail text", "Limit text", "six pages"):
         assert leak not in text, leak
-    # a check that cannot run withholds every summary
+    # a check that cannot run withholds nothing: there is none
     from awb.tcp.web import publish
 
     def refused():
@@ -706,8 +706,7 @@ def test_the_ui_runs_come_from_a_temporary_queue_and_a_registered_form_in_a_summ
 
     monkeypatch.setattr(publish, "name_matcher", refused)
     runs = owner.ui_runs(queue, screen=owner.summary_screen())
-    assert [(r["summary"], r["withheld"]) for r in runs] == [(None, None), (None, "unavailable"),
-                                                            (None, "unavailable")]
+    assert [r["withheld"] for r in runs] == [None, None, None] and runs[1]["summary"]
     # a summary and a class together, a long or multi-line summary or another class word never pass the shape
     for bad in ({"summary": "x", "withheld": "name"}, {"summary": "x" * 301, "withheld": None},
                 {"summary": "a\nb", "withheld": None}, {"summary": None, "withheld": "homepath"}):

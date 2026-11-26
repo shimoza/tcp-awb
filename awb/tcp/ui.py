@@ -4,13 +4,12 @@
     awb ui status [--ended] [--limit N]
     awb ui watch ID [--mail] [--interval S] [--timeout S]
 
-`submit` checks the task file (the form of presentations/ui-tasks/: the file is named by its ID, the first line
-is "UI task <ID>: ...", the scope is architect-workbench.html only; no registered name, secret, token, private key,
-home path or blocklisted name), hands it to the bridge of the queue and starts `watch` in the background. `watch`
-waits until the run leaves queued and running and writes <tasks>/<ID>.result.md: the state, validation.txt, the
+`submit` checks the shape of the task file (the form of presentations/ui-tasks/: the file is named by its ID, the
+first line is "UI task <ID>: ...", the scope is architect-workbench.html only; no content check), hands it to the
+bridge of the queue and starts `watch` in the background. `watch` waits until the run leaves queued and running and writes <tasks>/<ID>.result.md: the state, validation.txt, the
 summary and the limitations of result.json, the size of change.diff and the publish command (`awb web publish`,
 T6). With --mail it also sends a mail through the SMN topic of keys.conf, by the key service, as `awb xchg put`
-does. A text of the run that the checks find something in is withheld from the note with its class only.
+does. The texts of the run stand in the note as the run wrote them (B-089).
 
 `status` prints one line per run: id, state and finish time. `status --ended` prints one line for every run that
 ended since the last `--ended` and nothing else: the owner session runs it at the start of every reply while a run
@@ -36,11 +35,10 @@ import sqlite3
 import subprocess
 import sys
 import time
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from awb import check, config, gate, register
+from awb import config
 from awb.tcp.web import publish
 
 CONF = Path(".config/awb/ui.conf")              # under the owner's home
@@ -50,8 +48,6 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")   # the ids the bridge accepts
 SCOPE = "Scope: architect-workbench.html only"
 MAX_TASK = 32768
 OPEN = ("queued", "running")
-TASK_CLASSES = ("name", "secret", "token", "private-key", "homepath", "blocklist")
-NOTE_CLASSES = ("name", "secret", "token", "private-key")
 PUBLISHABLE = {True: "completed", False: "ready"}      # apply_changes -> the state a publishable run is in
 INTERVAL = 20.0
 TIMEOUT = 2 * 24 * 3600.0
@@ -141,24 +137,9 @@ def _time(value: str | None) -> str:
 # --------------------------------------------------------------------------- the checks
 
 
-def _matcher():
-    """The name check of this user, or None with the reason when it cannot run."""
-    try:
-        return publish.name_matcher(), None
-    except publish.Refused as err:
-        return None, str(err)
-    except (check.CheckUnavailable, register.RegisterError):
-        return None, "the name check cannot run: is the vault unlocked?"
-
-
-def findings(text: str, matcher, classes: tuple[str, ...]) -> list[str]:
-    """The classes found in `text`, each with its count of lines."""
-    counts = Counter(f.cls for f in gate._scan_text("task", text, matcher) if f.cls in classes)
-    return ["%s: %d line%s" % (c, counts[c], "" if counts[c] == 1 else "s") for c in classes if counts[c]]
-
-
-def check_task(path: Path, matcher) -> tuple[str, str]:
-    """(id, text) of a task file that may go to the queue; UiError names what is wrong."""
+def check_task(path: Path) -> tuple[str, str]:
+    """(id, text) of a task file that may go to the queue; UiError names what is wrong. The shape only: no content
+    check (B-089)."""
     job_id = path.stem
     if path.suffix != ".txt" or not ID_RE.match(job_id):
         raise UiError("the task file must be named <ID>.txt with an id of 3-80 lowercase letters, digits or hyphens")
@@ -175,12 +156,6 @@ def check_task(path: Path, matcher) -> tuple[str, str]:
         raise UiError("the first line must be: UI task <ID>: <what changes>, with the id of the file name")
     if SCOPE not in text:
         raise UiError("the task must say: %s" % SCOPE)
-    try:
-        found = findings(text, matcher, TASK_CLASSES)
-    except check.CheckUnavailable:
-        raise UiError("the name check cannot run: is the vault unlocked?") from None
-    if found:
-        raise UiError("the task file is refused: " + "; ".join(found))
     return job_id, text
 
 
@@ -234,17 +209,10 @@ def _validation_word(validation: str | None) -> str:
     return "PASS" if validation.startswith("PASS") else "not PASS"
 
 
-def note_text(row: dict, matcher, why_unchecked: str | None = None) -> str:
-    """The result note of an ended run. Every text the run produced is checked; one with a finding is withheld."""
+def note_text(row: dict) -> str:
+    """The result note of an ended run. The texts the run produced stand as written: no content check (B-089)."""
     run = publish.queue_dir() / "runs" / row["id"]
     result = _result(run)
-
-    def checked(text: str) -> str:
-        try:
-            found = findings(text, matcher, NOTE_CLASSES)
-        except check.CheckUnavailable:
-            found = []
-        return "(withheld: %s; read it in the run folder)" % "; ".join(found) if found else text
 
     validation = _read_text(run / "validation.txt")
     summary = result.get("summary") if isinstance(result.get("summary"), str) else None
@@ -255,24 +223,21 @@ def note_text(row: dict, matcher, why_unchecked: str | None = None) -> str:
     out.append("- %s." % ("Applies to the local source" if row["apply_changes"] else "Candidate only"))
     out.append("- Run folder: runs/%s in the queue folder." % row["id"])
     if row.get("detail"):
-        out.append("- Detail: %s" % checked(row["detail"].strip()))
-    if why_unchecked:
-        out.append("- The name check did not run (%s); secrets and keys were checked." % why_unchecked)
-    out += ["", "## Validation", "", checked(validation.strip()) if validation else "None: the run wrote no "
-            "validation.txt.", "", "## Summary", "", checked(summary) if summary else "None in result.json.", "",
+        out.append("- Detail: %s" % row["detail"].strip())
+    out += ["", "## Validation", "", validation.strip() if validation else "None: the run wrote no "
+            "validation.txt.", "", "## Summary", "", summary if summary else "None in result.json.", "",
             "## Limitations", ""]
-    out += ["- %s" % checked(x) for x in limits] or ["None in result.json."]
+    out += ["- %s" % x for x in limits] or ["None in result.json."]
     out += ["", "## Change", "", _diff_size(run / "change.diff"), "", "## Publish", "", _publish_line(row, validation),
             ""]
     return "\n".join(out)
 
 
 def write_note(row: dict) -> Path:
-    matcher, why = _matcher()
     path = note_path(row["id"])
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(".%s.tmp" % path.name)
-    tmp.write_text(note_text(row, matcher, why), encoding="utf-8")
+    tmp.write_text(note_text(row), encoding="utf-8")
     tmp.replace(path)
     return path
 
@@ -318,10 +283,7 @@ def spawn_watch(job_id: str, mail: bool) -> Path:
 
 def _submit(a) -> int:
     path = Path(a.taskfile).absolute()
-    matcher, why = _matcher()
-    if matcher is None:
-        raise UiError(why)
-    job_id, _ = check_task(path, matcher)
+    job_id, _ = check_task(path)
     argv = [sys.executable, str(bridge_path()), "submit", "--id", job_id, "--file", str(path)]
     if a.candidate_only:
         argv.append("--candidate-only")

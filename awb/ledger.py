@@ -253,13 +253,14 @@ def clean_code(value, what: str) -> str:
 
 
 def _detectors() -> dict:
-    """The pattern detectors of the commit gate (secret, token, home path, old grammar, identifier)."""
+    """The pattern detectors of an exit check (secret, private key, token, home path, blocklist). The identifier class
+    is never a finding (B-089)."""
     try:
         from awb import gate
     except ImportError:
         raise LedgerError("pattern checks unavailable") from None
     detectors = getattr(gate, "DETECTORS", {})
-    expected = {"secret", "private-key", "token", "homepath", "blocklist", "identifier"}
+    expected = {"secret", "private-key", "token", "homepath", "blocklist"}
     if not isinstance(detectors, dict) or not expected.issubset(detectors):
         raise LedgerError("pattern checks unavailable")
     return {cls: detectors[cls] for cls in expected}
@@ -293,7 +294,7 @@ def _check_reason(err: Exception) -> str:
 def _name_hits(text: str, reg: Path | None) -> list:
     from awb import check
 
-    hits = check.check_text(text, reg)
+    hits = check.check_text(text, reg, entry=True)     # an address, a host name and a URL are no finding (B-089)
     if not isinstance(hits, list):
         raise LedgerError("invalid name check response")
     return hits

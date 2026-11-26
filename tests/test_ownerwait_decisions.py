@@ -323,8 +323,8 @@ def test_mail_refuses_if_check_becomes_unavailable_after_probe(home, monkeypatch
         raise ledger.LedgerError("private detail")
 
     monkeypatch.setattr(ledger, "hit_indexes", unavailable)
-    # the mail leaves the host (an exit of the DMZ): it keeps the name check
-    assert ownerwait.mail(home, lambda *a: pytest.fail("unchecked mail")) == "not sent: the name check cannot run"
+    # B-089: the owner mail is inside, so a check that cannot run stops nothing
+    assert ownerwait.mail(home, lambda *a: True) == "sent"
 
 
 def test_status_bad_container_types_raise_value_free_errors(tmp_path):
@@ -402,7 +402,8 @@ def test_ui_summary_checks_full_text_before_truncation(home, tmp_path):
     plain = tmp_path / "queue"
     queue.rename(plain)
     rows = owner.ui_runs(plain, screen=owner.summary_screen())
-    assert len(rows) == 1 and rows[0]["summary"] is None and rows[0]["withheld"] == "name"
+    # B-089: the status goes to the owner and runs no content check: the summary shows (cut) and nothing is withheld
+    assert len(rows) == 1 and rows[0]["summary"] and rows[0]["withheld"] is None
 
 
 def test_ui_runs_refuse_linked_validation_and_summary(tmp_path):
@@ -421,10 +422,10 @@ def test_ui_runs_refuse_linked_validation_and_summary(tmp_path):
 def test_status_json_uses_name_check_and_does_not_echo_failures(home, monkeypatch, capsys):
     monkeypatch.setattr(config, "is_work_user", lambda: False)
     monkeypatch.setattr(owner, "collect", lambda: _status(decisions=[_row(text=fx.CUSTOMER_FORMS[0])]))
-    assert owner.main(["status", "--json"]) == 1
+    # B-089: the status goes to the owner and runs no content check: a name in a decision is written as it stands
+    assert owner.main(["status", "--json"]) == 0
     captured = capsys.readouterr()
-    assert captured.out == ""
-    fx.assert_no_fixture_name(captured.err)
+    assert fx.CUSTOMER_FORMS[0] in captured.out and captured.err == ""
 
 
 def test_collection_oserror_is_caught_without_values(monkeypatch, capsys):

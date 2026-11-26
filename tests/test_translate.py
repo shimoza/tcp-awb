@@ -149,14 +149,15 @@ def test_owner_pronouns_are_sent_but_other_source_findings_refuse(draft, monkeyp
 
 
 def test_a_registered_name_is_never_sent(draft, monkeypatch, capsys):
-    model = FakeModel({"de": GERMAN})
+    name = fixtures.ORG_FORMS[0]
+    model = FakeModel({"de": GERMAN.replace("die Quota", "die Quota von %s" % name)})
     use(monkeypatch, model)
-    draft.write_text(SOURCE.replace("I checked the quota", "I checked the quota of %s" % fixtures.ORG_FORMS[0]),
-                     encoding="utf-8")
-    assert cli.main(["write", "translate", str(draft), "--to", "de"]) == 2
-    err = capsys.readouterr().err
-    assert "hits of the name check" in err and model.bodies == []
-    fixtures.assert_no_fixture_name(err, "the translate message")
+    draft.write_text(SOURCE.replace("I checked the quota", "I checked the quota of %s" % name), encoding="utf-8")
+    # B-089: the source goes to the model the sessions use anyway: no name check, the text is sent as written
+    assert cli.main(["write", "translate", str(draft), "--to", "de"]) == 0
+    captured = capsys.readouterr()
+    assert "hits of the name check" not in captured.err and name in model.bodies[0]["messages"][0]["content"]
+    assert (draft.parent / "offer.de.md").is_file()
 
 
 def test_without_a_model_path_the_prompt_file_is_written_and_one_line_said(draft, monkeypatch, capsys):

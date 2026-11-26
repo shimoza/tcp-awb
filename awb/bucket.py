@@ -142,15 +142,9 @@ def _serialized(function):
 
 
 def _public(text: str, p: config.Paths) -> str:
-    """Keep ordinary output readable, withholding metadata when its privacy check cannot run."""
-    from awb import check, putcopy
-    try:
-        if (not _plain(text) or any(putcopy.scrub_text(value)[1] for value in (text, text.rsplit(".", 1)[0]))
-                or check.check_text(text, p.register)):
-            return "[withheld]"
-        return text
-    except Exception:
-        return "[withheld]"
+    """Keep ordinary output readable: a text with a control character is withheld, a name or a secret in it is not
+    (B-089: no content check of a key or an object name). `p` is kept for the callers."""
+    return text if _plain(text) else "[withheld]"
 
 
 # --------------------------------------------------------------------------- settings and client
@@ -599,9 +593,8 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
         reveal: bool = False, report: list | None = None, outcome: dict | None = None) -> tuple[str, dict | None]:
     """`file` into out/ of the project's folder (created when missing). With `reveal` the real names are put back
     first, in a private temporary file on the vault side that is removed after the upload. A put never refuses a
-    file for its review state, a name or structured data (task GT): a secret is replaced with [secret] in the
-    uploaded copy and `report` receives the one line (`review: none` or `review: passed DATE`, the secrets
-    replaced).
+    file for its review state, a name, structured data or a secret (task GT, B-089: no content check): the
+    uploaded copy is the file and `report` receives the one line (`review: none` or `review: passed DATE`).
 
     Versions (task BK4, D-B1): when out/ holds a file of the same group (project, normalised stem, suffix: the rule
     of awb/inventory.py) with the size and md5 of what would go up, nothing is put and the key returned is that
@@ -625,8 +618,6 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
     name = file.name
     if not _key(name) or "/" in name:
         raise BucketError("the upload needs a plain file name")
-    if any(putcopy.scrub_text(value)[1] for value in (name, file.stem)):
-        name = "file" + (file.suffix if re.fullmatch(r"\.[a-zA-Z0-9]{1,10}", file.suffix) else "")
     key = folder + OUT + name
     page = html_key(key)
     if not replace and any(k and c.head(k) is not None for k in (key, page)):
@@ -635,7 +626,7 @@ def put(p: config.Paths, c: obs.Client, code: str, file: Path, *, replace: bool 
     done = {} if outcome is None else outcome
     done.update(same=None, archived=[], failed=[])
     stats = None
-    # what leaves is a private copy, its secrets replaced, never the path again
+    # what leaves is a private copy, never the path again
     with _directory(p.vault / "tmp", create=True):
         pass
     tmp_root = p.vault / "tmp"

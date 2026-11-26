@@ -13,10 +13,9 @@ the live projects and inbox/; reports/ and the dataset are not project files and
 (`<code>/...` of the registered projects and inbox/, with the key service's owner listing `lab_list`). No byte of an
 object is read: the etag of a single-part object is its md5, a multipart object has no hash.
 
-Every path goes through the check of a text that leaves the host (`projectfacts.export_hits`: the name check, the
-detectors of the commit gate and the candidate rule); a path with a hit is written as `[withheld]` with its id,
-size, times and hashes, which is all the matching needs. A name of in/ or inbox/ is an original: it stays withheld
-unless it passes. When the check cannot run nothing is written.
+The paths are written as they stand: the inventory goes to the owner, so it is inside and runs no content check
+(B-089). Only a path a TSV cell cannot hold (a control character) is written as `[withheld]` with its id, size,
+times and hashes, which is all the matching needs.
 
 The rows have the format of the shared module `awb/inventory.py` (the laptop inventory of `awb clean inventory`
 writes the same). By default the host goes to `<shared>/files/host-<stamp>.tsv` and the buckets to
@@ -34,7 +33,6 @@ import sys
 from pathlib import Path
 
 from awb import bucket_layout, codes, config, inventory, ledger, projects
-from awb.projectfacts import export_hits
 
 PROG = "awb files inventory"
 SKIP_DIRS = frozenset((".git", "_archive", "__pycache__", ".terraform", ".venv", "node_modules"))
@@ -178,16 +176,10 @@ def bucket_rows(p: config.Paths, c) -> tuple[list[dict], int]:
 
 
 def check(rows: list[dict], reg: Path) -> int:
-    """Every path through `export_hits`; a path with a hit, or one a TSV cell cannot hold, becomes `[withheld]`
-    and keeps its suffix only when it is a known one. Returns the count withheld. Raises InventoryError when the
-    check cannot run."""
-    bad = {i for i, row in enumerate(rows) if _CONTROL.search(row["path"])}
-    texts = ["" if i in bad else row["path"] for i, row in enumerate(rows)]
-    try:
-        hits = export_hits(texts, reg) if any(texts) else set()
-    except ledger.LedgerError as err:
-        raise InventoryError("the paths cannot be checked (%s); nothing is written" % err) from None
-    withheld = bad | set(hits)
+    """A path a TSV cell cannot hold (a control character) becomes `[withheld]` and keeps its suffix only when it is
+    a known one. No content check (B-089: the inventory goes to the owner): `reg` is kept as an ignored argument.
+    Returns the count withheld."""
+    withheld = {i for i, row in enumerate(rows) if _CONTROL.search(row["path"])}
     for i in withheld:
         rows[i]["path"] = inventory.WITHHELD
         if rows[i]["suffix"] not in KNOWN_SUFFIXES:

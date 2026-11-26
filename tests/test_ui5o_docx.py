@@ -306,9 +306,11 @@ def test_the_folder_suffix_and_screen_rules_of_awb_pdf(project, tmp_path, capsys
     secret = "pass" + "&#119;" + "ord=q7m4-private-value"
     for body in ("<p>%s</p>" % secret, '<svg viewBox="0 0 10 10"><text x="1" y="5">%s</text></svg>' % secret):
         src.write_text("<html><body>%s</body></html>" % body, encoding="utf-8")
-        assert docx.main([str(src)]) == 2
-        assert "private content refused" in capsys.readouterr().err
-        assert not src.with_suffix(".docx").exists()
+        # B-089: no content check inside, the DOCX is written
+        assert docx.main([str(src)]) == 0
+        assert not capsys.readouterr().err
+        assert src.with_suffix(".docx").exists()
+        src.with_suffix(".docx").unlink()
 
 
 def test_a_control_character_is_written_as_a_question_mark_and_counted(project, capsys):

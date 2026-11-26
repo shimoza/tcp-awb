@@ -249,16 +249,15 @@ into `screen` and so reaches every door.
 
 | Door | Where | Names from | Refuses | Masks | Passes |
 |---|---|---|---|---|---|
-| Ask question (`awb ask`, the form page) | `awb/tcp/ask.py` `screen` | register or check socket | every class | nothing | nothing |
-| Project chat (question, project files, tool answers, model answer) | `awb/tcp/web/chat_service.py` `screen` | check socket only | every class | nothing | `phone` in the answer of the public price tool only |
+| Ask question (`awb ask`, the form page) | `awb/tcp/ask.py` `screen` | none (B-089: no content check inside, `screen` is a no-op) | nothing | nothing | everything |
+| Project chat (question, project files, tool answers, model answer) | `awb/tcp/web/chat_service.py` `screen` | none (B-089: `screen` only normalises) | nothing | nothing | everything |
 | Working copy of an imported material | `awb/tcp/web/materials_api.py` `Store.checked` | register or check socket | every class | nothing | nothing |
 | Project read API (goal, project files) | `awb/tcp/web/projects_api.py` `checked` | none (B-088: no content check inside; `checked` returns the text as written and `redacted` false) | nothing | nothing | everything |
-| Owner status file and run summaries | `awb/tcp/owner.py` `name_check`, `summary_screen` | `publish.name_matcher` (register or check socket) | `publish.CLASSES`: name, secret, token, private-key | nothing | structured data and `homepath` (a status file carries times and numbers) |
+| Owner status file and run summaries | `awb/tcp/owner.py` `name_check`, `summary_screen` | none (B-089: `name_check` answers `passed`, `summary_screen` lets every text pass) | nothing | nothing | everything |
 
-A door that cannot run the name check refuses (Ask, chat, materials, projects) or writes the status as
-`unavailable` and withholds every summary (owner). Closed by this step: the Ask question now refuses the secret
-classes, the chat and the project read API now see a name behind base64 or hex and the project read API
-withholds a text with a secret class.
+Ask, the chat, the project read API and the owner status run no check (B-088 and B-089, the owner's word of 2026-11-25: the
+checks stay at the entry and at the exit). The working copy of an imported material is the entry: it refuses when the name
+check cannot run.
 
 ## `awb/gate.py`
 
@@ -639,11 +638,14 @@ expires (computed), source, tried (for a negative, `;`-separated, at least two),
 entry was withdrawn), why (one line, only then). `INDEX.md` is generated.
 
 - `awb kb add --scope S --tag T... --grade G --class C --source TEXT [--tried TEXT]... [--force-new] STATEMENT|-`
-  refuses: no English (Cyrillic letters, or more than 15 % German function words), a name (check_text, remote when
-  needed), any register code or project code, an identifier or secret (gate detectors identifier, homepath, secret,
-  token), a price (a number with EUR, € or "per hour"), a negative statement ("cannot", "not supported", "does not
+  refuses: no English (Cyrillic letters, or more than 15 % German function words), a price (a number with EUR, € or
+  "per hour"), a negative statement ("cannot", "not supported", "does not
   exist", "no ... available", "not possible", "unavailable") without two `--tried`, an unknown tag. Shows the three
-  most similar entries (word overlap) and refuses above 0.6 unless `--force-new`.
+  most similar entries (word overlap) and refuses above 0.6 unless `--force-new`. No name, structured data, code or
+  secret check runs (B-089, the knowledge base is inside): a fact is written and shown as written, and needs no register.
+  The exit is `kb.exit_screen` (run by `kb.export`, so by `awb kb export` and the dataset build): a fact with a registered
+  name, a secret, a private key, a token, a home path, a blocklist word or a code is left out and counted; an identifier,
+  an address, a host name and a URL are never findings.
 - `awb kb amend [--checked D] [--force-new] ID STATEMENT|-` replaces the statement of an entry and keeps its id,
   its scope, its tags, its grade, its class, its source and its tried texts. Every check of `add` runs again, a
   negative against the tried texts the entry carries, and the entry itself is left out of the similarity check.
@@ -756,7 +758,7 @@ negations.
 `awb write translate FILE --to de|en|ru [--to ...] [--mode mail|doc] [--scope tcp|hcs] [--verify]`
 (`awb/translate.py`) writes FILE.<lang>.md next to FILE from the accepted source (no blocking tell; a Russian
 source is exempt). The model is reached through the Ask path only (`ask.read_key`, `ask.post`, `ask.MODEL`, the
-Ask budget) after the name check of the source; without a readable key (the work user and the owner) it writes
+Ask budget) with no name check of the source (B-089); without a readable key (the work user and the owner) it writes
 `<project>/reviews/.translate/<name>.<lang>.prompt.md` and stops with one line (exit 3). `--verify` proves a
 translation the session wrote. The result passes `keep(across=True)` (else exit 1: the model's text goes to
 `<name>.<lang>.refused.md` in the prompt folder) and the writing check in the source's mode (exit 1 on a blocking
@@ -774,7 +776,7 @@ the other client files (`CLIENT_FILES`) to `~/.claude/skills/drafting/SKILL.md` 
 644) and sets the immutable flag on the file and on both skill folders. `seal/verify.sh` checks the copy and the
 flags. The work user's CLAUDE.md sends every text in his name through it.
 
-`awb voice learn DRAFT SENT`: both files are name-checked first. Writes the pair to `<shared>/voice/pairs/<date>-<n>/`
+`awb voice learn DRAFT SENT`: no content check runs on either file (B-089); the sent text of `awb voice learn DRAFT -` is still wiped by the intake. Writes the pair to `<shared>/voice/pairs/<date>-<n>/`
 and a report `<shared>/voice/suggestions-<date>.md`: words and phrases he removed (in DRAFT, not in SENT), words he
 added, the change in sentence length and in comma-before-and/or rate, and candidate additions to the banned lists
 (a removed word that occurs in two or more pairs). Nothing is added to the rules without his edit.
@@ -785,12 +787,12 @@ Per deliverable `<project>/deliverables/<name>`, a folder `<project>/reviews/<na
 
 - `awb review init DELIVERABLE --request FILE --tier 0..3 --budget WORDS [--reader TEXT]`: writes `contract.md` (the
   request as given, reader, the questions to answer as a checklist he fills, out of scope, budget, tier). The request
-  file must pass the name check.
+  No content check runs on the request (B-089).
 - `awb review claims DELIVERABLE`: writes `claims.tsv` (id, line, kind, risk, sentence up to 200 characters,
   evidence, grade, verdict) with every sentence that carries a number, a price, a negation, an identifier shaped like
   a flavor, a version, an API path or a URL. Risk high for negatives, prices, numbers that enter a total,
   identifiers. Existing rows keep their evidence and verdict when the file is written again.
-- `awb review l0 DELIVERABLE`: runs `writing.check_file` (mode from the contract), the name check, the word count
+- `awb review l0 DELIVERABLE`: runs `writing.check_file` (mode from the contract), the word count
   against the budget and the claim list: every high-risk claim needs an evidence path that exists (relative to the
   project) and a verdict of supported, contradicted or unknown; contradicted blocks; unknown blocks from tier 2.
   Prints the result, exit 1 when blocked.
@@ -1179,7 +1181,7 @@ takes `inbox/`. Client side `bucket.KeyServiceClient.lab_list(prefix, delimiter)
 
 `awb/filesinv.py` is `awb files inventory --host|--buckets [--out FILE]` over the rows of `awb/inventory.py` (R3):
 `host_rows(p) -> (rows, unreadable)`, `bucket_rows(p, client) -> (rows, folders not listed)`, `check(rows, reg) ->
-withheld` (through `projectfacts.export_hits`), `finish(rows, stamp)` (`inventory.row_id` per place,
+withheld` (no content check, B-089: a control character in a path only; `reg` is ignored), `finish(rows, stamp)` (`inventory.row_id` per place,
 `inventory.group_of`, `inventory.rank`), `make(p, kind, out, client=None, now=None) -> (files, rows, withheld, left)`,
 `md5_of_etag(etag)`, `utc_text(value)`, `main(argv)`. The owner bucket check `keys_exchange.owner_key_ok` allows a GET
 of `reports/inventory/<place>-<stamp>[-<label>].tsv` (`bucket_layout.INVENTORY_PREFIX`), the laptop inventories the
@@ -1450,7 +1452,7 @@ answers 404 Not found. for both, as it does for the Ask page and the chat. The c
   (the chat, the Ask API, the chat service's form page) and `ask.ask` (`awb ask QUESTION`, the page of a bare
   `awb-ask.service`) call it. Before every round it reads the usage record fail closed (`chat_service.budget()`),
   reserves the request's size in the day's tokens and settles it with the reported usage; the tool requests, the
-  tool answers (withheld on a hit) and the answer pass `chat_service.screen(text, paths, numeric_price, names)`.
+  tool answers and the answer pass `chat_service.screen(text, paths, numeric_price, names)`, which only normalises (B-089).
   `names=None` is the check socket only (the chat); `ask.ask` passes `check.checker(p.register)`. `turn`
   (`chat_service.Turn`) collects the tokens, the tools used and the cited facts and prices, also when the loop
   stops. `reserve_question()` counts one question or refuses with `BUDGET_SPENT`. A stop is a `ChatError` with the

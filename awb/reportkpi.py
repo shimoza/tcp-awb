@@ -22,10 +22,9 @@ register keeps). Ten columns, codes only:
 - main deliverables are the files of deliverables/ by type with counts, as `awb report --period` shows them
   ("pdf 3, md 2", "none" without one).
 
-The goal, the tags and the deliverables go through the same check as the texts of projects.csv
-(`projectfacts.export_hits`); a text with a hit is written as "(withheld by the name check)". On the owner side the
-customer code, the kind, the start date and the state come from the register again and every other cell is checked
-for its form. The sidecar carries the time written, the rows, the texts withheld, the sha256 and the release. The
+The goal, the tags and the deliverables are written as they stand, like the texts of projects.csv: no content check
+(B-089). On the owner side the customer code, the kind, the start date and the state come from the register again and
+every other cell is checked for its form. The sidecar carries the time written, the rows, the texts withheld, the sha256 and the release. The
 state of its last put is `kpi-last.json` beside `last.json` of the six-column file.
 """
 from __future__ import annotations
@@ -40,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from awb import bucket_layout, codes, config, ledger, period, projects, reportcodes
-from awb.projectfacts import export_hits, mtime_date
+from awb.projectfacts import mtime_date
 
 HEADERS = ("project code", "customer code", "kind", "goal", "start date", "close date", "state",
            "tags and technologies", "ledger entries", "main deliverables")
@@ -202,16 +201,8 @@ TEXTS = ("goal", "tags", "deliverables")
 
 
 def check(rows: list[Row], reg: Path) -> int:
-    """The goal, the tags and the deliverables of every row through `export_hits`; a text with a hit becomes
-    WITHHELD. Returns the count of texts withheld. Raises reportcodes.CodesError when the check cannot run."""
-    texts = [("" if getattr(row, f) == ledger.WITHHELD else getattr(row, f)) for row in rows for f in TEXTS]
-    try:
-        hits = export_hits(texts, reg)
-    except ledger.LedgerError as err:
-        raise reportcodes.CodesError("the texts of %s cannot be checked (%s); nothing is written" % (FILE_NAME, err)) \
-            from None
-    for i in hits:
-        setattr(rows[i // len(TEXTS)], TEXTS[i % len(TEXTS)], ledger.WITHHELD)
+    """No content check (B-089: the file goes to the owner): `reg` is kept as an ignored argument. Returns the count
+    of texts withheld, which is only one a work side of an older release withheld."""
     return sum(1 for row in rows for f in TEXTS if getattr(row, f) == ledger.WITHHELD)
 
 

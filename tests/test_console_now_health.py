@@ -284,11 +284,11 @@ def test_dev_asks_carry_codes_and_screened_titles_oldest_first(home):
     (home.shared / "notices" / "dev" / "notes.md").write_text("not an ask")
     rows = nowhealth.ask_rows(home, owner.summary_screen())
     assert [(r["code"], r["blocks"]) for r in rows] == [(CODE, False), (OTHER, True)]
-    assert rows[0]["title"] is None and rows[0]["withheld"] == "name"
+    # B-089: the status goes to the owner and runs no content check: the title shows as written
+    assert rows[0]["title"] == "contact %s about it" % fx.CUSTOMER_FORMS[0] and rows[0]["withheld"] is None
     assert rows[1] == {"code": OTHER, "file": "2026-11-18-%s-1.md" % OTHER, "title": "the import stops at 30 MB",
                        "withheld": None, "created": "2026-11-18T08:00:00Z", "blocks": True}
     status_shape.validate_lists({"dev_asks": rows})
-    fx.assert_no_fixture_name(json.dumps(rows))
 
 
 def write_queue(path: Path, rows: list[dict]) -> None:

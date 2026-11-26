@@ -103,15 +103,16 @@ def test_a_request_lens_of_another_deliverable_does_not_count(folder, tmp_path):
 def test_nothing_with_a_name_leaves_and_structured_data_is_named(folder, tmp_path):
     note = tmp_path / "notes.md"
     note.write_text("internal notes about %s\n" % FULL, encoding="utf-8")
-    assert verdict(folder, note) == review.SEND_REFUSE
-    assert verdict(folder, note, for_customer=False) == review.SEND_REFUSE
+    # B-089: no name or structured data check inside, an internal file leaves with the warning
+    assert verdict(folder, note) == review.SEND_WARN
+    assert verdict(folder, note, for_customer=False) == review.SEND_WARN
     named = tmp_path / ("plan-%s.md" % fx.CUSTOMER_FORMS[1])
     named.write_text("a plan\n", encoding="utf-8")
-    assert verdict(folder, named) == review.SEND_REFUSE
+    assert verdict(folder, named) == review.SEND_WARN
     with_iban = tmp_path / "bank.md"
     with_iban.write_text("pay to %s\n" % IBAN, encoding="utf-8")
     v, message = review.send_check(folder, with_iban, True)
-    assert v == review.SEND_WARN and "iban 1" in message
+    assert v == review.SEND_WARN and "iban" not in message
     plain = tmp_path / "plain.md"
     plain.write_text("internal notes of the day\n", encoding="utf-8")
     assert verdict(folder, plain) == review.SEND_WARN

@@ -38,15 +38,15 @@ every project; the key service runs the same intake for them, for the project's 
 project code with no customer code. "take the files from in" takes every new file of `in/`. Every refusal of a take
 is the one line of the work rules (`hold_line`). Results go back
 with `awb xchg put` into `<lab bucket>/<code>/from-session/<date>/`: never refused for a review state, a name or
-structured data (task GT), its secrets replaced with [secret], again by the key service on the bytes it received (F6). The owner gets a mail through the SMN topic of the settings
+structured data or a secret (task GT, B-089: no content check, the copy is the file). The owner gets a mail through the SMN topic of the settings
 when a session puts a file and when a take holds one.
 
 The key of a put is readable (task BK1) and the key service alone builds it: `<code>/from-session/<YYYY-MM-DD>/<kind>/
 <code>-<kind>-<lang>-<HHMM>.<ext>`, the kind word of --kind (doc without it), the language of --lang or the guess of
 awb/review.py, the UTC minute of the put, the plain extension; -2, -3 before the extension when the key is taken.
---as NAME gives `<code>-<kind>-<stem of NAME>.<ext>` when NAME is a plain name the name check passes, else the
-neutral form and one line that never names it. The service runs the name check on the --as name and the whole key
-and falls back to `<code>-doc-<lang>-<HHMM>.<ext>` on a hit. Keys of the old form `<date>/put-<hex>` stay valid for
+--as NAME gives `<code>-<kind>-<stem of NAME>.<ext>` when NAME is a plain name (no folder and no control character),
+else the neutral form `<code>-<kind>-<lang>-<HHMM>.<ext>` and one line that never names it. No name check runs on the
+--as name or on the key (B-089: an object name is inside). Keys of the old form `<date>/put-<hex>` stay valid for
 list, fetch and clean. `<code>/from-session/INDEX.md` lists every put (date, time, key, kind, lang, size, review,
 fetched), newest first; the service rewrites it on every put, on a delete and when `awb fetch` marks a key fetched.
 
@@ -55,8 +55,7 @@ since F1 step 7, still reached through this module) runs inside the key service 
 the allowed prefixes before anything is signed: `inbox/` of the lab bucket (head and list; a get, a copy and a delete
 only through `serve_take_lab`), `<code>/in/` and `<code>/from-session/` of an active project code. A put goes only to
 the key the service builds (or an old `<code>/from-session/<date>/put-<hex>`), is authorised before its bytes are
-received (F8), meets the picture rules and
-has its secrets replaced by the service. Never a policy, an ACL or another bucket.
+received (F8) and meets the picture rules. Never a policy, an ACL or another bucket.
 
 The owner's console puts a file into a project's `in/` under an id (`serve_web_put_in`, the owner's processes only);
 the session's take is the one path from there.
@@ -396,18 +395,8 @@ def _ok(answer: dict) -> dict:
 
 
 def name_problems(name: str, register: Path | None = None) -> list[str]:
-    """Why an object name must not cross: a hit of the name check in the name itself (the --as name or the
-    source name), whatever kind of file it names."""
-    from awb import check
-
-    try:
-        hits = check.check_text(name, register if register is not None else config.paths().register)
-    except Exception as err:
-        return ["the name check cannot run (%s)" % type(err).__name__]
-    if hits:
-        classes = sorted({h.get("cls", "unknown") for h in hits if isinstance(h, dict)})
-        return ["the name check found %d hit(s) in the object name: %s; put it --as a plain name" % (
-            len(hits), ", ".join(classes))]
+    """Why an object name must not cross: none (B-089: an object name is inside, no content check). The function and
+    its `register` argument stay for the callers."""
     return []
 
 
@@ -729,7 +718,6 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         raise XchgError("--image needs a reason of one line: what it shows and that you checked it for names")
     if image:
         reason = _public_text(reason, "checked image; private reason withheld")
-    secret_alias = as_name is not None and _metadata_secrets(as_name)
     with tempfile.TemporaryDirectory(prefix="awb-put-") as tmp:
         snapshot = Path(tmp) / ("source" + path.suffix)
         try:
@@ -745,12 +733,9 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
         line = putcopy.review_line(root, snapshot)
         copy = Path(tmp) / "upload"
         secrets = putcopy.scrub(snapshot, copy)
-        # task BK1: no key in the request; the key service builds the readable key from these and checks it
-        request_name = "file" + path.suffix if _metadata_secrets(name) else name
-        req = {"op": "obs", "method": "PUT", "project": code, "name": request_name, "review": line}
+        # task BK1: no key in the request; the key service builds the readable key from these
+        req = {"op": "obs", "method": "PUT", "project": code, "name": name, "review": line}
         req.update({k: v for k, v in (("kind", kind_word), ("lang", lang), ("as", as_name)) if v is not None})
-        if secret_alias:
-            req["as"] = "."  # The service supplies its neutral key and the usual fixed fallback note.
         if image:
             req.update(image=True, reason=reason)
         a = _ok(_call(req, upload=copy))
@@ -763,8 +748,6 @@ def put(path: Path, as_name: str | None = None, image: bool = False, reason: str
     # the lines of the key service are its fixed ones; they never carry the name; an --as name it did not use
     # is not repeated either
     notes = [n for n in a.get("notes") or () if n in (AS_NOT_USED, KIND_NOT_USED, INDEX_NOT_WRITTEN)]
-    if secret_alias and AS_NOT_USED not in notes:
-        notes.append(AS_NOT_USED)
     shown = _public_text(path.name if AS_NOT_USED in notes else name, "file")
     lines = ["put: %s as %s (%d bytes); the owner gets a mail" % (shown, key, a.get("size", 0))]
     lines += ["put: %s" % n for n in notes]
@@ -784,22 +767,12 @@ def get_it_line(bucket, key: str) -> str:
             "owner bucket)" % (name, key.rsplit("/", 1)[0] + "/"))
 
 
-def _metadata_secrets(text: str) -> bool:
-    from awb import putcopy
-
-    # A filename suffix can make a secret assignment look like a dotted reference to the scrubber.
-    return any(putcopy.scrub_text(value)[1] for value in (text, text.rsplit(".", 1)[0]))
-
-
 def _public_text(text: str, fallback: str) -> str:
-    """Metadata is output too. A failed name check withholds it without refusing the put."""
-    from awb import putcopy
-
-    clean, count = putcopy.scrub_text(text)
-    if count or _metadata_secrets(text) or name_problems(clean) or \
-            any(unicodedata.category(c).startswith("C") for c in clean):
+    """Metadata is output too. A text with a control character shows as `fallback`; a name or a secret in it does not
+    (B-089: no content check)."""
+    if any(unicodedata.category(c).startswith("C") for c in text):
         return fallback
-    return clean
+    return text
 
 
 def _log_image(root: Path, ident: str, reason: str) -> None:
@@ -968,7 +941,7 @@ def main_xchg(argv: list[str] | None = None) -> int:
     pt = sub.add_parser("put", help="a file into <code>/from-session/<date>/<kind>/")
     pt.add_argument("file")
     pt.add_argument("--as", dest="as_name", default=None, metavar="NAME",
-                    help="a plain file name whose stem goes into the key when the name check passes it")
+                    help="a plain file name whose stem goes into the key")
     pt.add_argument("--image", action="store_true")
     pt.add_argument("--reason", default=None)
     pt.add_argument("--internal-image", dest="mirror_image", action="store_true",

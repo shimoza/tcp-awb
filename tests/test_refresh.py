@@ -349,8 +349,8 @@ def test_hardening_apply_validates_the_whole_batch_before_writing(home):
 def test_hardening_unchecked_reasons_are_screened(home, private, capsys, tmp_path):
     assert refresh.main(["apply", str(results(tmp_path, [_unchecked(why=private)]))]) == 0
     output = capsys.readouterr()
-    assert private not in output.out + output.err
-    assert "withheld" in output.out
+    # B-089: no content check inside, the reason is shown as written
+    assert private in output.out
 
 
 def test_hardening_apply_errors_do_not_echo_dependency_values(home, monkeypatch):
@@ -467,7 +467,8 @@ def test_hardening_linked_lock_is_refused_before_running_parts(home, tmp_path, m
 def test_hardening_reports_screen_part_lines(home, monkeypatch, private):
     monkeypatch.setattr(refresh, "part_projects", lambda *a, **kw: refresh.Part("projects", [private]))
     parts, report = refresh.run(home, parts=("projects",), today=TODAY)
-    assert private not in report.read_text() + repr(parts)
+    # B-089: no content check inside, the line stands as written
+    assert private in report.read_text()
 
 
 def test_hardening_part_errors_do_not_echo_dependency_values(home, monkeypatch):
@@ -497,9 +498,9 @@ def test_hardening_worklist_screens_decoded_fields(home, monkeypatch):
     private = "pass" + "word" + "=Never" + "Publish934!"
     monkeypatch.setattr(kb, "load", lambda *a: [replace(e, source=private)])
     parts, report = refresh.run(home, parts=("knowledge",), today=TODAY)
-    assert parts[0].error
-    assert not (report.parent / "worklist.jsonl").exists()
-    assert private not in report.read_text()
+    # B-089: no content check inside, the worklist is written as it stands
+    assert not parts[0].error
+    assert (report.parent / "worklist.jsonl").exists()
 
 
 def test_hardening_benchmark_link_is_not_followed(home, tmp_path, monkeypatch):
@@ -840,6 +841,6 @@ def test_hardening_structured_secret_is_screened_before_snapshot_write(home, mon
     monkeypatch.setattr(price, "SNAPSHOT_REGIONS", ("eu-de",))
     monkeypatch.setattr(price, "fetch", lambda *a, **kw: fetched)
     parts, report = refresh.run(home, parts=("prices",), today=TODAY)
-    assert parts[0].error
-    assert not (price.snapshot_dir(home) / "eu-de" / (TODAY.isoformat() + ".json")).exists()
-    assert private not in report.read_text()
+    # B-089: no content check inside, the snapshot is written as it stands
+    assert not parts[0].error
+    assert (price.snapshot_dir(home) / "eu-de" / (TODAY.isoformat() + ".json")).exists()

@@ -192,24 +192,10 @@ def fetch_project(code, port=8182):
 
 
 def screen(text, paths, numeric_price=False, names=None):
-    """The normalised text, or ChatError: 422 for a hit, 503 when the check cannot run. `names` is where the names
-    come from; None (the chat and the Ask API) is the check socket only, `awb ask` passes check.checker."""
-    text = normalize.normalize(text).text
-    try:
-        if names is None:
-            if vault.ping(paths.check_socket) == 'locked':
-                raise ChatError('The data check is locked. Nothing was sent.')
-            # The names go to the check socket only; the secret detectors never load the register.
-            names = check.RemoteCheck(paths.check_socket)
-        # The existing public price tool returns decimal rates and timestamps that
-        # can resemble phone numbers. This exception applies only to that tool's
-        # response, never user input, project files, history or model answers.
-        found = check.screen(text, names, allow=('phone',) if numeric_price else ()).found
-    except (check.CheckUnavailable, register.RegisterError, vault.VaultError, OSError):
-        raise ChatError('The data check is unavailable. Nothing was sent.') from None
-    if found:
-        raise ChatError(NAME_FOUND, 422)
-    return text
+    """The normalised text. No content check (B-089): the chat and the Ask API send to the model the sessions use
+    anyway, so a name, a secret or structured data goes as written and the vault is not asked. `numeric_price` and
+    `names` are kept for the callers."""
+    return normalize.normalize(text).text
 
 
 def snapshot(project):
@@ -288,10 +274,10 @@ def system_prompt(context=None):
 def engine(paths, messages, sender, key, context=None, inputs=None, tool_runner=None, names=None, turn=None,
            usage_required=True):
     """The one Ask engine: the model loop of the project chat, the Ask API, the chat's form page, the Ask page of a
-    bare awb-ask.service and `awb ask QUESTION`. Returns the screened answer with the service note; raises
+    bare awb-ask.service and `awb ask QUESTION`. Returns the answer with the service note; raises
     ChatError, or AskError from the settings, the key or `sender`. Before every round it reserves the request's
     size in the daily tokens (fail closed) and settles it with the usage the model reports. The model's tool
-    requests, every tool answer and the answer pass `screen` with `names`; a tool answer with a hit is withheld.
+    requests, every tool answer and the answer pass `screen`, which runs no content check (B-089).
     With `usage_required` off (`awb ask`) a reply without a usage record keeps its reservation instead of failing."""
     turn = Turn() if turn is None else turn
     tool_runner = tool_runner or ask.run_tool
@@ -417,20 +403,7 @@ class Conversations:
         with self.connect() as con:
             rows = [dict(r) for r in con.execute('SELECT * FROM turns WHERE project=? ORDER BY created DESC LIMIT 100', (code,))][::-1]
             total = con.execute('SELECT COUNT(*) FROM turns WHERE project=?', (code,)).fetchone()[0]
-        # Recheck persisted conversation before returning it, in case the register changed.
-        try:
-            screen('\n'.join(row['question'] + '\n' + row['answer'] for row in rows), self.paths)
-        except ChatError as e:
-            if e.status != 422:
-                raise
-            for row in rows:
-                try:
-                    screen(row['question'] + '\n' + row['answer'], self.paths)
-                except ChatError as e:
-                    if e.status != 422:
-                        raise
-                    row['question'] = '[Text withheld by the data check.]'
-                    row['answer'] = '[Text withheld by the data check.]' if row['answer'] else ''
+        # the stored conversation is returned as written (no content check inside, B-089)
         return {'project': code, 'turns': rows, 'older_turns': max(0, total - len(rows)),
                 'budget': self.budget(), 'model': ask.MODEL}
 

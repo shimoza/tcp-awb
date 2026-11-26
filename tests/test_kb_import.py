@@ -66,10 +66,10 @@ def test_a_refused_entry_is_counted_by_class_and_not_written(home, tmp_path, cap
            record("KB-GGGG", "The bucket cannot be renamed after creation.")]
     code, out, err = run(["import", str(release(tmp_path, FACTS[:1] + bad))], capsys)
     assert code == 1
-    assert "imported 1, updated 0, skipped 0 (id taken), refused 4" in out
-    assert "name 1" in err and "price 1" in err and "tag 1" in err and "negative 1" in err
-    assert fixtures.CUSTOMER_FORMS[0] not in out + err
-    assert [p.stem for p in (home.kb / "entries").glob("KB-*.md")] == ["KB-AAAA"]
+    # B-089: a name is no refusal inside; the entry with the fixture name is imported as written
+    assert "imported 2, updated 0, skipped 0 (id taken), refused 3" in out
+    assert "name" not in err and "price 1" in err and "tag 1" in err and "negative 1" in err
+    assert sorted(p.stem for p in (home.kb / "entries").glob("KB-*.md")) == ["KB-AAAA", "KB-DDDD"]
 
 
 def test_a_taken_id_is_skipped_and_never_overwritten(home, tmp_path, capsys):

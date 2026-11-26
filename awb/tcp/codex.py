@@ -9,9 +9,8 @@
 prints one line per window (5h and week), the plan type and the reset credits, and never the account id, the e-mail
 or a token. Exit 2 with one line when codex is missing or does not answer.
 
-`run` checks the task file as `awb ui submit` checks its file (no registered name, secret, token, private key, home
-path or blocklisted name) and wants a "Paths:" and an "Acceptance:" line. It makes a git worktree of REF (default
-HEAD) in <state>/<ID>/wt on the branch codex/<ID>, runs `codex exec --sandbox workspace-write --cd <wt>` with the
+`run` checks the task file as `awb ui submit` checks its file (the shape only: no content check) and wants a "Paths:"
+and an "Acceptance:" line. It makes a git worktree of REF (default HEAD) in <state>/<ID>/wt on the branch codex/<ID>, runs `codex exec --sandbox workspace-write --cd <wt>` with the
 task text on stdin and a deadline of 30 minutes, then writes <state>/<ID>/result.md: the exit, the diff stat, the
 files changed outside "Paths:" (listed as a refusal) and the run log. It never commits, pushes, merges or deletes
 the worktree: the steering session reviews the diff, runs the tests and the gate and commits as the owner. One run
@@ -38,7 +37,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import check
 from awb.tcp import ui
 
 STATE = Path(".local/state/awb-codex")          # under the home of the user who runs codex
@@ -235,15 +233,6 @@ def check_task(path: Path) -> tuple[str, str, list[str]]:
         raise CodexError('the task must have a "Paths:" line')
     if not ACCEPT_RE.search(text):
         raise CodexError('the task must have an "Acceptance:" line')
-    matcher, why = ui._matcher()
-    if matcher is None:
-        raise CodexError(why)
-    try:
-        problems = ui.findings(text, matcher, ui.TASK_CLASSES)
-    except check.CheckUnavailable:
-        raise CodexError("the name check cannot run: is the vault unlocked?") from None
-    if problems:
-        raise CodexError("the task file is refused: " + "; ".join(problems))
     paths = [p.strip().strip("`'\"").rstrip("/") for p in re.split(r"[,\s]+", found.group(1)) if p.strip("`'\",/ ")]
     if not paths:
         raise CodexError('the "Paths:" line names no path')

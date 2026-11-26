@@ -1,12 +1,14 @@
-"""What a put does to a file before it leaves (task GT, his decision of 2026-10-27).
+"""What a put does to a file before it leaves (task GT, his decision of 2026-10-27; B-089, 2026-11-25).
 
 Customer material is checked once, at the entry (awb start, intake, import, awb clean, a pasted text). After the
 entry nothing stops his work: a put (`awb bucket put`, `awb xchg put` and the key service that receives it) never
-refuses a file for its review state, a registered name or structured data. One check stays: a real secret (the
-gate classes secret, private-key and token) is replaced with [secret] in the copy that is uploaded, never in the
-file itself. The put prints one line: `review: none` or `review: passed DATE` and the secrets it replaced.
+refuses a file for its review state, a registered name, structured data or a secret, and it changes no byte: the
+copy that is uploaded is the file (B-089: the put goes to the owner and to the sessions, so it is inside and runs no
+content check; the replacing of a secret with [secret] is gone). The put prints one line: `review: none` or
+`review: passed DATE`.
 
-    scrub(src, dst)          the copy at dst with every secret replaced; the number replaced
+    scrub(src, dst)          the copy at dst, byte for byte; the number replaced, always 0
+    scrub_text(text)         the text and 0
     review_line(project, f)  "review: passed DATE" for a deliverable (or a byte copy of one) with a valid
                              record, "review: none" for anything else; it never raises
     put_line(review, n)      the one line the put prints
@@ -18,52 +20,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import zipfile
-from collections import Counter
 from pathlib import Path
-
-SECRET = "[secret]"
-SECRET_CLASSES = ("secret", "private-key", "token")
-OFFICE_SUFFIXES = (".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm", ".odt", ".ods", ".odp")
-"""Zip containers whose XML parts are scrubbed one by one."""
 
 
 def scrub_text(text: str, lines: bool = True) -> tuple[str, int]:
-    """`text` with every secret replaced and the count. The wipe of awb clean runs first; with `lines`, a line the
-    commit gate still finds a secret, a private key or a token in becomes [secret] as a whole."""
-    from awb import cleanlogs, gate
-
-    counts: Counter = Counter()
-    out = cleanlogs.wipe_secrets(text, counts)
-    n = sum(counts.values())
-    if lines:
-        found = {f.line for f in gate._scan_text("put", out, None) if f.cls in SECRET_CLASSES and f.line > 0}
-        if found:
-            rows = out.split("\n")
-            for line in sorted(found):
-                if 0 < line <= len(rows):
-                    rows[line - 1] = SECRET
-                    n += 1
-            out = "\n".join(rows)
-    return out, n
-
-
-def _scrub_office(src: Path, dst: Path) -> int:
-    n = 0
-    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
-        for info in zin.infolist():
-            data = zin.read(info)
-            if info.filename.endswith((".xml", ".rels")):
-                try:
-                    text = data.decode("utf-8")
-                except UnicodeDecodeError:
-                    text = None
-                if text is not None:
-                    new, k = scrub_text(text, lines=False)
-                    if k:
-                        data, n = new.encode("utf-8"), n + k
-            zout.writestr(info, data)
-    return n
+    """`text` as it is and 0: no secret is replaced any more (B-089). `lines` is kept for the callers."""
+    return text, 0
 
 
 def is_binary(name: str, data: bytes) -> bool:
@@ -76,34 +38,10 @@ def is_binary(name: str, data: bytes) -> bool:
 
 
 def scrub(src: Path, dst: Path) -> int:
-    """Copy `src` to `dst` with every secret replaced: a text file (UTF-8) as text, an office file part by part
-    (the copy is rewritten only when one of its XML parts holds a secret), any other binary file (pdf, image,
-    archive) byte for byte. The number of secrets replaced."""
-    src, dst = Path(src), Path(dst)
-    if src.suffix.lower() in OFFICE_SUFFIXES and zipfile.is_zipfile(src):
-        try:
-            n = _scrub_office(src, dst)
-        except (zipfile.BadZipFile, OSError, ValueError):
-            n = 0
-        if n:
-            return n
-        shutil.copyfile(src, dst)
-        return 0
-    data = src.read_bytes()
-    if is_binary(src.name, data):
-        shutil.copyfile(src, dst)
-        return 0
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        shutil.copyfile(src, dst)
-        return 0
-    new, n = scrub_text(text)
-    if n:
-        dst.write_bytes(new.encode("utf-8"))
-    else:
-        shutil.copyfile(src, dst)
-    return n
+    """Copy `src` to `dst` byte for byte, whatever the file is (B-089: no content check, no secret replaced). The
+    number of secrets replaced, always 0."""
+    shutil.copyfile(Path(src), Path(dst))
+    return 0
 
 
 def review_line(project: Path, file: Path) -> str:

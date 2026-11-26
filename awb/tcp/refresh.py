@@ -79,7 +79,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import awb
-from awb import check, codes, config, jobs, kb, offered, projects
+from awb import codes, config, jobs, kb, offered, projects
 from awb.tcp import board, dataset, mirror, price, recheck
 
 PARTS = ("mirrors", "release-notes", "prices", "knowledge", "wipe", "projects", "packages", "defaults", "dataset")
@@ -194,29 +194,23 @@ def _locked(folder: Path, name: str):
 
 
 def _public(text: str, *, allow: tuple[str, ...] = ()) -> str:
-    """Leave clean text unchanged; withhold the whole value if the secret check fails. Refresh output is our
-    own text from public sources, so it gets the secret check only, never the name check (checked once at
-    entry; a register lookup per line would also eat the per-uid check budget)."""
-    try:
-        if (len(text) <= MAX_INPUT and not any(ord(c) < 32 and c not in "\n\t" for c in text)
-                and not (check._secret_classes(text) - set(allow))):
-            return text
-    except Exception:
-        pass
+    """Leave a text unchanged; withhold the whole value only when it is longer than MAX_INPUT or holds a control
+    character. No content check: a name, a secret shaped value or an address is written as it stands (B-089);
+    `allow` is kept as an ignored argument."""
+    if len(text) <= MAX_INPUT and not any(ord(c) < 32 and c not in "\n\t" for c in text):
+        return text
     return "[withheld]"
 
 
 def _finish(part: Part) -> Part:
-    # Price records are screened before formatting; a generated percentage can look like a phone number.
-    allow = ("phone",) if part.name == "prices" else ()
-    part.lines = [_public(line, allow=allow) for line in part.lines]
+    part.lines = [_public(line) for line in part.lines]
     if part.error:
         part.error = _public(part.error)
     return part
 
 
 def _public_json(value) -> None:
-    # Check both field associations in JSON and decoded values, including escaped text.
+    # Check the size of the JSON and of the decoded values, including escaped text.
     def strings(item):
         if isinstance(item, str):
             yield item
@@ -229,9 +223,9 @@ def _public_json(value) -> None:
                 yield from strings(child)
 
     for text in (json.dumps(value, ensure_ascii=False), "\n".join(strings(value))):
-        # secrets only: control characters in a public value are cleaned where it becomes a line, not refused
-        if len(text) > MAX_INPUT or check._secret_classes(text):
-            raise kb.KBError("refresh data withheld by the output check")
+        # the size only: control characters in a public value are cleaned where it becomes a line, not refused
+        if len(text) > MAX_INPUT:
+            raise kb.KBError("refresh data withheld by the size limit")
 
 
 @dataclass
@@ -573,9 +567,6 @@ def _part_prices(p: config.Paths, *, today: datetime.date, job: jobs.Job) -> Par
                 data = {"source": f.url, "region": region, "fetched_at": f.fetched_at,
                         "cached_at": f.cached_at, "count": len(f.records), "records": [r.raw for r in f.records]}
                 _public_json({k: v for k, v in data.items() if k != "source"})
-                # The configured API URL may be local; names and secrets still cannot leave.
-                if _public(f.url, allow=("url",)) != f.url:
-                    raise kb.KBError("price source withheld by the output check")
                 _write(todays, json.dumps(data, ensure_ascii=False, sort_keys=True) + "\n")
             except price.PriceError:
                 part.lines.append("%s: no snapshot" % region)

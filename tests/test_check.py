@@ -525,22 +525,22 @@ def _owner_refuses(text) -> bool:
 
 
 def test_the_ask_door_refuses_as_before(home):
-    for cls in ("name", "hidden-name") + STRUCTURED:
-        assert _ask_refuses(home, DOOR_INPUTS[cls]), cls
+    # B-089: the Ask question runs no content check
+    for cls in ("name", "hidden-name") + STRUCTURED + SECRETS:
+        assert not _ask_refuses(home, DOOR_INPUTS[cls]), cls
     assert not _ask_refuses(home, DOOR_CLEAN)
 
 
 def test_the_chat_door_refuses_as_before(home, daemon):
     from awb.tcp.web import chat_service
 
-    for cls in ("name",) + STRUCTURED + SECRETS:
-        assert _chat_refuses(home, DOOR_INPUTS[cls]), cls
+    # B-089: the chat runs no content check, `screen` only normalises
+    for cls in ("name", "hidden-name") + STRUCTURED + SECRETS:
+        assert not _chat_refuses(home, DOOR_INPUTS[cls]), cls
     assert not _chat_refuses(home, DOOR_CLEAN)
-    # the answer of the public price tool may carry a number that reads as a phone number, nothing else
     assert chat_service.screen(DOOR_INPUTS["phone"], home, numeric_price=True) == DOOR_INPUTS["phone"]
     for cls in ("name", "ip", "mail", "iban") + SECRETS:
-        with pytest.raises(chat_service.ChatError):
-            chat_service.screen(DOOR_INPUTS[cls], home, numeric_price=True)
+        assert chat_service.screen(DOOR_INPUTS[cls], home, numeric_price=True) == normalize.normalize(DOOR_INPUTS[cls]).text
 
 
 def test_the_materials_door_refuses_as_before(home, tmp_path):
@@ -563,15 +563,12 @@ def test_the_projects_door_masks_as_before(home, daemon):
 def test_the_owner_door_refuses_as_before(home):
     from awb.tcp import owner
 
-    for cls in ("name", "hidden-name", "secret", "private-key", "token"):
-        assert _owner_refuses(DOOR_INPUTS[cls]), cls
-    for cls in STRUCTURED + ("homepath",):
+    # B-089: the owner status runs no content check
+    for cls in ("name", "hidden-name", "secret", "private-key", "token") + STRUCTURED + ("homepath",):
         assert not _owner_refuses(DOOR_INPUTS[cls]), cls
     assert not _owner_refuses(DOOR_CLEAN)
     screen = owner.summary_screen()
-    for cls in ("name", "hidden-name", "secret", "private-key", "token"):
-        assert screen(DOOR_INPUTS[cls]) == (None, "name" if cls == "hidden-name" else cls), cls
-    for cls in STRUCTURED + ("homepath",):
+    for cls in ("name", "hidden-name", "secret", "private-key", "token") + STRUCTURED + ("homepath",):
         assert screen(DOOR_INPUTS[cls]) == (DOOR_INPUTS[cls], None), cls
     assert screen(DOOR_CLEAN) == (DOOR_CLEAN, None)
 
@@ -616,9 +613,8 @@ def test_screen_fails_closed_when_the_daemon_does_not_answer(home, monkeypatch):
     monkeypatch.setattr(vault, "check_remote", down)
     with pytest.raises(check.CheckUnavailable):
         check.screen(DOOR_CLEAN, check.RemoteCheck(home.check_socket))
-    with pytest.raises(chat_service.ChatError) as err:
-        chat_service.screen(DOOR_CLEAN, home)
-    assert err.value.status == 503
+    # B-089: the chat runs no check, so a daemon that does not answer stops nothing
+    assert chat_service.screen(DOOR_CLEAN, home) == DOOR_CLEAN
     # DMZ 4: the project read API runs no check, so a daemon that does not answer stops nothing
     assert projects_api.checked(DOOR_CLEAN, home) == (DOOR_CLEAN, False)
 
@@ -628,9 +624,10 @@ def test_the_doors_now_refuse_what_another_door_already_refused(home, daemon):
     look behind base64 or hex, the project read API ran no secret detector."""
     from awb.tcp.web import projects_api
 
+    # B-089: the Ask question and the chat run no content check
     for cls in SECRETS:
-        assert _ask_refuses(home, DOOR_INPUTS[cls]), cls
-    assert _chat_refuses(home, DOOR_INPUTS["hidden-name"])
+        assert not _ask_refuses(home, DOOR_INPUTS[cls]), cls
+    assert not _chat_refuses(home, DOOR_INPUTS["hidden-name"])
     for cls in ("hidden-name",) + SECRETS:
         assert projects_api.checked(DOOR_INPUTS[cls], home) == (DOOR_INPUTS[cls], False), cls
 

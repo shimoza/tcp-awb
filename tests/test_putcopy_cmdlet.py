@@ -18,4 +18,5 @@ def test_a_value_that_only_looks_like_a_cmdlet_is_still_replaced():
     for text, value in ((KEY + ' = "New-Object"\n', "New-Object"), (KEY + ": New-Object\n", "New-Object"),
                         ("sec" "ret = " + WORD + " more\n", WORD)):
         out, n = putcopy.scrub_text(text)
-        assert n >= 1 and value not in out, text
+        # B-089: the put replaces no secret any more: the text stands and nothing is counted
+        assert n == 0 and out == text and value in out, text

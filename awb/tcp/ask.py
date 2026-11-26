@@ -8,10 +8,9 @@ runs on the test tenants (`tenant_now`). The system prompt tells it to answer fr
 the entry of every fact (KB-XXXX) and the time of every price, and to say so when no checked fact answers the
 question. It never guesses a price.
 
-Before a question leaves the machine it goes through the name check (`check.screen`, through the vault daemon on a
-sealed host): a registered name, structured data or a secret stops it, the way the prompt hook stops a prompt. The
-model loop is the one Ask engine of the project chat (`chat_service.engine`): the tool requests, the tool answers
-and the answer pass the same check. The API key is read from KEY_FILE, which only the service user can read: the
+A question, the tool answers and the answer go to the model the sessions use anyway, so they are inside (B-089): no
+content check runs on them, a registered name or a secret in a question is sent as written. The model loop is the one
+Ask engine of the project chat (`chat_service.engine`). The API key is read from KEY_FILE, which only the service user can read: the
 work user's sessions never see it. A daily budget of questions and tokens (USAGE_FILE, counted from the usage every
 answer reports, an unreadable file refuses) stops the page before the credit runs out. The page answers GET (the
 form) and POST (a question, only from its own origin); it logs no question.
@@ -118,10 +117,6 @@ def run_tool(p: config.Paths, name: str, args: dict) -> str:
         from awb import kb
 
         hits = [e for _, e in kb.find(str(args.get("query", ""))[:200], where=p) if not e.is_retired][:6]
-        try:
-            hits, _ = kb.screen(hits, p.register)     # a name registered after the add never reaches the model
-        except kb.KBError:
-            return json.dumps({"error": "the name check cannot run, so no fact is handed out"})
         today = datetime.date.today().isoformat()
         return json.dumps([{"id": e.id, "fact": e.statement, "grade": e.grade, "class": e.cls, "checked": e.checked,
                             "expired": bool(e.expires and e.expires < today)} for e in hits]) or "[]"
@@ -207,26 +202,13 @@ def spend(tokens: int, questions: int = 0, today: str | None = None) -> None:
 
 
 def screen(question: str, p: config.Paths) -> None:
-    """Refuse a question with a registered name, structured data, a secret or a home path before it leaves the
-    machine (check.screen, every class refuses)."""
-    from awb import check
-
-    try:
-        found = check.screen(question, check.checker(p.register)).found
-    except Exception:
-        raise AskError("the name check did not run, so the question was not sent") from None
-    if "name" in found:
-        raise AskError("the question carries a registered name: write the code instead")
-    if set(found) & set(check.SECRET_CLASSES):
-        raise AskError("the question carries a secret, a token, a key or a home path: leave it out")
-    if found:
-        raise AskError("the question carries structured data (such as an address or a number): leave it out")
+    """No content check (B-089: the question goes to the model the sessions use anyway): a registered name, structured
+    data or a secret is sent as written. The function stays for the callers."""
 
 
 def ask(question: str, p: config.Paths | None = None, key: str | None = None, sender=None) -> dict:
     """{"answer": text, "tools": [names used], "tokens": n}. Raises AskError. The model loop is the one Ask engine of
-    the project chat (chat_service.engine) with the names of check.checker; the stops keep the words of this page."""
-    from awb import check
+    the project chat (chat_service.engine); the stops keep the words of this page."""
     from awb.tcp.web import chat_service as chat
 
     p = p or config.paths()
@@ -245,14 +227,10 @@ def ask(question: str, p: config.Paths | None = None, key: str | None = None, se
              chat.CUT_ANSWER: "the answer did not fit in the token limit (thinking counts against it): "
                               "ask a narrower question or raise AWB_ASK_MAX_TOKENS",
              chat.TOOL_LIMIT: "no answer after %d tool rounds" % MAX_ROUNDS}
-    try:
-        names = check.checker(p.register)
-    except Exception:
-        raise AskError("the name check did not run, so the question was not sent") from None
     turn = chat.Turn()
     try:
         chat.reserve_question()
-        answer = chat.engine(p, [{"role": "user", "content": question}], sender, key, names=names, turn=turn,
+        answer = chat.engine(p, [{"role": "user", "content": question}], sender, key, turn=turn,
                              usage_required=False)
     except chat.ChatError as err:
         if str(err) != chat.EMPTY_ANSWER:
@@ -307,7 +285,7 @@ def _form(question: str = "") -> str:
 def ask_page(answer: dict | None = None, question: str = "", error: str = "") -> str:
     left_q, _ = budget_left()
     body = ('<p>Answers come only from the checked facts, the live price API and the tenant snapshots, with the '
-            'entry of every fact. No customer data: a registered name is stopped before anything is sent.</p>'
+            'entry of every fact. Use codes for customers and projects.</p>'
             + _form(question))
     if error:
         body += '<p class="expired">%s</p>' % _e(error)

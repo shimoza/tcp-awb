@@ -147,10 +147,11 @@ def test_r1_a_text_with_a_name_or_a_detector_hit_is_withheld(planted, tmp_path, 
     code, stdout, err = run(["report", "--codes", "--out", str(out)], capsys)
     assert code == 0, err
     row = next(r for r in lines_of(out) if r.startswith('"tcp-b3np"'))
-    assert row.split('","')[2:4] == [ledger.WITHHELD, ledger.WITHHELD]
-    assert "2 texts withheld" in stdout
-    assert json.loads((tmp_path / "projects.meta.json").read_text(encoding="utf-8"))["withheld"] == 2
-    fixtures.assert_no_fixture_name(out.read_text(encoding="utf-8") + stdout + err, "the codes file")
+    # B-089: the codes file goes to the owner and runs no content check: the texts stand as written
+    cells = row.split('","')[2:4]
+    assert NAME in cells[0] and "phase 2" in cells[1] and ledger.WITHHELD not in row
+    assert "0 texts withheld" in stdout
+    assert json.loads((tmp_path / "projects.meta.json").read_text(encoding="utf-8"))["withheld"] == 0
 
 
 def test_r1_a_check_that_cannot_run_writes_nothing(planted, tmp_path, capsys, monkeypatch):
@@ -160,8 +161,9 @@ def test_r1_a_check_that_cannot_run_writes_nothing(planted, tmp_path, capsys, mo
     monkeypatch.setattr(ledger, "hit_indexes", broken)
     out = tmp_path / "projects.csv"
     code, _, err = run(["report", "--codes", "--out", str(out)], capsys)
-    assert code == 2 and "nothing is written" in err
-    assert not out.exists() and not (tmp_path / "projects.meta.json").exists()
+    # B-089: no content check, so a name check that cannot run stops nothing
+    assert code == 0, err
+    assert out.exists() and (tmp_path / "projects.meta.json").exists()
 
 
 def test_r1_the_default_place_is_the_state_folder_and_without_it_the_command_says_so(planted, capsys):

@@ -114,7 +114,7 @@ def test_xg1_the_name_check_itself_is_unchanged_and_a_neutral_name_passes_it(hom
     pr = projects.spawn(home, "project", GOAL, None, register_path)
     monkeypatch.chdir(pr.path)
     assert xchg.name_problems("%s-mapping-de.md" % pr.code) == []
-    assert xchg.name_problems("mapping %s.md" % FULL)
+    assert xchg.name_problems("mapping %s.md" % FULL) == []     # B-089: no name check of an object name
     assert review.propose_name(Path(pr.path), "x.md", kind_word="Bad Word") is None
     assert review.propose_name(Path(pr.path), "x.md", lang="deu") is None
     assert review.propose_name(Path(pr.path).parent, "x.md") is None
@@ -128,9 +128,9 @@ def test_xg1_a_review_command_on_a_refused_name_proposes_the_name_too(home, regi
     d.write_text(GERMAN, encoding="utf-8")
     req = tmp_path / "request.txt"
     req.write_text(REQUEST, encoding="utf-8")
-    code, _, err = run(["review", "init", str(d), "--request", str(req), "--budget", "400"], capsys)
-    assert code == 1 and "rename the file to %s-doc-de.md" % pr.code in err
-    fx.assert_no_fixture_name(err, "the review output")
+    code, out, err = run(["review", "init", str(d), "--request", str(req), "--budget", "400"], capsys)
+    # B-089: no name check inside, the file name is not refused and no neutral name is proposed
+    assert code == 0 and "rename the file" not in out + err
 
 
 def test_xg1_the_session_template_and_the_rules_tell_the_session_to_name_deliverables_so(home, register_path):

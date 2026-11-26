@@ -582,11 +582,19 @@ def test_ph_concurrent_writes_publish_complete_pdfs(project, monkeypatch):
     assert out.read_bytes() in expected and not list(src.parent.glob(".awb-pdf-*"))
 
 
+def _written(src, capsys, *args):
+    assert pdf.main([str(src), *args]) == 0
+    said = capsys.readouterr()
+    assert not said.err
+    return said.out
+
+
 def test_ph_body_secret_is_refused_before_output(project, capsys):
     secret = "pass" + "word" + "=q7m4-private-value"
     src = _hardening_source(project, secret)
-    assert secret not in _refused(src, capsys)
-    assert not src.with_suffix(".pdf").exists()
+    # B-089: no content check inside, the PDF is written
+    _written(src, capsys)
+    assert src.with_suffix(".pdf").read_bytes().startswith(b"%PDF")
 
 
 def test_ph_registered_name_is_refused_in_body(project, home, capsys):
@@ -594,8 +602,9 @@ def test_ph_registered_name_is_refused_in_body(project, home, capsys):
 
     name = fixtures.CUSTOMER_FORMS[0]
     src = _hardening_source(project, name)
-    assert name not in _refused(src, capsys)
-    assert not src.with_suffix(".pdf").exists()
+    # B-089: no name check inside, the PDF is written
+    _written(src, capsys)
+    assert src.with_suffix(".pdf").read_bytes().startswith(b"%PDF")
 
 
 def test_ph_parsed_html_cannot_join_a_private_value(project, home, capsys):
@@ -603,8 +612,9 @@ def test_ph_parsed_html_cannot_join_a_private_value(project, home, capsys):
 
     name = fixtures.CUSTOMER_FORMS[1]
     src = _hardening_source(project, "<p>" + "<b></b>".join(name) + "</p>", ".html")
-    assert name not in _refused(src, capsys)
-    assert not src.with_suffix(".pdf").exists()
+    # B-089: no name check inside, the PDF is written
+    _written(src, capsys)
+    assert src.with_suffix(".pdf").read_bytes().startswith(b"%PDF")
 
 
 def test_ph_render_screens_all_metadata_and_link_carriers(home):
@@ -617,9 +627,8 @@ def test_ph_render_screens_all_metadata_and_link_carriers(home):
                                    ([pdf.Block("p", runs=[("safe", "r", "https://example.org/?" + secret)])],
                                     "safe", pdf.AUTHOR),
                                    ([pdf.Block("grid", lines=[["safe"], [name]])], "safe", pdf.AUTHOR)]:
-        with pytest.raises(pdf.PdfError) as caught:
-            pdf.render(blocks, title, author)
-        assert name not in str(caught.value) and secret not in str(caught.value)
+        # B-089: no content check inside, every carrier renders
+        assert pdf.render(blocks, title, author).startswith(b"%PDF")
 
 
 def test_ph_private_filename_is_not_published_or_printed(project, home, capsys):
@@ -628,8 +637,9 @@ def test_ph_private_filename_is_not_published_or_printed(project, home, capsys):
     src = _hardening_source(project)
     name = fixtures.CUSTOMER_FORMS[1]
     out = project / (name + ".pdf")
-    assert name not in _refused(src, capsys, "--out", str(out))
-    assert not out.exists()
+    # B-089: no name check on the path inside, the PDF is written
+    _written(src, capsys, "--out", str(out))
+    assert out.read_bytes().startswith(b"%PDF")
 
 
 def test_ph_privacy_check_failure_is_closed_and_value_free(project, home, monkeypatch, capsys):
@@ -642,15 +652,17 @@ def test_ph_privacy_check_failure_is_closed_and_value_free(project, home, monkey
         raise RuntimeError(secret)
 
     monkeypatch.setattr(check, "check_text", fail)
-    assert secret not in _refused(src, capsys)
-    assert not src.with_suffix(".pdf").exists()
+    # B-089: the check module is not called, a failing check cannot stop the PDF
+    _written(src, capsys)
+    assert src.with_suffix(".pdf").exists()
 
 
 def test_ph_missing_register_in_existing_vault_is_refused(project, home, capsys):
     home.register.unlink()
     src = _hardening_source(project)
-    _refused(src, capsys)
-    assert not src.with_suffix(".pdf").exists()
+    # B-089: the register is not read, the PDF is written
+    _written(src, capsys)
+    assert src.with_suffix(".pdf").exists()
 
 
 def test_ph_unknown_block_error_never_echoes_kind():

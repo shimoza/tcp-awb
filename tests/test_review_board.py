@@ -123,8 +123,9 @@ def test_he_lowers_the_tier_in_the_contract_and_his_words_are_checked(home, regi
     assert review.load_contract(target).lowered == "a short answer, tier 1 is enough"
     with pytest.raises(review.ReviewError, match="below 3"):
         review.init(d, req, 3, 400, lowered="no need", force=True)
-    with pytest.raises(review.Refused):
-        review.init(d, req, 1, 400, lowered="ask %s first" % fx.CUSTOMER_FORMS[0], force=True)
+    # B-089: no name check inside, his words are written as given
+    target = review.init(d, req, 1, 400, lowered="ask %s first" % fx.CUSTOMER_FORMS[0], force=True)
+    assert fx.CUSTOMER_FORMS[0] in target.read_text(encoding="utf-8")
     review.init(d, req, 2, 400, force=True)
     assert "lowered" not in (review.review_dir(folder, "reply.md") / review.CONTRACT).read_text(encoding="utf-8")
 

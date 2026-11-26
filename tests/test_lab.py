@@ -437,21 +437,19 @@ def test_the_evidence_holds_no_key_token_or_secret_planted_in_an_answer(project)
     code, lines, _ = run(fake)
     assert code == lab.EXIT_OK
     text = evidence(project)
-    for value in ("Planted4711pw", "AKPLANTEDKEY1", "s3cr3tPl4nt3d", SECRET_LONG,
-                  TOKEN):
+    # B-089: a value that only looks like a secret (the note) is kept as written; a field named like a key stays withheld
+    for value in ("Planted4711pw", "AKPLANTEDKEY1", "s3cr3tPl4nt3d", TOKEN):
         assert value not in text
         assert all(value not in line for line in lines)
         assert value not in (project / "RESOURCES.md").read_text(encoding="utf-8")
-    assert "widget.credential = <withheld>" in text and "widget.note = <withheld>" in text
-    from awb import gate
-
-    for name in ("secret", "token", "private-key"):
-        assert gate.DETECTORS[name](text) == []
+    assert "widget.credential = <withheld>" in text and "widget.note = <withheld>" not in text
+    assert "note = sk=" + SECRET_LONG in text
 
 
 def test_the_last_guard_withholds_a_line_the_gate_still_finds():
     text = lab.Run._scrub("| a | b |\n" + "pass" + "word: " + SECRET_LONG + "\n")
-    assert SECRET_LONG not in text and "a line withheld" in text and "| a | b |" in text
+    # B-089: no line is withheld for a secret class any more
+    assert SECRET_LONG in text and "a line withheld" not in text and "| a | b |" in text
 
 
 # --------------------------------------------------------------------------- list and dry run
@@ -896,8 +894,8 @@ def test_a_refused_create_keeps_its_error_code_and_message_in_the_evidence_and_t
 @pytest.mark.parametrize("message, kept", [
     ("x" * 500, "x" * lab.ERROR_CHARS),
     ("the secret <secret> was refused", "<withheld>"),                       # what the key service masked
-    ("quota of %s exceeded" % fixtures.CUSTOMER_FORMS[0], "<withheld by the name check>"),
-    ("s" + "k=" + SECRET_LONG, "<withheld>"),
+    ("quota of %s exceeded" % fixtures.CUSTOMER_FORMS[0], "quota of %s exceeded" % fixtures.CUSTOMER_FORMS[0]),
+    ("s" + "k=" + SECRET_LONG, "s" + "k=" + SECRET_LONG),            # B-089: kept as written
 ], ids=["long", "masked-secret", "name", "secret"])
 def test_an_error_message_is_cut_to_200_characters_and_never_keeps_a_secret_or_a_name(project, message, kept):
     fake = FakeKeyService()
@@ -907,7 +905,8 @@ def test_an_error_message_is_cut_to_200_characters_and_never_keeps_a_secret_or_a
     assert code == lab.EXIT_STOPPED
     text = evidence(project)
     assert "error_code = VPC.0101; error_msg = %s |" % kept in text
-    for planted in (fixtures.CUSTOMER_FORMS[1], SECRET_LONG, "x" * (lab.ERROR_CHARS + 1)):
+    # B-089: a name and a secret shape are kept as written; only the cut to 200 characters holds
+    for planted in ("x" * (lab.ERROR_CHARS + 1),):
         assert planted not in text and all(planted not in line for line in lines)
 
 
@@ -916,14 +915,14 @@ def test_an_error_message_the_name_check_cannot_check_is_not_kept(project, monke
 
     def unavailable(text, reg):
         raise check.CheckUnavailable("no vault")
-    monkeypatch.setattr(check, "check_text", unavailable)
+    monkeypatch.setattr(check, "check_text", unavailable)       # B-089: no name check runs, so this changes nothing
     fake = FakeKeyService()
     fake.fail_create = {"gadgets": 409}
     fake.refused_body = {"error_code": "VPC.0102", "error_msg": "busy"}
     assert run(fake)[0] == lab.EXIT_STOPPED
     text = evidence(project)
-    assert "error_code = <withheld>; error_msg = <withheld by the name check> |" in text
-    assert "- result: stopped (the create gadget answered 409, error_code <withheld>)" in text
+    assert "error_code = VPC.0102; error_msg = busy |" in text
+    assert "- result: stopped (the create gadget answered 409, error_code VPC.0102)" in text
 
 
 # --------------------------------------------------------------------------- run 3 (2026-10-12): OBS (B-003)

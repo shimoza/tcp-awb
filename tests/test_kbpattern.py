@@ -86,6 +86,11 @@ def test_outside_a_project_the_card_is_refused(home, tmp_path, capsys, monkeypat
     ("Pilot von zwei Wochen mit der Datenbank und dem Archiv auf dem Host", "English"),
 ], ids=["price", "name", "code", "language"])
 def test_the_screens_of_kb_add_refuse_without_the_value(home, statement, why):
+    if why in ("name check", "code"):
+        # B-089: a name or a code is no refusal inside; the card is stored as written
+        card = add(home, statement)
+        assert kbpattern.load()[0].statement == statement and card.statement == statement
+        return
     with pytest.raises(kbpattern.Refused) as ex:
         add(home, statement)
     text = " ".join(ex.value.reasons)

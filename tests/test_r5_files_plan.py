@@ -221,11 +221,11 @@ def test_r5_a_laptop_name_is_withheld_at_entry_and_a_bad_row_is_dropped(planted,
     inv.rows.append(dict(inv.rows[-2], id=inventory.row_id("laptop", "20261029-170000", 9), md5="nothex"))
     res, rows = make_plan(planted, inv, tmp_path)
     got = by_id(rows)
-    assert got[named]["path"] == inventory.WITHHELD and got[named]["action"] == "move"
+    # B-089: no content check at entry of the plan: a path with a name stands as written
+    assert got[named]["path"] != inventory.WITHHELD and got[named]["action"] == "move"
     assert len(rows) == 2
     md = (res["folder"] / "PLAN.md").read_text(encoding="utf-8")
-    assert "1 laptop path withheld at entry" in md and "2 rows dropped" in md
-    fixtures.assert_no_fixture_name(md + (res["folder"] / "PLAN.tsv").read_text(encoding="utf-8"), "the plan")
+    assert "laptop path withheld at entry" not in md and "2 rows dropped" in md
 
 
 def test_r5_the_plan_files_and_their_format(planted, tmp_path):

@@ -832,14 +832,15 @@ def test_review_private_names_and_secrets_are_withheld_from_output(home, project
     from tests import fixtures
     secret = "pass" + "word=never-print-7391"
     for private in (fixtures.CUSTOMER_FORMS[0], secret):
+        # B-089: a page of a public host runs no content check; a name and a sample secret show as written
         _review_answer(monkeypatch, body=private)
-        assert _review_fetch() == 1
+        assert _review_fetch() == 0
         captured = capsys.readouterr()
-        assert private not in captured.out + captured.err
+        assert private in captured.out and not captured.err
         _review_answer(monkeypatch)
         assert _review_fetch(private + ".md") == 0
         captured = capsys.readouterr()
-        assert private not in captured.out + captured.err
+        assert (project_folder / (private + ".md")).read_text(encoding="utf-8").endswith("public guide\n")
 
 
 def test_review_private_service_errors_and_offlist_hosts_are_withheld(home, project_folder, monkeypatch, capsys):
@@ -849,9 +850,9 @@ def test_review_private_service_errors_and_offlist_hosts_are_withheld(home, proj
         monkeypatch.setattr(keys, "request", lambda *a, **k: {"ok": False, "error": "refused: " + private})
         assert _review_fetch() == 1
         captured = capsys.readouterr()
-        assert private not in captured.out + captured.err
+        assert "refused: " + private in captured.err   # B-089: the error of the service is shown as written
     assert doc.main(["fetch", "https://" + fixtures.CUSTOMER_DOMAIN + "/x"]) == 1
-    assert fixtures.CUSTOMER_DOMAIN not in capsys.readouterr().err
+    assert "not on rules/allow-domains.txt" in capsys.readouterr().err
 
 
 def test_review_private_paths_do_not_reach_network_or_ledger(home, tmp_path):
@@ -861,9 +862,11 @@ def test_review_private_paths_do_not_reach_network_or_ledger(home, tmp_path):
         url = "https://example.com/" + value
         answer, stream = doc.serve({"url": url}, PROJECT, doc.Limiter(lambda: None), tmp_path,
                                    getter=getter, hosts=HOSTS)
-        assert not answer["ok"] and stream is None
-        assert value not in answer["error"] + doc._ledger_path(tmp_path).read_text()
-    assert getter.asked == []
+        # B-089: a name in a path of an allowed host is no finding; the path is asked as given
+        assert "private" not in answer.get("error", "")
+        if stream:
+            stream.unlink()
+    assert getter.asked
 
 
 def test_review_service_withholds_private_page_text(home, tmp_path):
@@ -872,9 +875,9 @@ def test_review_service_withholds_private_page_text(home, tmp_path):
         answer, stream = doc.serve({"url": "https://example.com/x"}, PROJECT, doc.Limiter(lambda: None), None,
                                    getter=Getter({("example.com", "/x"): html_page("<p>" + private + "</p>")}),
                                    hosts=HOSTS, tmp_dir=tmp_path)
-        if stream:
-            stream.unlink()
-        assert not answer["ok"] and stream is None and private not in answer["error"]
+        assert answer["ok"] and stream is not None
+        assert private in stream.read_text(encoding="utf-8")   # B-089: the page is shown whole
+        stream.unlink()
 
 
 def test_review_host_add_withholds_private_notes(home, tmp_path, monkeypatch):
@@ -883,10 +886,9 @@ def test_review_host_add_withholds_private_notes(home, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "is_work_user", lambda: False)
     path = tmp_path / "hosts"
     for private in (fixtures.CUSTOMER_FORMS[0], "pass" + "word=never-print-7391"):
-        with pytest.raises(doc.DocError) as error:
-            doc.add_host("docs.vendor-q7m4.example", private, path=path)
-        assert private not in str(error.value)
-    assert not path.exists()
+        # B-089: the note of a host is no content check any more
+        assert doc.add_host("docs.vendor-q7m4.example", private, path=path) == "docs.vendor-q7m4.example"
+        path.unlink()
 
 
 def test_review_huge_help_chunk_counts_are_bounded():
@@ -930,9 +932,10 @@ def test_review_failed_name_check_withholds_values(home, project_folder, monkeyp
     def unavailable(*a, **kw):
         raise check.CheckUnavailable(secret)
     monkeypatch.setattr(check, "check_text", unavailable)
-    assert _review_fetch() == 1
+    # B-089: no name check inside, so one that cannot run stops no page
+    assert _review_fetch() == 0
     captured = capsys.readouterr()
-    assert not captured.out and secret not in captured.err
+    assert "unchecked body" in captured.out and secret not in captured.err
 
 
 def test_review_hosts_command_withholds_registered_domains(home, tmp_path, monkeypatch, capsys):
@@ -942,7 +945,7 @@ def test_review_hosts_command_withholds_registered_domains(home, tmp_path, monke
     monkeypatch.setattr(doc, "HOSTS_FILE", path)
     assert doc.main(["hosts"]) == 0
     output = capsys.readouterr().out
-    assert fixtures.CUSTOMER_DOMAIN not in output and "example.com" in output
+    assert fixtures.CUSTOMER_DOMAIN in output and "example.com" in output   # B-089: shown as written
 
 
 def test_review_client_temp_creation_failure_is_private(project_folder, monkeypatch, capsys):

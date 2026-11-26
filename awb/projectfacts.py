@@ -4,8 +4,8 @@
 - `git_dates`: the committer dates of the project's own repository, optionally of some paths;
 - `mtime_date`: the day a file was last written;
 - `status_of`: the text of the Status line of STATE.md;
-- `export_hits`: the stronger check of a text that leaves the host (the codes file): the name check, the secret
-  and pattern detectors of the commit gate and the candidate rule of short texts.
+- `export_hits`: the stronger check of a text that leaves the host (the release screen of a solutions package): the
+  name check, the secret and pattern detectors of the commit gate and the candidate rule of short texts.
 
 Codes only: a message carries counts, never a text.
 """
@@ -63,8 +63,9 @@ def status_of(folder: Path) -> str:
 
 def export_hits(texts: list[str], reg: Path) -> set[int]:
     """Indexes of the texts that must not leave the host: a hit of the name check (one call over all texts first),
-    of the gate detectors (secrets, tokens, home paths, the blocklist, identifiers) or of the candidate rule of short
-    texts (a name that is not registered). Raises LedgerError when the name check cannot run."""
+    of the gate detectors (secrets, private keys, tokens, home paths, the blocklist) or of the candidate rule of short
+    texts (a name that is not registered). An identifier, an address, a host name and a URL are no finding (B-089).
+    Only the exit of the solutions packages uses it. Raises LedgerError when the name check cannot run."""
     from awb import intake
 
     idx = [i for i, t in enumerate(texts) if t]

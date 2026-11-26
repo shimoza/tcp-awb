@@ -35,8 +35,8 @@ cannot place keeps its row as live with one line for the owner; the command then
 The evidence goes to `evidence/lab-<recipe>-<date>-<n>.md` of the project: the question, the parameters, every
 call (method, service, path, the answer's status and the fields the steps and checks read; for a refused or failed
 call also its error code and the first 200 characters of its error message), the check results, the teardown proof,
-the time and the resource count. Ids appear as handles; a field whose name or value looks like a key, a token or a
-secret is withheld, and an error message in which the name check finds a name (or that it cannot check) too. When
+the time and the resource count. Ids appear as handles; a field whose name looks like a key, a token or a secret is
+withheld, and a value the key service masked. No name check and no secret check of a value runs. When
 every check passed and nothing is left, the evidence and the output end with a ready `awb kb add` line with the
 grade live and the evidence path as its source.
 
@@ -1045,7 +1045,7 @@ class Run:
 
     def _keep_error(self, record: CallRecord, answer: dict, phase: str) -> None:
         """The error code and the start of the error message of a refused or failed answer, in the fields of its
-        call: cleaned like every field, the message also through the name check. A 404 of the teardown proves a
+        call: cleaned like every field (no name check, B-089). A 404 of the teardown proves a
         resource gone and keeps nothing; a later answer of a poll replaces what an earlier one kept."""
         record.fields.pop("error_code", None)
         record.fields.pop("error_msg", None)
@@ -1056,23 +1056,10 @@ class Run:
         code, msg = error_of(answer)
         if code:
             code = self._clean("error_code", code) if _CODE_RE.match(code) else "<withheld>"
-            if code != "<withheld>" and not self._names_clean(code):
-                code = "<withheld>"
             record.fields["error_code"] = record.error_code = code
         if msg:
             msg = self._clean("error_msg", msg[:ERROR_CHARS], limit=ERROR_CHARS)
-            if msg != "<withheld>" and not self._names_clean(msg):
-                msg = "<withheld by the name check>"
             record.fields["error_msg"] = msg
-
-    def _names_clean(self, text: str) -> bool:
-        """True when the name check finds nothing in `text`; False when it finds a name or cannot run."""
-        from awb import check, config
-
-        try:
-            return not check.check_text(text, config.paths().register)
-        except Exception:                   # CheckUnavailable, RegisterError: unchecked text is not kept
-            return False
 
     def _said(self, record: CallRecord) -> str:
         """The status of a call for a stop line, with the error code when the answer carried one."""
@@ -1083,17 +1070,16 @@ class Run:
         return int(answer.get("status") or 0) if answer.get("ok") else 0
 
     def _clean(self, name: str, value, limit: int = 120) -> str:
-        """A value for the evidence: withheld when its field name or its text looks like a key, a token or a
-        secret; ids as handles."""
-        from awb import gate
-
+        """A value for the evidence: withheld when its field name looks like a key, a token or a secret or when the
+        key service masked a secret in it; ids as handles. No check of the value for a name or a secret shape runs
+        (B-089)."""
         if _SECRETISH.search(name):
             return "<withheld>"
         text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
         text = re.sub(r"[\r\n\t|]+", " ", text)
         if len(text) > limit:
             text = text[:limit - 3] + "..."
-        if any(gate.DETECTORS[d](text) for d in ("secret", "token", "private-key")) or "<secret>" in text:
+        if "<secret>" in text:
             return "<withheld>"
         return self.handles.mask(text)
 
@@ -1779,15 +1765,9 @@ class Run:
 
     @staticmethod
     def _scrub(text: str) -> str:
-        """The last guard: a line in which the gate still finds a secret, a token or a private key is withheld."""
-        from awb import gate
-
-        out = []
-        for line in text.splitlines():
-            if any(gate.DETECTORS[d](line) for d in ("secret", "token", "private-key")):
-                line = "(a line withheld: the gate found a secret class in it)"
-            out.append(line)
-        return "\n".join(out) + "\n"
+        """The text as lines, kept as they are: no line is withheld for a secret class any more (B-089, no content
+        check inside). Kept as an argument shape for the callers (awb/tcp/recheck.py)."""
+        return "\n".join(text.splitlines()) + "\n"
 
 
 # --------------------------------------------------------------------------- dry run and list

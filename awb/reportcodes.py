@@ -16,9 +16,8 @@ One row per project of the project register, six columns, codes only:
   date of the register when the folder gives neither).
 
 A closed project stays in the file while its last change is less than 30 days old; a deleted one is never in it.
-The two texts go through the check of a text that leaves the host (`projectfacts.export_hits`: the name check, the
-secret and pattern detectors of the commit gate and the candidate rule); a text with a hit is written as
-"(withheld by the name check)". When the check cannot run nothing is written.
+The two texts are written as they stand: the file goes to the owner, so it is inside and runs no content check (B-089).
+A text a work side of an older release withheld stays withheld and is counted.
 
 The file is CSV in the form Excel's Power Query reads without a question: UTF-8 with a byte order mark, CRLF, a
 comma, every field quoted, one header row with exactly the six names of `HEADERS` (a test pins them: the workbook's
@@ -62,7 +61,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from awb import bucket_layout, codes, config, ledger, ownerwait, projects, status
-from awb.projectfacts import export_hits, git_dates, mtime_date
+from awb.projectfacts import git_dates, mtime_date
 
 HEADERS = ("project code", "customer code", "task description", "next step", "whose move", "date of last change")
 """The six column names, in this order and this spelling: the workbook's query reads them."""
@@ -271,20 +270,8 @@ def from_shared(p: config.Paths, path: Path | None = None, now: float | None = N
 
 
 def check(rows: list[Row], reg: Path) -> int:
-    """The task description and the next step of every row through `export_hits`; a text with a hit becomes
-    WITHHELD. Returns the count of texts withheld (one the work side withheld counts too). Raises CodesError when
-    the check cannot run."""
-    texts = [("" if t == ledger.WITHHELD else t) for row in rows for t in (row.goal, row.next)]
-    try:
-        hits = export_hits(texts, reg)
-    except ledger.LedgerError as err:
-        raise CodesError("the texts cannot be checked (%s); nothing is written" % err) from None
-    for i in hits:
-        row = rows[i // 2]
-        if i % 2:
-            row.next = ledger.WITHHELD
-        else:
-            row.goal = ledger.WITHHELD
+    """No content check (B-089: the file goes to the owner): `reg` is kept as an ignored argument. Returns the count
+    of texts withheld, which is only one a work side of an older release withheld."""
     return sum(1 for row in rows for t in (row.goal, row.next) if t == ledger.WITHHELD)
 
 

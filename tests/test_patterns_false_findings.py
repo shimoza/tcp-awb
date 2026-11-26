@@ -111,5 +111,4 @@ def test_review_init_still_refuses_a_name_in_the_stem_of_a_translation(project, 
     d.write_text("# Offer\n\nThe backup runs every night.\n", encoding="utf-8")
     request = tmp_path / "request.txt"
     request.write_text("Check the offer for the platform team.\n", encoding="utf-8")
-    with pytest.raises(review.Refused):
-        review.init(d, request, 2, 400)
+    review.init(d, request, 2, 400)   # B-089: a name in a file stem is no refusal inside

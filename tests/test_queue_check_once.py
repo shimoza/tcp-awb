@@ -260,11 +260,11 @@ CHECK_CALLS = frozenset(("check_text", "check_file", "check_remote", "record_rem
 """The calls that run the name check. `screen` counts when it is called on the module `ledger` or `check`."""
 
 ALLOWED_CALLERS = frozenset((
-    "awb/bucket.py", "awb/calibrate.py", "awb/career.py", "awb/check.py", "awb/fplearn.py", "awb/hooks.py",
-    "awb/images.py", "awb/kb.py", "awb/labclient.py", "awb/ledger.py", "awb/pdf.py",
+    "awb/calibrate.py", "awb/career.py", "awb/check.py", "awb/fplearn.py", "awb/hooks.py",
+    "awb/images.py", "awb/kb.py", "awb/ledger.py",
     "awb/projectfacts.py",
-    "awb/review.py", "awb/tcp/ask.py", "awb/tcp/dataset.py", "awb/tcp/doc.py", "awb/tcp/keys_exchange.py",
-    "awb/tcp/lab.py", "awb/tcp/owner.py", "awb/tcp/recheck.py", "awb/tcp/web/chat_service.py",
+    "awb/tcp/dataset.py", "awb/tcp/keys_exchange.py",
+    "awb/tcp/owner.py",
     "awb/tcp/web/create_api.py", "awb/tcp/web/materials_api.py", "awb/tcp/xchg.py", "awb/translate.py",
     "awb/writing.py",
 ))

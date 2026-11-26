@@ -66,23 +66,24 @@ def test_kb_find_withholds_a_form_registered_after_the_add(facts, monkeypatch):
     assert fixtures.CONTROL_UNREGISTERED in ask.run_tool(facts, "kb_find", {"query": "node flavors"})
     register.add(facts.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
     out = ask.run_tool(facts, "kb_find", {"query": "node flavors"})
-    assert fixtures.CONTROL_UNREGISTERED not in out and "three node flavors" in out
+    # B-089: the tool runs no content check (the model is the one the sessions use anyway): the entry stays
+    assert fixtures.CONTROL_UNREGISTERED in out and "three node flavors" in out
 
     def broken(*a, **k):
         raise kb.KBError("name check unavailable")
 
     monkeypatch.setattr(kb, "screen", broken)
     out = ask.run_tool(facts, "kb_find", {"query": "node flavors"})
-    assert "flavors" not in out and "cannot run" in out
+    assert "three node flavors" in out and "cannot run" not in out
 
 
 def test_a_registered_name_or_structured_data_never_leaves(facts):
-    api = Api()
     for q in ("What does %s run on the cluster service?" % fixtures.CUSTOMER_FORMS[0],
               "Is the server 203.0.113.40 still running?"):
-        with pytest.raises(ask.AskError):
-            ask.ask(q, facts, key="k", sender=api)
-    assert api.bodies == []
+        # B-089: no content check on a question: it is sent as written
+        api = Api()
+        assert ask.ask(q, facts, key="k", sender=api)["answer"].startswith("Three node flavors")
+        assert q in api.bodies[0]["messages"][0]["content"]
 
 
 def test_the_daily_budget_stops_the_page(facts, monkeypatch):
@@ -238,21 +239,30 @@ def test_a_tool_answer_with_a_registered_name_never_reaches_the_model(facts, mon
 
     res = ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=api)
     assert res["answer"] == "No checked fact covers this question." and res["tools"] == ["kb_find"]
-    assert name not in bodies[1] and "withheld by the data check" in bodies[1]
+    # B-089: the tool answer reaches the model as it is
+    assert name in bodies[1] and "withheld by the data check" not in bodies[1]
 
 
 def test_an_answer_or_a_tool_request_with_a_registered_name_stops(facts, monkeypatch):
     name = fixtures.CUSTOMER_FORMS[0]
-    with pytest.raises(ask.AskError) as err:
-        ask.ask("Which node flavors does the cluster service offer?", facts, key="k",
-                sender=_reply("end_turn", [{"type": "text", "text": name + " runs three node flavors."}]))
-    assert name not in str(err.value)
+    # B-089: no content check on an answer or a tool request: the answer is returned as written
+    res = ask.ask("Which node flavors does the cluster service offer?", facts, key="k",
+                  sender=_reply("end_turn", [{"type": "text", "text": name + " runs three node flavors."}]))
+    assert res["answer"] == name + " runs three node flavors."
     ran = []
     monkeypatch.setattr(ask, "run_tool", lambda *a: ran.append(a) or "[]")
-    with pytest.raises(ask.AskError):
-        ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=_reply(
-            "tool_use", [{"type": "tool_use", "id": "t", "name": "kb_find", "input": {"query": name}}]))
-    assert ran == []
+    calls = []
+
+    def asks_with_a_name(body, key):
+        calls.append(body)
+        if len(calls) == 1:
+            return {"stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 5}, "content": [
+                {"type": "tool_use", "id": "t", "name": "kb_find", "input": {"query": name}}]}
+        return {"stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 5},
+                "content": [{"type": "text", "text": "No checked fact covers this question."}]}
+
+    ask.ask("Which node flavors does the cluster service offer?", facts, key="k", sender=asks_with_a_name)
+    assert len(ran) == 1 and ran[0][2] == {"query": name}
 
 
 def test_the_model_loop_is_written_once():

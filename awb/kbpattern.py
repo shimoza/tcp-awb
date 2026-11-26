@@ -13,8 +13,8 @@ module, in the session of the source project, because only that session may see 
 Header keys, in this order: id, scope, packages, kind, tags, support (the number of distinct projects, never
 which), facts (KB ids the card rests on), checked, file (script cards only), retired and why (only when retired).
 
-`add` refuses what `kb add` refuses (not English, a hit of the name check, a register or project code, an
-identifier, a home path, a secret or a token, a price), an unknown tag, kind or KB id, a near duplicate of a card
+`add` refuses what `kb add` refuses (not English, a price; no name, structured data, code or secret check runs
+inside, B-089), an unknown tag, kind or KB id, a near duplicate of a card
 of the same scope (word overlap above 0.6; `--support PAT-XXXX` counts this project for the card instead, or
 `--force-new`) and, beyond `kb add`, the fingerprint check of 5.3: no intake token (`[person 3]`, `[name 1]`) and
 none of the project's own distinctive strings:
@@ -591,7 +591,6 @@ def add(statement: str, *, packages: Sequence[str], kind: str, tags: Sequence[st
     facts = list(dict.fromkeys(f.strip() for f in facts if f.strip()))
     reasons += _fact_problems(facts, where)
     reg = kb.register_of(register_path)
-    kb._require_register(reg)
     reasons += kb.text_problems("the statement", statement, reg)
     prints = fingerprints(proj, where)
     write_fingerprints(code, prints, p)
@@ -647,7 +646,6 @@ def retire(card_id: str, why: str, *, where=None, register_path: Path | None = N
     today = today or date.today()
     why = kb._one_line_field(why, "the reason why")
     reg = kb.register_of(register_path)
-    kb._require_register(reg)
     reasons = kb.text_problems("the reason why", why, reg)
     if reasons:
         raise Refused(reasons)
@@ -675,7 +673,7 @@ def find(query: str | Sequence[str], where=None, *, package: str | None = None, 
 
 
 def screen(cards: Sequence[Card], register_path: Path | None = None) -> tuple[list[Card], int]:
-    """(cards that pass the name, code and secret checks now, count withheld), as `kb.screen` does for facts."""
+    """(the cards, 0): no content check inside (B-089), as `kb.screen` does for facts."""
     as_entries = [kb.Entry(id="KB-AAAA", scope=c.scope, tags=c.tags, grade="said", checked=c.checked, cls="stable",
                            expires=c.checked, source="pattern card", tried=(), statement=c.statement, why=c.why)
                   for c in cards]
@@ -703,7 +701,7 @@ def _print_cards(scored: Sequence[tuple[float | None, Card]]) -> None:
         if c.id in keep:
             print("  " + _line(c, score) if score is not None else _line(c))
     if withheld:
-        print("  %s withheld: hits of the name check now, fix by hand in %s/" % (
+        print("  %s withheld: hits of the exit check now, fix by hand in %s/" % (
             kb._n(withheld, "card"), PATTERNS))
 
 

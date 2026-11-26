@@ -185,8 +185,8 @@ hook and no commit gate reads content inside a project, below), and the tool gua
 while every refused place (another project, a key folder, the client's folder, the session records) still refuses.
 The session answers from the facts first (`awb kb find`), then the public docs (`awb doc fetch`), then a call on a
 test tenant (`awb cloud call`); it names the source of each answer and writes a verified
-finding that is not yet in the facts with `awb kb add`, which runs every check as everywhere (the facts are
-published). It reaches the test tenants directly, read and lab role, writes and lab runs (owner's word of
+finding that is not yet in the facts with `awb kb add`, which checks the form, the language and the price and no content (the
+dataset build checks every fact at the exit, because the facts are published). It reaches the test tenants directly, read and lab role, writes and lab runs (owner's word of
 2026-11-24); a customer tenant, a read-only tenant and another project's code are refused by the key service.
 The kind that lifts a check comes from the owner's grant alone: `awb projects kind CODE ask` in his terminal records
 ask and the key token of the folder, and the hooks of the work user ask the key service (op `kind`) for the token
@@ -361,7 +361,9 @@ without a text layer are refused with the reason. A gzip body (the docs host sen
 for identity) is unpacked under the same cap; a broken one and any other encoding are refused. It sends no cookie
 and no auth header, and
 its User-Agent names the Workbench. A project gets at most 30 fetches a minute and 500 a day. Each fetch writes one
-line to `<vault>/log/doc-YYYY-MM.tsv`: time, project, host, path, size and status, never page content. The work rules
+line to `<vault>/log/doc-YYYY-MM.tsv`: time, project, host, path, size and status, never page content. The page itself
+runs no content check (B-089): a sample password or a name of a public page is shown as written; only a control character
+is refused. The work rules
 say to quote such a page with its source and date and never to state it from memory when it can be fetched. A host
 off the list is refused with one line that tells the session to leave one owner item in OPEN.md under the owner
 heading, `Steering: allow documentation host HOST (vendor, why)`, instead of asking. `rules/allow-domains.txt` now
@@ -742,8 +744,8 @@ writable for it; nothing is written into the tree.
 For the partner who wants the Workbench on a laptop without the sealed host, install `awb` as above, run `awb init`,
 then `awb kb import facts.jsonl` from the latest TCP Facts release (github.com/shimoza/tcp-facts; the zip of the
 release works too). The new knowledge base starts empty and the import fills it: every fact is checked as `awb kb add`
-checks it, an id that is already there is skipped and the counts say what was imported, skipped and refused. It
-needs no vault daemon, no key service and no work user. Run it again with `--update` after a newer release.
+checks it (the form, the language and the price; no name check), an id that is already there is skipped and the counts say what was imported, skipped and refused. It
+needs no vault daemon, no key service, no register and no work user. Run it again with `--update` after a newer release.
 
 ### Clean material on your laptop first (`awb clean`)
 
@@ -995,7 +997,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | the first 20 ranked facts (`--top N`, `--all`) with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
 | act on an expired or duplicate fact | `awb kb expired [--days N]`, `awb kb renew KB-XXXX --source URL`, `awb kb retire KB-XXXX --why "..."`, `awb kb merge KEEP DROP` | renew when it still holds where you read it, retire when it no longer does, merge two entries that say the same; each runs the checks of `amend` |
-| a pattern card | `awb kb pattern add --package cad-on-tcp --kind sizing-rule --tag gpu --fact KB-XXXX "rule"` in the source project | a reusable piece for solution packages; refused with class and count when it carries a name, a price or one of the project's own strings; `awb kb pattern support PAT-XXXX` counts another project for it |
+| a pattern card | `awb kb pattern add --package cad-on-tcp --kind sizing-rule --tag gpu --fact KB-XXXX "rule"` in the source project | a reusable piece for solution packages; refused with class and count when it carries a price or one of the project's own strings (no name check inside); `awb kb pattern support PAT-XXXX` counts another project for it |
 | a solution package | `awb solutions build cad-on-tcp`, `awb solutions status`, `awb solutions release cad-on-tcp` in the solutions project | `out/vN/` with live prices, the staleness counts per package, the release screen (file, line and class only), then the tag |
 | ask the projects for cards | `sudo -n -u awb -H awb solutions sweep cad-on-tcp` (the desk) | codes and counts of the projects that name the package's terms; a note or a side session for those that changed. A session that changed a deliverable whose project tags meet a package is asked once at its stop |
 | check facts again | `awb kb recheck-run --tier read --tenant ALIAS` (`--dry-run` first; without `--tenant` the tenant `recheck_tenant` of the host file names; the service project is `--project`, else `recheck_project` of the host file); the read tier also runs by itself every Saturday at 19:00 UTC as the work user (`awb-kb-recheck.timer`, on the tenant of `recheck_tenant`) | the entries due (expired or expiring within 8 days, task KS) whose check block a run can send, checked on the test tenant and written back: confirmed ones are fresh again with their grade kept (a run never raises a grade; an entry whose grade is not live is listed for you), the rest stays expired and is listed in the run's RESULT.md; a refuted one is also written to `~/tcp-shared/recheck/refuted.tsv` and leaves the next dataset; an entry whose recheck the refresh requested (`~/tcp-shared/recheck/requested.tsv`) counts as due until a recheck dated on or after the request |
@@ -1008,7 +1010,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | a Word file of a deliverable | `awb docx deliverables/guide-en.html` | `deliverables/guide-en.docx` for partners who edit with tracked changes, the structure of the PDF; see "A Word file of a deliverable" below |
 | what is new on TCP | `awb mirror rn`, then `awb refresh --part release-notes` | the release notes of T Cloud Public as a mirror (the third public source, next to the docs and the service description; a run reads at most 200 pages of at most 2 MiB each and cuts long titles and tags) and, for each note first seen since the last refresh, the knowledge entries to check again (`recheck: KB-XXXX (release note DATE SERVICE)`; only entries that name the service and share two topic words with the note, most shared first, 15 per note and `--all` for every one; a note dated after today is listed as `announced`) and the services the list does not know (`new service?`; a title or service name from the site shows as printable ASCII cut to 80 characters); every matched entry (all, not only the 15 shown) gets a recheck request in `~/tcp-shared/recheck/requested.tsv`, an announced note from its date on, which the Saturday read tier takes as due |
 | the refresh every week | nothing: `awb-refresh-weekly.timer` runs `awb refresh weekly` as you every Saturday 17:00 UTC, two hours before the read tier | every part with the update of the mirrors, the release notes and the prices; it requests a recheck for each entry a release note matches, for every contract entry when the service description has a new revision and for each entry whose source names a page of the docs mirror that changed (`requested.tsv`, counted by reason in the report); a run that fails shows in `awb owner status` as `refresh: weekly run failed: <reason>` until one goes through |
-| read public documentation | `awb doc fetch https://learn.microsoft.com/...`, `awb doc hosts` | the page as text with the line `source: URL, fetched YYYY-MM-DD HH:MM UTC`, fetched by the key service on the owner's side (see "Public documentation through the key service") |
+| read public documentation | `awb doc fetch https://learn.microsoft.com/...`, `awb doc hosts` | the page as text, whole (no withholding, no masking), with the line `source: URL, fetched YYYY-MM-DD HH:MM UTC`, fetched by the key service on the owner's side (see "Public documentation through the key service") |
 | a price | `awb price find ecs --grep s3.large` | the live records with every term |
 | check a price sheet | `awb price check sheet.csv` | every price fetched again, every total recomputed |
 | Reserved for many machines | `awb price pool ecs --flavor F --os Windows --hours 2720` | the units of one billing item chosen over the term, against Open Elastic |
@@ -1114,8 +1116,7 @@ for all projects.
 
 Partners who edit a guide with tracked changes need Word, so `awb docx FILE [--out DOCX] [--title T] [--h1-page]`
 writes a `.docx` of the same Markdown or HTML deliverable, with the structure of its PDF and with the standard
-library only (`awb/docx.py`). It reads the file with the parser of `awb pdf` and keeps its folder, link, name and
-secret rules. Headings are the Word styles Heading 1 to 3 in the colour of the page; numbers in the headings that
+library only (`awb/docx.py`). It reads the file with the parser of `awb pdf` and keeps its folder and link rules (no content check). Headings are the Word styles Heading 1 to 3 in the colour of the page; numbers in the headings that
 count up without a gap become a Word numbering, so a heading a partner adds is numbered by Word. A line
 `<!-- toc -->` becomes a Word contents field that already lists the headings and is updated by Word on open (page
 numbers then). A PNG or JPEG is an inline picture with its own bytes, an inline SVG an SVG picture with a PNG

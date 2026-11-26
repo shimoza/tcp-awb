@@ -86,10 +86,9 @@ rewrites "not supported" as "unsupported" or "2" as "two" changes nothing here; 
 or "eu-de" into "eu-nl" does. Plain capitalised words (a product name such as a tool name) are not compared: at the
 start of a sentence they cannot be told from any other word.
 
-Voice learning. `awb voice learn DRAFT SENT` reads both files as UTF-8 text and name-checks both first (the name
-check of `check.check_text`, through the vault daemon when the register is not readable here, plus the pattern
-detectors of the commit gate). A hit refuses the pair (exit 1) and nothing is written. A check that cannot run
-refuses too (exit 2). Then the pair goes to `<shared>/voice/pairs/<date>-<n>/draft.md` and `sent.md`. The report
+Voice learning. `awb voice learn DRAFT SENT` reads both files as UTF-8 text and runs no content check on them
+(B-089: no registered name, structured data, secret or blocklist check inside; the checks stay at the entry and at
+the exit). The pair goes to `<shared>/voice/pairs/<date>-<n>/draft.md` and `sent.md`. The report
 `<shared>/voice/suggestions-<date>.md` is written again for every pair of that date: the words and phrases he
 removed (in the draft, not in the sent text), the words he added and the change in sentence length and in the
 rate of commas before and/or. It also lists candidates for the banned lists: a removed word or phrase that occurs
@@ -103,6 +102,7 @@ CODE --paste` does: the customer forms become its code, every other name a token
 with its class. The original is written nowhere. The wiped copy is the sent text of the pair.
 
 Messages carry classes, counts and line numbers. They never carry a file name, a matched name or a register line.
+The sent text of `awb voice learn DRAFT -` is customer material and still enters through the wipe of the intake.
 """
 from __future__ import annotations
 
@@ -1814,7 +1814,6 @@ class Learned:
     added_words: int
     removed_phrases: int
     candidates: int
-    withheld: bool = False     # the word lists of the report were withheld by the name check
 
 
 def _voice_root(p: config.Paths) -> Path:
@@ -1861,62 +1860,6 @@ def _read_voice_file(path: Path, what: str) -> str:
     if not text.strip():
         raise WritingError("the %s is empty" % what)
     return text
-
-
-def _detectors() -> dict:
-    try:
-        from awb import gate
-    except ImportError:
-        return {}
-    return dict(getattr(gate, "DETECTORS", {}) or {})
-
-
-def _unavailable(err: Exception) -> WritingError:
-    from awb import check
-
-    if isinstance(err, check.CheckUnavailable):
-        return WritingError(str(err) or "name check unavailable")
-    return WritingError("the register cannot be read")
-
-
-def _require_register(reg: Path) -> None:
-    from awb import check
-
-    try:
-        kind, _ = check.register_source(reg)
-    except Exception as err:
-        raise _unavailable(err) from None
-    if kind == check.MISSING:
-        raise WritingError("no register found, names cannot be checked")
-
-
-def screen(text: str, reg: Path, *, names_only: bool = False) -> dict[str, int]:
-    """Counts per class of the name check (names and structured data) and of the gate detectors over `text`.
-    Raises WritingError when the check cannot run. Never returns or raises with a value."""
-    from awb import check
-
-    try:
-        hits = check.check_text(text, reg)
-    except Exception as err:
-        raise _unavailable(err) from None
-    counts: Counter = Counter()
-    for h in hits:
-        cls = h.get("cls", "unknown") if isinstance(h, dict) else "unknown"
-        if not names_only or cls == "name":
-            counts[cls] += 1
-    if not names_only:
-        for cls, fn in _detectors().items():
-            try:
-                n = len(fn(text))
-            except Exception:
-                n = 0
-            if n:
-                counts[cls] += n
-    return dict(counts)
-
-
-def _counts_text(counts: dict[str, int]) -> str:
-    return ", ".join("%s %d" % kv for kv in sorted(counts.items()))
 
 
 _PAIR_RE = re.compile(r"(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})-(?P<n>[0-9]{1,6})")
@@ -1980,9 +1923,7 @@ def candidates(root: Path, rules: Rules) -> tuple[list[tuple[str, int]], list[tu
     return pick(words), pick(phrases)
 
 
-def _bullets(items: list[str], withheld: bool) -> list[str]:
-    if withheld:
-        return ["- %d items, withheld by the name check" % len(items)] if items else ["- none"]
+def _bullets(items: list[str]) -> list[str]:
     if not items:
         return ["- none"]
     out = ["- %s" % i for i in items[:LIST_LIMIT]]
@@ -1997,7 +1938,7 @@ def _change(a: float, b: float) -> str:
 
 
 def render_report(day: str, pairs: list[tuple[str, PairDiff]], words: list[tuple[str, int]],
-                  phrases: list[tuple[str, int]], withheld: bool = False) -> str:
+                  phrases: list[tuple[str, int]]) -> str:
     lines = ["# Voice suggestions of %s" % day, "",
              "Pairs learned on this date: %d. This report changes no rule. When you agree with a candidate, add it "
              "to rules/%s or rules/%s yourself." % (len(pairs), WORDS_FILE, PHRASES_FILE), ""]
@@ -2013,37 +1954,30 @@ def render_report(day: str, pairs: list[tuple[str, PairDiff]], words: list[tuple
                   % (_num(d.comma_and_or_per_1000), _num(s.comma_and_or_per_1000),
                      _change(d.comma_and_or_per_1000, s.comma_and_or_per_1000)),
                   "", "### Words removed (in the draft, not in the sent text)", ""]
-        lines += _bullets(diff.removed_words, withheld)
+        lines += _bullets(diff.removed_words)
         lines += ["", "### Phrases removed", ""]
         if diff.phrases_skipped:
             lines.append("- not compared: the texts are too long for the phrase diff")
         else:
-            lines += _bullets(diff.removed_phrases, withheld)
+            lines += _bullets(diff.removed_phrases)
         lines += ["", "### Words added", ""]
-        lines += _bullets(diff.added_words, withheld)
+        lines += _bullets(diff.added_words)
         lines.append("")
     lines += ["## Candidates for the banned lists", "",
               "Removed in %d or more pairs and not banned yet." % MIN_PAIRS, "", "### Words", ""]
-    lines += _bullets(["%s (%d pairs)" % kv for kv in words], withheld)
+    lines += _bullets(["%s (%d pairs)" % kv for kv in words])
     lines += ["", "### Phrases", ""]
-    lines += _bullets(["%s (%d pairs)" % kv for kv in phrases], withheld)
+    lines += _bullets(["%s (%d pairs)" % kv for kv in phrases])
     return "\n".join(lines) + "\n"
 
 
 def learn(draft: Path, sent: Path, p: config.Paths | None = None, day=None) -> Learned:
-    """Name-check both files, store the pair and write the suggestions report of the day. Raises Refused on a
-    hit (nothing is written) and WritingError when a file or the check fails."""
+    """Store the pair and write the suggestions report of the day. No content check runs on the two files (B-089).
+    Raises WritingError when a file cannot be read as UTF-8 text."""
     p = p or config.paths()
     run = day if isinstance(day, date) else (date.fromisoformat(day) if day else today())
     stamp = run.isoformat()
     texts = [(_read_voice_file(draft, "draft"), "draft"), (_read_voice_file(sent, "sent text"), "sent text")]
-    reg = p.register
-    _require_register(reg)
-    for text, what in texts:
-        found = screen(text, reg)
-        if found:
-            raise Refused("the %s carries hits of the name check (%s), nothing was written"
-                          % (what, _counts_text(found)))
     rules = load_rules()
     root = _voice_root(p)
     _mkdir(root)
@@ -2072,18 +2006,11 @@ def learn(draft: Path, sent: Path, p: config.Paths | None = None, day=None) -> L
             of_day.append(("%s-%d" % (d, k), this if f == folder else compare(*pair)))
     words, phrases = candidates(root, rules)
     text = render_report(stamp, of_day, words, phrases)
-    withheld = False
-    if screen(text, reg, names_only=True):
-        # single words that passed alone can meet a registered form once they stand in a list
-        withheld = True
-        text = render_report(stamp, of_day, words, phrases, withheld=True)
-        if screen(text, reg, names_only=True):
-            raise Refused("the suggestions report does not pass the name check, it was not written")
     report = root / ("suggestions-%s.md" % stamp)
     _write(report, text)
     return Learned(pair=name, pair_dir=folder, report=report, removed_words=len(this.removed_words),
                    added_words=len(this.added_words), removed_phrases=len(this.removed_phrases),
-                   candidates=len(words) + len(phrases), withheld=withheld)
+                   candidates=len(words) + len(phrases))
 
 
 # --------------------------------------------------------------------------- command line
@@ -2202,8 +2129,9 @@ STDIN_ARG = "-"
 def learn_owner(draft: Path, project: str | None = None, p: config.Paths | None = None, stdin=None,
                 day=None) -> Learned:
     """`awb voice learn DRAFT -`: the sent text on standard input, wiped by `intake.run_text` for the customer of
-    the project, is the sent text of `learn`. The original is never written. Raises Refused for a secret or a text
-    the final check withholds, WritingError for the rest."""
+    the project, is the sent text of `learn`. The original is never written. The paste is customer material, so
+    the entry check stays: Refused for a secret or a text the final check withholds, WritingError for the
+    rest."""
     import importlib
 
     from awb import codes, intake, projects, vault
@@ -2247,7 +2175,7 @@ def learn_owner(draft: Path, project: str | None = None, p: config.Paths | None 
         raise WritingError("%s has no form in the register: run awb import %s once, it asks for the written forms"
                            % (own, project))
     cust = own or project
-    # the draft is read and checked by `learn`; read it here too so that a bad draft stops before the intake runs
+    # the draft is read by `learn`; read it here too so that a bad draft stops before the intake runs
     _read_voice_file(draft, "draft")
     try:
         text = pastein.read_text(importcmd.read_stdin(stdin))
@@ -2316,8 +2244,6 @@ def _main_voice(argv: list[str]) -> int:
           % (_plural(res.removed_words, "word"), _plural(res.removed_phrases, "phrase"),
              _plural(res.added_words, "word"), _plural(res.candidates, "candidate")))
     print("voice: report %s/%s" % (VOICE_DIR, res.report.name))
-    if res.withheld:
-        print("voice: the word lists of the report were withheld by the name check", file=sys.stderr)
     return EXIT_OK
 
 

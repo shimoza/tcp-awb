@@ -1166,13 +1166,15 @@ def test_xh_put_hides_private_source_and_fallback_names(local_exchange, monkeypa
         return {"ok": True, "key": "tcp-q7m4/from-session/2026-11-15/put-0123456789ab.txt",
                 "size": 10, "notes": [xchg.AS_NOT_USED]}
     monkeypatch.setattr(xchg, "_call", call)
-    for alias in (None, fx.CUSTOMER_FORMS[1] + ".txt"):
-        out = xchg.put(path, as_name=alias)
-        fx.assert_no_fixture_name(out, "the put result")
+    # B-089: no content check of an object name: the put result shows the name as it stands
+    out = xchg.put(path, as_name=None)
+    assert fx.CUSTOMER_FORMS[0] in out
+    out = xchg.put(path, as_name=fx.CUSTOMER_FORMS[1] + ".txt")
+    assert fx.CUSTOMER_FORMS[1] in out
     private = "pass" + "word=" + "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
     secret_path = local_exchange / (private + ".txt")
     secret_path.write_text("plain text")
-    assert private not in xchg.put(secret_path)
+    assert private in xchg.put(secret_path)
 
 
 def test_xh_image_reason_is_scrubbed_in_request_and_log(local_exchange, monkeypatch):
@@ -1185,8 +1187,8 @@ def test_xh_image_reason_is_scrubbed_in_request_and_log(local_exchange, monkeypa
     xchg.put(path, image=True, reason=reason)
     log = (local_exchange / "evidence" / "images-put.log").read_text()
     text = json.dumps([req for req, body in calls]) + log
-    assert value not in text
-    fx.assert_no_fixture_name(text, "the image reason")
+    # B-089: the reason is inside and runs no content check: it stands as written in the request and the log
+    assert value in text and fx.CUSTOMER_FORMS[0] in text
 
 
 def test_xh_image_log_refuses_linked_files_and_directories(local_exchange):
@@ -1254,8 +1256,9 @@ def test_xh_error_replies_are_validated_and_screened(local_exchange):
                    {"ok": False, "error": private}, {"ok": False, "error": fx.CUSTOMER_FORMS[0]}):
         with pytest.raises(xchg.XchgError) as caught:
             xchg._ok(answer)
-        assert private not in str(caught.value)
-        fx.assert_no_fixture_name(str(caught.value), "the service error")
+        # B-089: a text error of the service is shown as written (no content check)
+        if isinstance(answer, dict) and isinstance(answer.get("error"), str):
+            assert answer["error"] in str(caught.value)
     assert xchg._ok({"ok": True}) == {"ok": True}
 
 
@@ -1267,8 +1270,9 @@ def test_xh_secret_alias_is_not_forwarded_for_key_generation(local_exchange, mon
     calls = []
     _fake_put(monkeypatch, calls)
     out = xchg.put(path, as_name=alias)
-    assert value not in json.dumps([req for req, body in calls]) + out
-    assert xchg.AS_NOT_USED in out
+    # B-089: no secret check of an object name: the --as name goes to the key service as it is
+    assert value in json.dumps([req for req, body in calls])
+    assert xchg.AS_NOT_USED not in out
 
 
 def test_xh_scope_link_cannot_select_an_outside_project(local_exchange):
@@ -1305,8 +1309,9 @@ def test_xh_put_scrubs_upload_without_changing_source(local_exchange, monkeypatc
     _fake_put(monkeypatch, calls)
     out = xchg.put(path)
     _, err = capsys.readouterr()
-    assert value.encode() not in calls[0][1] and b"[secret]" in calls[0][1]
-    assert value not in out + err and "1 secret replaced" in err
+    # B-089: the put replaces no secret any more: the upload is the file
+    assert value.encode() in calls[0][1] and b"[secret]" not in calls[0][1]
+    assert "secret replaced" not in err
     assert path.read_text() == original
 
 
@@ -1314,16 +1319,16 @@ def test_xh_inbox_listing_and_copy_summaries_hide_secret_names(local_exchange, h
     value = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
     name = "pass" + "word=" + value + ".txt"
     entry = _lab_entry(name)
-    assert value not in xchg.describe(entry)
+    assert value in xchg.describe(entry)       # B-089: a name is shown as it stands
     def lab_call(req, download=None, **kwargs):
         download.write_text("plain text")
         return {"ok": True, "state": "taken"}
     monkeypatch.setattr(xchg, "_call", lab_call)
-    assert value not in xchg._take_one(local_exchange, "tcp-q7m4", entry, None)
+    assert value in xchg._take_one(local_exchange, "tcp-q7m4", entry, None)
     (local_exchange / "input" / name).unlink()
     outbox = home.outbox / "tcp-q7m4"
     outbox.mkdir(parents=True)
     (outbox / name).write_text("sanitised copy")
     monkeypatch.setattr(xchg, "_call", lambda *a, **k: {
         "ok": True, "state": "taken", "customer": "tcp-q7m4", "outputs": [name]})
-    assert value not in xchg._take_one(local_exchange, "tcp-q7m4", dict(entry, bucket="owner"), None)
+    assert value in xchg._take_one(local_exchange, "tcp-q7m4", dict(entry, bucket="owner"), None)

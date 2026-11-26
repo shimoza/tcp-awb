@@ -136,11 +136,11 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
     if method == "PUT":
         if body_path is None:
             raise XchgError("a put needs its bytes")
-        # every put of a session: the key of put_key_ok, the picture rules and the secrets replaced (task GT)
+        # every put of a session: the key of put_key_ok and the picture rules (task GT, B-089)
         authorise_put(ctx, req)
         notes, built = [], key is None
         if built:
-            # task BK1: the key service builds the readable key and runs the name check on it
+            # task BK1: the key service builds the readable key
             base, ext, kind, lang, notes = put_key_parts(ctx, req, body_path)
             ident = base.rsplit("/", 1)[-1] + ext
         else:
@@ -157,11 +157,9 @@ def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Pa
                         raise XchgError("the key service built no valid key")
                 c.put_file(key, body, "application/octet-stream")
                 size = body.stat().st_size
-                # the page is made from the bytes that went up, their secrets replaced; its title never comes
-                # from a name the name check finds anything in
+                # the page is made from the bytes that went up
                 name = req.get("name")
-                page = put_page(c, key, name, body, project,
-                                title_ok=valid_name(name) and not _name_hits([name], ctx.paths_fn()))
+                page = put_page(c, key, name, body, project, title_ok=valid_name(name))
                 if built:
                     try:
                         index_put(ctx, c, project, key, kind, lang, size, req.get("review"))
@@ -247,9 +245,10 @@ CLASH_MAX = 99
 _EXT_RE_PLAIN = re.compile(r"\.[a-z0-9]{1,5}")
 _REST_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _REST_MAX = STEM_MAX + len("-%d" % CLASH_MAX)
-AS_NOT_USED = "the --as name was not used: it is no plain name or the name check of the key service found a hit"
+AS_NOT_USED = "the --as name was not used: it is no plain name"
 KIND_NOT_USED = ("the --kind word was not used: the name check of the key service found a hit in the key; the kind "
                  "is doc")
+"""Kept for the callers: no name check runs on a key any more (B-089), so this note is never given."""
 INDEX_NOT_WRITTEN = "INDEX.md could not be rewritten; the put stands without its row there"
 _PUT_LOCK = threading.Lock()
 """One put, delete, fetched mark or archive at a time picks a free key and rewrites INDEX.md."""
@@ -340,12 +339,10 @@ def put_key_parts(ctx: Context, req: dict, body_path: Path) -> tuple[str, str, s
     """(the key without its extension, the extension, the kind, the language, the lines for the session) of a new
     put (task BK1). The kind is the session's word or doc, the language its two letters or the guess of
     awb/review.py on the received bytes, the time the UTC minute of the put. An --as name gives the stem when it is
-    a plain name the name check passes (the name itself: its stem may hide what the check finds in it); else the
-    neutral form and the session gets a line that never names it. Then the name check runs on the whole key; a hit
-    falls back to <code>-doc-<lang>-<HHMM>."""
+    a plain name; else the neutral form and the session gets a line that never names it. No name check runs on the
+    --as name or on the key (B-089: an object name is inside)."""
     from awb import review
 
-    p = ctx.paths_fn()
     project, now = req["project"], _now()
     kind = req.get("kind") or DEFAULT_KIND
     lang = req.get("lang") or review.guess_language(body_path)
@@ -357,21 +354,12 @@ def put_key_parts(ctx: Context, req: dict, body_path: Path) -> tuple[str, str, s
     rest = neutral
     as_name = req.get("as")
     if as_name is not None:
-        stem = name_stem(as_name) if valid_name(as_name) and not _name_hits([as_name], p) else None
+        stem = name_stem(as_name) if valid_name(as_name) else None
         if stem is not None:
             rest = stem
         else:
             notes.append(AS_NOT_USED)
     base = "%s%s/%s-%s-%s" % (folder, kind, project, kind, rest)
-    if _name_hits([base + ext], p):
-        if rest != neutral:
-            notes.append(AS_NOT_USED)
-        if kind != DEFAULT_KIND:
-            notes.append(KIND_NOT_USED)
-        kind, rest = DEFAULT_KIND, neutral
-        base = "%s%s/%s-%s-%s" % (folder, kind, project, kind, rest)
-        if _name_hits([base + ext], p):
-            raise XchgError("the key service found no key the name check passes")
     return base, ext, kind, lang, list(dict.fromkeys(notes))
 
 
@@ -526,12 +514,12 @@ def archive_fetched(ctx: Context, c, project: str) -> dict:
 
 def put_problems(ctx: Context, req: dict, body_path: Path, ident: str | None = None) -> list[str]:
     """The checks of a put into from-session/, run by the key service on the bytes it received (F6). Since task GT
-    only the picture rules (a picture only with image and a reason); no name check of the content, no structured
-    data and no review state. The secrets are replaced by `scrub_put` after it."""
+    only the picture rules (a picture only with image and a reason); no name check of the content or of the name, no
+    structured data, no secret and no review state (B-089)."""
     p = ctx.paths_fn()
     ident = ident or req["key"].rsplit("/", 1)[-1]
     name = req.get("name")
-    if not (valid_name(name) and not _name_hits([name], p)):
+    if not valid_name(name):
         name = ident
     image = bool(req.get("image")) and isinstance(req.get("reason"), str) and len(req["reason"].strip()) >= 10
     with tempfile.TemporaryDirectory(prefix="awb-check-", dir=_tmp_dir(ctx)) as tmp:
@@ -542,18 +530,9 @@ def put_problems(ctx: Context, req: dict, body_path: Path, ident: str | None = N
 
 
 def scrub_put(ctx: Context, req: dict, body_path: Path) -> tuple[Path, int, Path | None]:
-    """(the bytes to upload, the secrets replaced, a temporary folder to remove): the received bytes with every
-    secret replaced with [secret] (task GT), judged under the extension of their name."""
-    from awb import putcopy
-
-    name = req.get("name")
-    ext = os.path.splitext(name)[1].lower()[:6] if valid_name(name) else ""
-    tmp = Path(tempfile.mkdtemp(prefix="awb-scrub-", dir=_tmp_dir(ctx)))
-    src = tmp / ("upload" + ext)
-    os.link(body_path, src)
-    out = tmp / ("clean" + ext)
-    n = putcopy.scrub(src, out)
-    return (out if n else body_path), n, tmp
+    """(the bytes to upload, the secrets replaced, a temporary folder to remove): the received bytes as they are, no
+    secret replaced (B-089: no content check inside). The shape of the return stays for the caller."""
+    return body_path, 0, None
 
 
 def exchange_mail(state: str, project: str, ident: str | None = None, size: int | None = None,

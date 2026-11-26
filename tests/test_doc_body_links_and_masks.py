@@ -1,10 +1,9 @@
 """awb doc fetch, the asks of tcp-bytg of 2026-11-24: the links of the page body come before those of the
 navigation, header, aside and footer (ask 3: a help tree of thousands of entries filled the cap), and a public
-page whose only finding is a secret-like sample value shows with those lines masked (ask 4: vendor cmdlet pages
-with sample credentials). The sample value is built at run time so the file itself carries none."""
+page with a secret-like sample value shows whole (ask 4: vendor cmdlet pages with sample credentials; B-089: no
+masking inside). The sample value is built at run time so the file itself carries none."""
 from __future__ import annotations
 
-from awb import check
 from awb.tcp import doc
 
 BASE = "https://docs.example.test/guide/page.html"
@@ -39,15 +38,14 @@ def _sample() -> str:
 
 def test_a_secret_like_sample_line_is_masked_and_the_rest_stays():
     text = "Import-VBRBackup imports a backup.\nExample:\n" + _sample() + "\nThe cmdlet returns the backup.\n"
-    masked, n = doc.mask_secret_lines(text)
-    assert n == 1 and doc.MASKED_LINE in masked
-    assert "Import-VBRBackup imports a backup." in masked and "returns the backup" in masked
-    assert not check._secret_classes(masked)
+    # B-089: no masking inside; the sample line stays as written
+    assert doc.private_reason(text) is None
+    assert not hasattr(doc, "mask_secret_lines")
 
 
 def test_a_page_without_secrets_is_unchanged():
     text = "plain text\nno values\n"
-    assert doc.mask_secret_lines(text) == (text, 0)
+    assert doc.private_reason(text) is None and doc._public(text, "") == text
 
 
 def test_the_service_shows_a_long_page_with_its_sample_line_masked(home, tmp_path):
@@ -60,5 +58,5 @@ def test_the_service_shows_a_long_page_with_its_sample_line_masked(home, tmp_pat
     if stream:
         stream.unlink()
     assert answer["ok"], answer
-    assert doc.MASKED_LINE in text and "Step 7 of the import." in text
-    assert "Lm7#" not in text
+    assert "Step 7 of the import." in text
+    assert _sample() in text

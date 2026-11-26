@@ -283,15 +283,11 @@ def test_rv2_a_final_text_can_be_reviewed_and_a_name_in_its_stem_is_still_refuse
     from tests import fixtures
 
     folder = spawn(home, register_path)
-    assert review._checked_path(FINAL) == "deliverables/" + DRAFT
     final = start(folder, tmp_path, FINAL, tier=1)
     assert review.l0(final).problems == []
     bad = folder / "deliverables" / ("offer-%s.final.md" % fixtures.CUSTOMER_FORMS[1].lower())
     bad.write_text(TEXT, encoding="utf-8")
     req = tmp_path / "request.txt"
-    try:
-        review.init(bad, req, 1, 400)
-        refused = False
-    except review.Refused:
-        refused = True
-    assert refused
+    # B-089: no name check inside, a name in the stem is not refused
+    review.init(bad, req, 1, 400)
+    assert (folder / "reviews" / bad.name / "contract.md").exists()

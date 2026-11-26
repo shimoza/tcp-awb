@@ -486,26 +486,31 @@ def test_a_word_removed_in_two_pairs_is_a_candidate(home, day, tmp_path, capsys)
 def test_voice_learn_refuses_a_pair_with_a_fixture_form(home, day, tmp_path, capsys, which):
     bad = "I sent the plan to %s today.\n" % fx.PERSON_FORMS[0]
     d, s = _pair(tmp_path, bad if which == "draft" else DRAFT, bad if which == "sent" else SENT)
-    assert cli.main(["voice", "learn", str(d), str(s)]) == 1
-    assert not (home.shared / "voice").exists()
+    # B-089: no name check inside, the pair is stored as written
+    assert cli.main(["voice", "learn", str(d), str(s)]) == 0
+    stored = home.shared / "voice" / "pairs" / ("%s-1" % day)
+    assert fx.PERSON_FORMS[0] in (stored / ("%s.md" % which)).read_text(encoding="utf-8")
     out, err = capsys.readouterr()
     fx.assert_no_fixture_name(out + err, "the output of awb voice learn")
-    assert "name check" in err and "nothing was written" in err
+    assert "name check" not in err and "withheld" not in out + err
 
 
 def test_voice_learn_refuses_structured_data(home, day, tmp_path, capsys):
     d, s = _pair(tmp_path, DRAFT, "Call me on +49 40 123456-78.\n")
-    assert cli.main(["voice", "learn", str(d), str(s)]) == 1
+    # B-089: no structured data check inside, the pair is stored as written
+    assert cli.main(["voice", "learn", str(d), str(s)]) == 0
     assert "123456" not in "".join(capsys.readouterr())
-    assert not (home.shared / "voice").exists()
+    stored = home.shared / "voice" / "pairs" / ("%s-1" % day)
+    assert "123456-78" in (stored / "sent.md").read_text(encoding="utf-8")
 
 
 def test_voice_learn_without_a_register_cannot_check_and_stops(home, day, tmp_path, capsys):
     home.register.unlink()
     d, s = _pair(tmp_path, DRAFT, SENT)
-    assert cli.main(["voice", "learn", str(d), str(s)]) == 2
-    assert "names cannot be checked" in capsys.readouterr().err
-    assert not (home.shared / "voice").exists()
+    # B-089: nothing is checked, so a missing register stops nothing
+    assert cli.main(["voice", "learn", str(d), str(s)]) == 0
+    assert "names cannot be checked" not in capsys.readouterr().err
+    assert (home.shared / "voice" / "pairs" / ("%s-1" % day) / "sent.md").is_file()
 
 
 def test_voice_learn_usage_and_read_errors(home, day, tmp_path, capsys):

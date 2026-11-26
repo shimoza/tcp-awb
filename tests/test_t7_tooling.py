@@ -106,7 +106,8 @@ def test_t7_a_the_ascii_pdf_reproduces_the_loss_of_the_text_scrub(tmp_path):
     f = ascii_pdf(tmp_path / "ascii.pdf")
     text = f.read_bytes().decode("utf-8")             # the bytes read as text: the old path of scrub
     new, n = putcopy.scrub_text(text)
-    assert n and len(new) < len(text), "the text scrub of the put shortened the stream lines"
+    # B-089: the put replaces no secret any more, so the text path shortens nothing
+    assert n == 0 and new == text, "the text path of the put leaves the stream lines whole"
 
 
 def test_t7_a_a_session_put_sends_binary_files_byte_for_byte(svc, buckets, cust_project, capsys):
@@ -142,9 +143,11 @@ def test_t7_a_an_office_file_is_rewritten_only_for_a_real_secret(tmp_path):
         z.writestr("word/document.xml", "<w:t>api_" + "key=" + value + "</w:t>")
         z.writestr("word/media/image1.png", png_bytes())
     out = tmp_path / "out.docx"
-    assert putcopy.scrub(office, out) == 1
+    # B-089: the put replaces no secret any more: the copy is the file byte for byte
+    assert putcopy.scrub(office, out) == 0
+    assert out.read_bytes() == office.read_bytes()
     with zipfile.ZipFile(out) as z:
-        assert value not in z.read("word/document.xml").decode("utf-8")
+        assert value in z.read("word/document.xml").decode("utf-8")
         assert z.read("word/media/image1.png") == png_bytes()
 
 
@@ -194,7 +197,7 @@ def test_t7_b_a_real_password_is_still_masked():
         out, counts = labsecrets.shorten(line + "\n")
         assert value not in out and "[secret]" in out and counts["secret"] == 1, line
         new, n = putcopy.scrub_text(line + "\n")
-        assert value not in new and n >= 1, line
+        assert new == line + "\n" and n == 0, line     # B-089: the put replaces no secret any more
 
 
 def test_t7_b_the_write_hook_leaves_a_new_python_script_as_written(project, monkeypatch, capsys):  # noqa: F811

@@ -57,8 +57,8 @@ that does not hold is undecided; confirms true and refutes false is confirmed, t
 undecided.
 
 The evidence goes to `evidence/recheck-<date>-<n>/` of the project: RESULT.md, the two inventories, calls.log
-(answers cut at 1500 characters, the query of every web address cut off, ids as handles, a line with a secret class
-withheld, an answer in which the name check finds a name withheld) and one file per checked entry (a write tier's
+(answers cut at 1500 characters, the query of every web address cut off, ids as handles; no name check and no
+secret check) and one file per checked entry (a write tier's
 file is its lab evidence). Every run that got past the pick writes one line to `<shared>/recheck/state.tsv`:
 date, tier, confirmed, refuted, undecided, for the owner, exit, inventory (equal, differs, unknown or none). The
 board reads it (awb/tcp/board.py).
@@ -410,19 +410,10 @@ class Outcome:
 
 
 def _clean_text(text: str, handles) -> str:
-    """A text for the evidence: the query of every address cut off, ids as handles, a line with a secret class
-    withheld; withheld whole when the name check finds a name or cannot run."""
-    from awb import check, config
-    from awb.tcp import lab
-
+    """A text for the evidence: the query of every address cut off, ids as handles. No name check and no secret
+    check runs (B-089, no content check inside)."""
     text = _URL_QUERY_RE.sub(r"\1", text)
-    text = handles.mask(text)
-    try:
-        if check.check_text(text, config.paths().register):
-            return "(withheld: the name check found a name)"
-    except Exception:
-        return "(withheld: the name check could not run)"
-    return lab.Run._scrub(text).rstrip("\n")
+    return "\n".join(handles.mask(text).splitlines())
 
 
 def _lister(send, tenant: str, project: str, max_pages: int = 200):

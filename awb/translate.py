@@ -20,12 +20,12 @@ For each language it writes FILE.<lang>.md next to FILE (the suffix of FILE drop
    reading copy is for him alone and is exempt, as it is in the stop hook.
 
 The prompt file lies in <project>/reviews/.translate/ when FILE is in a project (so it never counts as a
-deliverable), else next to FILE. Before a text leaves for the model the name check runs over it; a registered name
-or a check that cannot run stops the call. Messages carry kinds, counts, line numbers and the language, never a
-value and never the file name.
+deliverable), else next to FILE. The text goes to the model the sessions use anyway, so it is inside (B-089): no
+content check runs over it and a registered name in it is sent as written. Messages carry kinds, counts, line numbers
+and the language, never a value and never the file name.
 
-Exit codes: 0 every language written and clean, 1 refused (source not accepted, keep or check failed), 2 a usage,
-read or name-check problem, 3 no model path (the prompt file is written).
+Exit codes: 0 every language written and clean, 1 refused (source not accepted, keep or check failed), 2 a usage
+or read problem, 3 no model path (the prompt file is written).
 """
 from __future__ import annotations
 
@@ -146,16 +146,8 @@ def default_sender():
 
 
 def _screen(text: str) -> None:
-    """A registered name never leaves for the model; a check that cannot run stops the call."""
-    from awb import check, config
-
-    try:
-        hits = check.check_text(text, config.paths().register)
-    except Exception:
-        raise TranslateError("the name check did not run, so nothing was sent to the model") from None
-    names = sum(1 for h in hits if isinstance(h, dict) and h.get("cls") == "name")
-    if names:
-        raise TranslateError("the source carries %d hits of the name check: replace them with codes" % names)
+    """No content check (B-089: the source goes to the model the sessions use anyway). The function stays for the
+    callers."""
 
 
 def ask_model(system: str, user: str, sender, key) -> str:
@@ -267,8 +259,6 @@ def translate(path: Path, langs: list[str], mode: str = "doc", scope: str = "tcp
                                   "them first; nothing was translated" % block)
     if not verify:
         model = model if model is not None else default_sender()
-        if model is not None:
-            _screen(source)
     return [translate_one(path, source, src_lang, lang, mode, scope, verify, model) for lang in langs], notes
 
 

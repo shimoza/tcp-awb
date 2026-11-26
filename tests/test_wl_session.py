@@ -292,13 +292,13 @@ def test_wl_output_lands_by_the_rules_of_paste_own(lab, capsys):
     lab.reply = (0, "vpc 10.0.1.12 created\r\npassword = %s\r\n" % WORD, "")
     assert cli.main(["winlab", "run", MACHINE, "--", "Get-Lab"]) == 0
     out = capsys.readouterr().out
-    assert "vpc 10.0.1.12 created" in out and "password = [secret]" in out
+    assert "vpc 10.0.1.12 created" in out and "password = [secret]" in out      # the lab shortening stays
     assert_no_secret(out + logs(lab.root))
     lab.reply = (0, "made for %s\r\n" % fixtures.CUSTOMER_FORMS[0], "")
     assert cli.main(["winlab", "run", MACHINE, "--", "Get-Lab"]) == 0
     out, err = capsys.readouterr()
-    assert "withheld: it carries a registered name" in err
-    fixtures.assert_no_fixture_name(out + err + logs(lab.root), "withheld output")
+    # B-089: a registered name is printed and logged as written
+    assert "made for %s" % fixtures.CUSTOMER_FORMS[0] in out and "withheld" not in err
 
 
 # --------------------------------------------------------------------------- jobs
@@ -604,7 +604,7 @@ def test_wl_review_checker_errors_do_not_echo_values(lab, monkeypatch, capsys, o
     monkeypatch.setattr(hooks, "file_hits", unavailable)
     if operation == "output":
         text, note = winlabsession.landed("plain output")
-        assert text is None
+        assert text == "plain output"          # B-089: no checker is asked
         result = note
     elif operation == "command":
         # a command no longer asks the checker: it is sent and its empty output needs none

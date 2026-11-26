@@ -138,11 +138,10 @@ def test_a_code_with_a_look_alike_dash_is_still_a_code(home, dash):
     written = fixtures.CUSTOMER_CODE.replace("-", dash)
     assert codes.count_codes("the landing zone of %s" % written) == (1, 0)
     assert codes.count_codes("project %s" % CODE.replace("-", dash)) == (0, 1)
-    with pytest.raises(kb.Refused) as err:
-        kb.add("Object storage for %s keeps versions per bucket." % written, scope="tcp", tags=["obs"],
-               grade="docs", cls="stable", source="the public service documentation", where=home)
-    assert any("register or project code" in r for r in err.value.reasons)
-    assert not list((home.kb / "entries").glob("KB-*.md")) if (home.kb / "entries").exists() else True
+    # B-089: kb add checks no code; the exit of the facts leaves a fact with a code out
+    entry = kb.add("Object storage for %s keeps versions per bucket." % written, scope="tcp", tags=["obs"],
+                   grade="docs", cls="stable", source="the public service documentation", where=home)
+    assert kb.exit_screen([entry]) == ([], 1)
     # DMZ 4: the career log is inside, a code in it is no refusal
     career.add("Landing zone", "designed and built", "Terraform", "done for %s" % written,
                "Built a landing zone module.", p=home)

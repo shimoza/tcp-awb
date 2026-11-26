@@ -17,8 +17,8 @@ it; an event with a type, status, impact, date or id outside its form is dropped
 list and a title outside its form (printable characters only, no | and no tab) leaves its cell empty. A failed pull
 keeps the rows of the last good one and says so in the header. The file is replaced atomically.
 
-Nothing the page says reaches the board unmatched: the titles pass the data check when the board is put together
-(awb/tcp/web/projects_api.py, platform) although the page carries no customer data.
+Nothing the page says reaches the board unmatched: the titles are read as written when the board is put together
+(awb/tcp/web/projects_api.py, platform; no content check inside) and the page carries no customer data.
 """
 from __future__ import annotations
 

@@ -131,9 +131,8 @@ def test_a_path_into_an_answer_is_no_web_address_for_the_block_check(url_like, t
                             "confirms: subnets.0.id has -", "refutes: subnets.0.id lacks -",
                             "control: subnets.0.name has a", "needs: none"])
     assert kb._block_text_problems(block, reg) == []
-    assert kb.text_problems("the statement", "subnets.0.id is set", reg), "prose keeps the web address check"
+    assert kb.text_problems("the statement", "subnets.0.id is set", reg) == []   # B-089: no web address check
     named = kb.parse_block(["tier: read", "calls: GET vpc /v1/{project_id}/subnets",
                             "confirms: subnets[name=Planted].id has -", "refutes: subnets.0.id lacks -",
                             "control: subnets.0.name has a", "needs: none"])
-    assert any("name check (name 1)" in p for p in kb._block_text_problems(named, reg)), \
-        "a name in a test line is still a name"
+    assert kb._block_text_problems(named, reg) == []   # B-089: a name in a test line is no check of kb how

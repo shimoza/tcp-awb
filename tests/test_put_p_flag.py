@@ -7,6 +7,16 @@ import pytest
 
 from awb import putcopy
 
+def _scrub(text):
+    """B-089: the put replaces no secret any more; the wipe of `awb clean` (the entry) holds the same rules."""
+    from collections import Counter
+
+    from awb import cleanlogs
+
+    counts = Counter()
+    return cleanlogs.wipe_secrets(text, counts), sum(counts.values())
+
+
 KEPT = (
     "mkdir -p /var/tmp/tcp",
     "sudo mkdir -p /var/tmp/tcp && cd /var/tmp/tcp",
@@ -39,20 +49,20 @@ CAUGHT = (
 
 @pytest.mark.parametrize("line", KEPT)
 def test_p_flag_no_password_kept(line):
-    out, n = putcopy.scrub_text(line)
+    out, n = _scrub(line)
     assert (out, n) == (line, 0)
 
 
 @pytest.mark.parametrize("line,want", CAUGHT)
 def test_p_flag_password_caught(line, want):
-    out, n = putcopy.scrub_text(line)
+    out, n = _scrub(line)
     assert out == want
     assert n == 1
 
 
 def test_guide_block_keeps_path_and_masks_password():
     text = "mkdir -p /var/tmp/tcp\nsshpass -p 'Xk9mq2Lzv' scp -P 22 a.tar admin@host:/var/tmp/tcp/\n"
-    out, n = putcopy.scrub_text(text)
+    out, n = _scrub(text)
     assert out.splitlines()[0] == "mkdir -p /var/tmp/tcp"
     assert "Xk9mq2Lzv" not in out
     assert n == 1
@@ -102,7 +112,7 @@ def test_powershell_call_kept_by_hook_masker(line):
 
 @pytest.mark.parametrize("line", PS_KEPT)
 def test_powershell_call_kept_by_put_scrub(line):
-    assert putcopy.scrub_text(line) == (line, 0)
+    assert _scrub(line) == (line, 0)
 
 
 @pytest.mark.parametrize("line,want", PS_CAUGHT)
@@ -116,4 +126,4 @@ def test_powershell_literal_caught_by_hook_masker(line, want):
 
 @pytest.mark.parametrize("line,want", PS_CAUGHT)
 def test_powershell_literal_caught_by_put_scrub(line, want):
-    assert putcopy.scrub_text(line) == (want, 1)
+    assert _scrub(line) == (want, 1)

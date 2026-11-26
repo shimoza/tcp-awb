@@ -35,9 +35,9 @@ control), so a partner can switch on Track Changes and edit every line:
 - A4 with the margins of the PDF and "page / pages" (the fields PAGE and NUMPAGES) centred in the footer; the title
   and the author "Architect Workbench" in the document properties.
 
-The folder, link, name and secret rules are those of `awb pdf` (its allowed, _screen, _read and _publish): the
-input and the DOCX inside the project folder of the current folder or the session scratch folder, the text screened
-before it is written, the file private (0600) and published atomically. What a figure cannot show is left out and
+The folder and link rules are those of `awb pdf` (its allowed, _screen, _read and _publish): the
+input and the DOCX inside the project folder of the current folder or the session scratch folder, the encoding of the
+text checked and no content check (B-089) before it is written, the file private (0600) and published atomically. What a figure cannot show is left out and
 counted in one stderr line, as in the PDF. A character XML cannot hold (a control character) is written as "?" and
 counted. Exit codes: 0 written, 2 usage or error.
 """
@@ -780,7 +780,7 @@ class _Writer:
 # --------------------------------------------------------------------------- the file and the command
 
 def _screen_blocks(blocks: list, title: str, author: str, css: str) -> None:
-    """The text of the blocks as awb pdf screens it, the SVG files and the page's CSS beside it."""
+    """The text of the blocks as awb pdf checks its encoding, the SVG files and the page's CSS beside it."""
     values = [title, author, css]
     for block in blocks:
         values.extend([pdf._plain_text(block.runs), block.marker])

@@ -93,11 +93,11 @@ def test_ux4_a_text_with_a_name_is_withheld_and_the_list_has_no_name(home, proj,
     _open(proj, "## Owner", "- call %s about the dates" % fx.CUSTOMER_FORMS[0])
     items, parked = ownerwait.collect(home, tmp_path / "none.md", tmp_path / "runs")
     text = "\n".join(ownerwait.render(items, parked))
-    # DMZ 4: the list inside shows the text as written; the mail leaves the host and keeps the name check
+    # DMZ 4: the list inside shows the text as written; B-089: the owner mail is inside too and is sent as written
     assert fx.CUSTOMER_FORMS[0] in text
     sent = []
     assert ownerwait.mail(home, lambda s, m: sent.append(m) or "sent", tmp_path / "none.md", tmp_path / "runs") == (
-        "not sent: the mail is withheld") and sent == []
+        "sent") and len(sent) == 1 and fx.CUSTOMER_FORMS[0] in sent[0]
 
 
 def test_ux4_the_mail_goes_once_per_call_with_the_list_and_not_when_empty(home, proj, tmp_path):
@@ -123,8 +123,9 @@ def test_ux4_no_mail_when_the_name_check_cannot_run(home, proj, tmp_path, monkey
 
     monkeypatch.setattr(ledger, "hit_indexes", broken)
     sent = []
+    # B-089: the owner mail is inside, so a check that cannot run stops no mail
     assert ownerwait.mail(home, lambda s, m: sent.append(m) or "sent", tmp_path / "none.md", tmp_path / "runs") == (
-        "not sent: the name check cannot run") and sent == []
+        "sent") and len(sent) == 1
 
 
 def test_ux4_the_command_prints_the_list_and_json_keeps_the_old_status(home, proj, capsys, monkeypatch):

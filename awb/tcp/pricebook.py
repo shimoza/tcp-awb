@@ -128,21 +128,15 @@ class SpecError(PricebookError):
 
 
 def _public(text: str) -> str:
-    """Check control characters and secrets without changing ordinary public wording or API URLs. A price book is
-    our own output built from the public price API and the project's own spec, so it gets the secret check only, no
-    name check (his rule: customer data is checked once at entry, 2026-10-27)."""
-    from awb import check, putcopy
-    try:
-        if _CONTROL_RE.search(text) or putcopy.scrub_text(text)[1] or check._secret_classes(text):
-            return "[withheld]"
-        return text
-    except Exception:
-        return "[withheld]"
+    """The text, or "[withheld]" when it holds a control character or a lone surrogate. No content check: a price
+    book is our own output built from the public price API and the project's own spec, and a name, a secret or an
+    address in it is written as it stands (B-089)."""
+    return "[withheld]" if _CONTROL_RE.search(text) else text
 
 
 def _require_public(text: str) -> None:
     if _public(text) != text:
-        raise PricebookError("content was withheld by the privacy check")
+        raise PricebookError("content has a control character or an invalid character")
 
 
 def _print(text: str, *, file=None) -> None:

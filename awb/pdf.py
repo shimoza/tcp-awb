@@ -40,7 +40,7 @@ The PDF goes next to FILE unless --out names another file; either way it must li
 current folder (its SCOPE.md) or the session scratch folder (/tmp/claude-UID), as must the input. Linked path components and special files are refused. Output files are
 group-readable (0664) inside a project folder, so the owner's awb xchg put can read them, and private
 (0600) in the session scratch folder, published atomically; concurrent conversions may replace each other with complete PDFs.
-Names and secrets in source, parsed text, links, paths and metadata refuse publication. Input lines and joined
+No content check: a name or a secret shaped value in the source is written as it stands. Input lines and joined
 Markdown paragraphs are limited to 16384 characters, tables to 100000 rectangular cells and output to 1000 pages.
 A document whose text is all WinAnsi keeps the standard fonts. One with a character outside WinAnsi (Cyrillic for
 example) embeds a TrueType font of the host instead, by default since the owner's yes of 2026-11-20 (Liberation Sans
@@ -832,7 +832,7 @@ def _goto(annot: tuple, page_ids: list[int], marks: dict) -> bytes:
 
 
 def _render(blocks: list[Block], title: str, author: str, h1_page: bool = False) -> bytes:
-    # Check the text after parsing too: formatting and entities can join a private value.
+    # Check the encoding after parsing too: an entity can give a lone surrogate.
     values = [title, author]
     for block in blocks:
         values.extend([_plain_text(block.runs), block.marker])
@@ -1413,35 +1413,12 @@ def from_html(text: str, base: Path | None = None, start: Path | None = None) ->
 # --------------------------------------------------------------------------- the file and the command
 
 def _screen(text: str) -> None:
-    """Refuse private values; unavailable checks never quote their diagnostics."""
-    from awb import check, config
-
+    """Refuse a text that is not UTF-8 (a lone surrogate). No content check: a name, a secret or an address is
+    written as it stands (B-089)."""
     try:
         text.encode("utf-8")
-        if check._secret_classes(text):
-            raise PdfError("private content refused")
-        register = config.paths().register
-        if check.register_source(register)[0] == check.MISSING:
-            raise PdfError("privacy check unavailable")
-        try:
-            hits = check.check_text(text, register)
-        except check.CheckUnavailable:
-            # An unconfigured development install has no names. Work sessions and
-            # existing or unreadable vaults must still fail closed.
-            if config.is_work_user():
-                raise
-            try:
-                register.parent.stat()
-            except FileNotFoundError:
-                hits = []
-            else:
-                raise
-        if any(h.get("cls") == "name" for h in hits):
-            raise PdfError("private content refused")
-    except PdfError:
-        raise
-    except Exception:
-        raise PdfError("privacy check unavailable") from None
+    except UnicodeEncodeError:
+        raise PdfError("the text is not valid UTF-8") from None
 
 
 def _directory(path: Path) -> int:

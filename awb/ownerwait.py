@@ -786,18 +786,6 @@ def record_waits(p: config.Paths, items: list[Item], skip: list[Item] = (),
         open_n, len(entries) - open_n, ownerwaits.KEEP_DAYS, "written" if shared else "not written")
 
 
-def check_ran(p: config.Paths | None = None) -> bool:
-    """True when the name check can run now. The mail leaves the host (an exit of the DMZ): it is sent only then."""
-    from awb import ledger
-
-    p = p or config.paths()
-    try:
-        ledger.hit_indexes(["probe"], ledger.register_path(p))
-    except ledger.LedgerError:
-        return False
-    return True
-
-
 def count(items: list[Item]) -> int:
     """The items without the lines that only count others."""
     return sum(1 for it in items if it.kind != "more")
@@ -852,26 +840,16 @@ def fit(lines: list[str], limit: int = MAIL_MAX) -> str:
 
 def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, runs: Path | None = None) -> str:
     """The daily mail (the owner's timer, 08:00 Europe/Berlin): the list through the key service's notify, the way
-    `mail_owner_commands` sends. The mail leaves the host, so it is an exit of the DMZ: nothing is sent for an empty
-    list, when the name check cannot run or when the body holds a registered name. Returns a word:
-    "sent", "empty" or "not sent: why"."""
+    `mail_owner_commands` sends. The mail goes to the owner, so it is inside (B-089): the body is sent as written, with
+    no content check; nothing is sent for an empty list. Returns a word: "sent", "empty" or "not sent: why"."""
     p = p or config.paths()
-    if not check_ran(p):
-        return "not sent: the name check cannot run"
     items, parked = collect(p, queue, runs)
     note_lines = notes(p=p)
     if not items and not note_lines:
         return "empty"
     if send is None:
         return "not sent: no mail path"      # `awb owner status --mail` (awb/tcp/owner.py) passes the key service's
-    from awb import ledger
-
     body = fit(render(items, parked, note_lines))
-    try:
-        if ledger.hit_indexes([body], ledger.register_path(p)):
-            return "not sent: the mail is withheld"
-    except ledger.LedgerError:
-        return "not sent: the name check cannot run"
     subject = ("Workbench: %d item%s wait on you" % (count(items), "" if count(items) == 1 else "s") if items
                else "Workbench: nothing waits on you, %d note%s" % (len(note_lines), "" if len(note_lines) == 1 else "s"))
     try:

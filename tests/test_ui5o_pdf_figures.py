@@ -271,8 +271,8 @@ def test_svg_text_and_image_alt_text_go_through_the_screen():
                  '<img src="data:image/png;base64,%s" alt="%s">'
                  % (base64.b64encode(png(2, 2, 0, [bytes(2)] * 2, bpp=1)).decode(), secret)):
         blocks, _ = pdf.from_html("<html><body>%s</body></html>" % body)
-        with pytest.raises(pdf.PdfError, match="private content refused"):
-            pdf.render(blocks, "guide")
+        # B-089: no content check inside, the text renders as written
+        assert pdf.render(blocks, "guide").startswith(b"%PDF")
 
 
 def test_path_data_absolute_relative_and_arcs():

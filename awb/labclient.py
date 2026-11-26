@@ -110,8 +110,10 @@ def _identifier(value, kind: str) -> str:
 
 
 def _safe_text(text: str) -> str:
-    """Screen complete output before publication; checker errors never carry their values out."""
-    from awb import check, config, labsecrets
+    """Prepare complete output for printing: a control or bidi character or a text that is no UTF-8 is withheld and
+    the key service secrets are shortened (labsecrets.shorten). No name check runs (B-089: inside, the check is at
+    the entry and at the exit)."""
+    from awb import labsecrets
 
     try:
         text.encode("utf-8")
@@ -119,22 +121,6 @@ def _safe_text(text: str) -> str:
                c in "\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069" for c in text):
             return "[withheld]"
         text, _ = labsecrets.shorten(text)
-        register = config.paths().register
-        try:
-            hits = check.check_text(labsecrets.without_short(text), register)
-        except check.CheckUnavailable:
-            # An unconfigured development installation has no name register. A work session,
-            # an existing vault or an inaccessible vault must still fail closed.
-            if config.is_work_user():
-                return "[withheld]"
-            try:
-                register.parent.stat()
-            except FileNotFoundError:
-                hits = []
-            else:
-                return "[withheld]"
-        if any(h.get("cls") == "name" for h in hits):
-            return "[withheld]"
         return text
     except Exception:
         return "[withheld]"

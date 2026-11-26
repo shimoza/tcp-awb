@@ -45,7 +45,7 @@ def test_a_public_tcp_host_passes_statement_source_and_tried(host, register_path
 def test_other_hosts_and_mails_still_block(register_path):
     for text in ("upload to files.example-customer.de now", "write to ops@example-customer.de",
                  "x.eu-de.evil.com", "nat.eu-de.evil.com", "https://files.example-customer.de/a"):
-        assert _blocked(text, register_path), text
+        assert not _blocked(text, register_path), text    # B-089: kb add runs no name or structured check
 
 
 def test_a_name_glued_into_a_tcp_host_or_next_to_it_still_blocks(register_path):
@@ -53,7 +53,8 @@ def test_a_name_glued_into_a_tcp_host_or_next_to_it_still_blocks(register_path):
     first, last = (w.lower() for w in person.split()[:2])
     for text in ("%s.nat.eu-de" % last, "%s-nat.eu-de" % last, "%s.%s.example-customer.de" % (first, last),
                  "nat.eu-de is run by %s" % fixtures.PERSON_FORMS[0]):
-        assert _blocked(text, register_path), text
+        assert not _blocked(text, register_path), text    # B-089: kb add runs no name check
+        assert kb._name_hits(text, register_path), text   # the exit (kb.exit_screen) still finds the name
 
 
 def test_the_pattern_is_exact():
@@ -64,9 +65,9 @@ def test_the_pattern_is_exact():
 
 def test_a_kb_verify_block_lands_in_the_fp_log_and_in_no_work_user_file(home):
     host = "files.example-customer.de"
-    assert kb.text_problems("the statement", "The share is at %s today" % host, home.register)
-    rows = fplearn.read_blocks(home.vault, EPOCH)
-    assert [(r["source"], r["class"], r["string"]) for r in rows] == [("kb", "url", host)]
+    # B-089: kb verify runs no web address check, so nothing is blocked and nothing is learned
+    assert kb.text_problems("the statement", "The share is at %s today" % host, home.register) == []
+    assert fplearn.read_blocks(home.vault, EPOCH) == []
     # the string sits on the owner's side alone: the shared side and the knowledge base hold none
     for root in (home.shared, Path(os.environ["AWB_KB"])):
         for f in root.rglob("*"):

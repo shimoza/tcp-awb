@@ -252,7 +252,7 @@ def test_release2_end_to_end_with_the_tool_guard_and_compact(places, daemon, mon
     assert code == 0 and kb_id in out
     code, _, err = con.run("kb", "add", "--scope", "tcp", "--tag", "obs", "--grade", "docs", "--class", "stable",
                            "--source", "a call with " + PERSON, "Buckets can be replicated to a second region.")
-    assert code == 1 and "name" in err
+    assert code == 0, err   # B-089: kb add runs no name check inside
 
     code, _, err = con.run("ledger", "add", "--kind", "proof", "--done", "sized the landing zone and wrote the offer",
                            "--project", pr.code, "--customer", cust, "--tag", "cce", "--outcome",

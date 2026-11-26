@@ -20,14 +20,12 @@ Header keys, always in this order:
     why       why it was withdrawn, one line (only when it was)
 
 `add` refuses a text that is not English (Cyrillic letters, or more than 15 % German function words and at
-least two of them), that carries a hit of the name check (`check.check_text` with `config.paths().register`,
-the vault daemon when the register is not readable here), a register code or a project code, an identifier, a
-home path, a secret or a token (the detectors of `awb.gate`), a price (a number with any currency symbol or code,
-a rate per hour, or a price word such as billed, cost or fee with a number at most three words after it), a
-negative statement without two `--tried` (contracted negations such as isn't and won't count, and so do "not
-offered" and "no longer"), an unknown tag, and a statement whose word overlap with an entry of the same scope is
-above 0.6 (unless `--force-new`). A code counts also when it is written with a look-alike dash or fullwidth
-characters. The statement, the source and every tried text are checked.
+least two of them), a price (a number with any currency symbol or code, a rate per hour, or a price word such as
+billed, cost or fee with a number at most three words after it), a negative statement without two `--tried`
+(contracted negations such as isn't and won't count, and so do "not offered" and "no longer"), an unknown tag, and a
+statement whose word overlap with an entry of the same scope is above 0.6 (unless `--force-new`). The statement, the
+source and every tried text are checked. No name, structured data, code, secret or token check runs inside (B-089,
+the owner's word of 2026-11-25): the knowledge base is inside the DMZ and a fact is written and shown as written.
 
 An entry may end with a check block: a line `--- check`, then `key: value` lines in this order (design F4 of
 2026-10-14): tier (read | write | decision | none), event (an ISO date, optional), calls (read: `GET service
@@ -54,20 +52,19 @@ KEEP. `renew ID --source URL` records that a standing entry still holds where it
 the new source, the grade kept. `expired --days N` adds the entries that expire in the next N days. All three run
 the checks of `amend`. The dataset build leaves a merged entry out like every retired one.
 
-`find` prints the first FIND_TOP entries (`--top N`, `--all`) and screens only those: a broad query matches nearly
-the whole base, and the screen of every match sent all of it to the name check on every search (over 120 s in a
-project on 2026-11-21).
+`find` prints the first FIND_TOP entries (`--top N`, `--all`).
 
-Nothing here prints, logs or raises with a refused value: messages carry field names, classes, counts, ids and
-dates. What `find`, `show`, `scope` and `expired` print passed these checks when it was added; it goes through
-the name check once more before it is printed, so an entry that carries a name registered later is withheld.
-A name check that cannot run stops every command with exit 2: the knowledge base fails closed.
+Nothing here prints, logs or raises with a refused value: messages carry field names, counts, ids and dates. What
+`find`, `show`, `scope`, `expired` and the briefings print is the fact as written; no command needs the register.
 
-The name check of the knowledge base (add, amend, recheck, retire, verify, what is printed and the export the
-dataset build reads) drops one kind of hit: a name hit that lies inside an occurrence of the full name or short
-name of a service of rules/services.tsv, written as the service description writes it (whole phrase, same case)
-and longer than the hit. A service named like a customer is a fact; the same word outside such a name still hits.
-The intake, `awb gate` and every other path of customer material keep the plain check.
+The facts leave only at the exit (B-089): `exit_screen`, which `export` (and so `awb kb export` and the dataset build)
+runs on every fact, leaves a fact out and counts it when it carries a registered name, a secret, a private key, a
+token, a home path, a word of the owner's blocklist or a code. An identifier (an IP address, a host name, a URL, a
+hash, a UUID, a tenant number) is never a finding. A name check that cannot run stops the export with exit 2: the
+exit fails closed. The name check of the exit drops one kind of hit: a name hit that lies inside an occurrence of the
+full name or short name of a service of rules/services.tsv, written as the service description writes it (whole
+phrase, same case) and longer than the hit. A service named like a customer is a fact; the same word outside such a
+name still hits.
 
     awb kb add --scope S --tag T... --grade G --class C --source TEXT [--tried TEXT]... [--checked D]
                [--force-new] STATEMENT|-
@@ -229,7 +226,8 @@ _PRICE_RE = re.compile(
     r"|\b" + _PRICE_WORD + r"\b(?:\s+[^\W\d]+){0,3}\s+" + _NUMBER
 )
 
-_GATE_CLASSES = ("identifier", "homepath", "secret", "token", "private-key", "blocklist")
+_GATE_CLASSES = ("homepath", "secret", "token", "private-key", "blocklist")
+"""What the exit of the facts checks besides a registered name (B-089): the identifier class is never a finding."""
 
 _WORD_RE = re.compile(r"[a-z0-9]+(?:[.\-_/][a-z0-9]+)*")
 _JOINERS = frozenset(".-_/")
@@ -561,9 +559,10 @@ def _record_block(text: str, hits: list[dict]) -> None:
 
 def text_problems(label: str, text: str, register_path: Path, *, language: bool = True,
                   paths: bool = False) -> list[str]:
-    """Why `text` may not go into the knowledge base, as messages that name `label` and never the text. With `paths`
-    (the calls and test lines of a check block) a hit of the class url is not a reason: a path into an answer such as
-    `subnets.0.id` reads as a web address; every other class of the name check still is."""
+    """Why `text` may not go into the knowledge base, as messages that name `label` and never the text: English and
+    no price. A name, structured data, a code and a secret are no reason here (B-089, the owner's word of 2026-11-25:
+    the knowledge base is inside); the exit of the facts (`exit_screen`) checks the names and the secrets. `paths`
+    (the calls and test lines of a check block) is kept for the callers and changes nothing."""
     norm = normalize.normalize(text).text
     out: list[str] = []
     if _cyrillic(norm):
@@ -572,28 +571,6 @@ def text_problems(label: str, text: str, register_path: Path, *, language: bool 
         german, total = german_share(norm)
         if german >= MIN_GERMAN and german / total > GERMAN_LIMIT:
             out.append("%s is not in English (%d of %d words are German function words)" % (label, german, total))
-    hits = _name_hits(text, register_path)
-    if paths:
-        hits = [h for h in hits if not (isinstance(h, dict) and h.get("cls") == "url")]
-    if hits:
-        _record_block(text, hits)
-        by_cls: dict[str, int] = {}
-        for h in hits:
-            cls = h.get("cls", "unknown") if isinstance(h, dict) else "unknown"
-            if not isinstance(cls, str) or cls not in {
-                "name", "mail", "url", "domain", "ip", "ipv4", "ipv6", "mac", "iban", "bic", "vat", "phone", "hrb"
-            }:
-                cls = "unknown"
-            by_cls[cls] = by_cls.get(cls, 0) + 1
-        out.append("%s carries hits of the name check (%s)" % (label, _counts(sorted(by_cls.items()))))
-    # a code with a look-alike dash or fullwidth characters inside is still a code (codes.count_codes)
-    n_codes = max(sum(codes.count_codes(text)), sum(codes.count_codes(norm)))
-    if n_codes:
-        out.append("%s carries %s; a fact names no customer and no project"
-                   % (label, _n(n_codes, "register or project code")))
-    found = [(cls, _count(text, norm, gate.DETECTORS[cls])) for cls in _GATE_CLASSES if cls in gate.DETECTORS]
-    if any(n for _, n in found):
-        out.append("%s carries an identifier, a home path, a secret or a token (%s)" % (label, _counts(found)))
     n_price = _count(text, norm, _PRICE_RE)
     if n_price:
         out.append("%s carries a price (%d); prices come from the live price API (awb price), never from the "
@@ -1161,7 +1138,6 @@ def add(statement: str, *, scope: str, tags: Sequence[str], grade: str, cls: str
     tag_list, reasons = _clean_tags(tags)
 
     reg = register_of(register_path)
-    _require_register(reg)
     reasons += text_problems("the statement", statement, reg)
     reasons += text_problems("the source", source, reg, language=False)
     for i, t in enumerate(tried, start=1):
@@ -1246,7 +1222,6 @@ def amend(kb_id: str, statement: str, *, checked: str | date | None = None, forc
         raise KBError("checked is empty; leave it out to keep the date of the entry")
     when = None if checked is None else _checked(checked, today)
     reg = register_of(register_path)
-    _require_register(reg)
     problems = text_problems("the statement", statement, reg)
     for i, t in enumerate(new_tried or [], start=1):
         problems += text_problems("tried %d" % i, t, reg)
@@ -1295,7 +1270,6 @@ def recheck(kb_id: str, *, grade: str, source: str, tried: Sequence[str] = (), c
         if ";" in t:
             raise KBError("tried %d must not carry a semicolon (it separates the tried texts)" % i)
     reg = register_of(register_path)
-    _require_register(reg)
     problems = text_problems("the source", source, reg, language=False)
     for i, t in enumerate(tried, start=1):
         problems += text_problems("tried %d" % i, t, reg)
@@ -1324,7 +1298,6 @@ def retire(kb_id: str, why: str, *, where=None, register_path: Path | None = Non
     get(kb_id, folder)
     why = _one_line_field(why, "the reason")
     reg = register_of(register_path)
-    _require_register(reg)
     problems = text_problems("the reason", why, reg)
     with _locked(folder):
         entries = load(folder)
@@ -1370,7 +1343,6 @@ def merge(keep_id: str, drop_id: str, *, why: str | None = None, source: str | N
     if source is not None:
         source = _one_line_field(source, "the source")
     reg = register_of(register_path)
-    _require_register(reg)
     problems = text_problems("the reason", why, reg) if why is not None else []
     with _locked(folder):
         entries = load(folder)
@@ -1439,7 +1411,6 @@ def renew(kb_id: str, *, source: str, checked: str | date | None = None, where=N
     if not re.match(r"https?://\S", source):
         raise KBError("the source of a renewal is the web address where the fact was read again (http or https)")
     reg = register_of(register_path)
-    _require_register(reg)
     problems = text_problems("the source", source, reg, language=False)
     with _locked(folder):
         entries = load(folder)
@@ -1506,7 +1477,6 @@ def how(kb_id: str, text: str, *, where=None, register_path: Path | None = None,
             raise KBError("check line %d carries control or invisible characters" % i)
     check = parse_block(lines, "the check block")
     reg = register_of(register_path)
-    _require_register(reg)
     problems = block_problems(check) + _block_text_problems(check, reg)
     with _locked(folder):
         entries = load(folder)
@@ -1578,7 +1548,6 @@ def verify(files: Sequence[Path] = (), *, staged_repo: Path | None = None,
     too: a wrong fact is withdrawn with `awb kb retire`, which keeps its file, its history and its id.
     Raises KBError when the name check cannot run."""
     reg = register_of(register_path)
-    _require_register(reg)
     items: list[tuple[str, str | None]] = []
     for f in files:
         try:
@@ -1679,7 +1648,6 @@ def bench(questions: Sequence[dict], where=None, top: int = 5) -> dict:
     "top", "misses"} where misses are the positions of the questions whose entries are not in the first `top`.
     A question counts only while one of its accepted entries stands, so a retirement never reads as a miss."""
     _validate_questions(questions)
-    _require_register(register_of())
     if not isinstance(top, int) or isinstance(top, bool) or top < 1:
         raise KBError("top must be a positive integer")
     live = {e.id for e in load(where) if not e.is_retired}
@@ -1778,10 +1746,16 @@ def due(where=None, today: date | None = None, days: int = 0, requested: dict[st
 
 
 def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple[list[Entry], int]:
-    """(entries that pass the checks of add now, count withheld). An entry that carries a name registered after it
-    was added is withheld, and so is one that carries what kb add refuses (a mail address or other structured data,
-    a register or project code, an identifier, a home path, a secret or a token): an entry file written past kb add
-    (P3 of the review of 2026-10-10). Raises KBError when the name check cannot run."""
+    """(the entries, 0). The knowledge base is inside the DMZ and runs no content check (B-089): a find, a show, a
+    briefing, the index and the asks print a fact as written. The exit is `exit_screen` (the dataset, `kb export`)."""
+    return list(entries), 0
+
+
+def exit_screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple[list[Entry], int]:
+    """(entries that may leave, count left out). The exit of the facts (the dataset build and `kb export`, B-089) checks
+    every fact: a registered name, a secret, a private key, a token, a home path, a word of the owner's blocklist and a
+    register or project code. An identifier (an IP address, a host name, a URL, a hash, a UUID, a tenant number) is no
+    finding. Raises KBError when the name check cannot run."""
     entries = list(entries)
     reg = register_of(register_path)
     _require_register(reg)
@@ -1789,15 +1763,13 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
         return [], 0
 
     def dirty(group: list[Entry]) -> bool:
-        # every class of the name check but a web address: a source URL is the usual source of a fact and must not
-        # send every search into one check per entry; a name inside it is still a name hit
         text = "\n\n".join(_entry_text(e) for e in group)
         if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") and c not in "\n\t" for c in text):
             return True
         # tags get every check but the name check: a name in a tag is refused where it would leave (the dataset
-        # build stops on it), never withheld here without a word
+        # build stops on it), never left out here without a word
         hits = _name_hits("\n\n".join(_entry_text(e, tags=False) for e in group), reg)
-        if any(not isinstance(h, dict) or h.get("cls") != "url" for h in hits):
+        if any(isinstance(h, dict) and h.get("cls") == "name" for h in hits):
             return True
         norm = normalize.normalize(text).text
         if max(sum(codes.count_codes(text)), sum(codes.count_codes(norm))):
@@ -1805,8 +1777,8 @@ def screen(entries: Sequence[Entry], register_path: Path | None = None) -> tuple
         return any(_count(text, norm, gate.DETECTORS[cls]) for cls in _GATE_CLASSES if cls in gate.DETECTORS)
 
     def clean(group: list[Entry]) -> list[Entry]:
-        # halves instead of one check per entry: a few requests for a long list, so a broad search never runs
-        # into the rate limit of the vault daemon
+        # halves instead of one check per entry: a few requests for a long list, so the export never runs into the
+        # rate limit of the vault daemon
         if not dirty(group):
             return group
         if len(group) == 1:
@@ -1880,7 +1852,7 @@ def export(where=None, *, scope: str | None = "tcp", grades: Sequence[str] = EXP
            tags: Sequence[str] = (), include_expired: bool = False, today: date | None = None,
            register_path: Path | None = None) -> tuple[list[dict], dict[str, int]]:
     """The entries fit to leave as a dataset, as records, and the counts of what was left out and why. Retired
-    entries never leave; expired ones only when asked; every entry passes the name check again first."""
+    entries never leave; expired ones only when asked; every entry passes the exit check first (`exit_screen`)."""
     today = today or date.today()
     bad = [g for g in grades if g not in GRADES]
     if bad:
@@ -1900,7 +1872,7 @@ def export(where=None, *, scope: str | None = "tcp", grades: Sequence[str] = EXP
             left["expired"] += 1
         else:
             keep.append(e)
-    shown, withheld = screen(keep, register_path)
+    shown, withheld = exit_screen(keep, register_path)
     left["withheld"] = withheld
     return [export_record(e, today) for e in sorted(shown, key=lambda x: x.id)], left
 
@@ -1910,7 +1882,7 @@ def _entry_text(e: Entry, *, tags: bool = True) -> str:
 
 
 def _withheld_line(n: int) -> str:
-    return ("%s withheld: %s hits of the name check now, fix by hand in %s/"
+    return ("%s withheld: %s hits of the exit check now, fix by hand in %s/"
             % (_n(n, "entry", "entries"), "it carries" if n == 1 else "they carry", ENTRIES))
 
 
@@ -2090,8 +2062,6 @@ def _cmd_bench(args, today: date) -> int:
                       round(100 * r["hit_top"] / n)))
     for i in r["misses"]:
         question = questions[i]["question"]
-        if text_problems("question", question, register_of(), language=False):
-            question = "withheld"
         print("  missed #%d: %s" % (i, " ".join(question.split())[:110]))
     return 0
 
@@ -2118,39 +2088,26 @@ def _merged_lines(words: Sequence[str], today: date) -> list[str]:
             continue
         out.append("%s was merged into %s" % (word, " then ".join(chain[1:])))
         last = get(chain[-1])
-        if not last.is_retired and screen([last])[0]:
+        if not last.is_retired:
             out.append(_list_line(last, today))
     return out
 
 
 def _cmd_find(args, today: date) -> int:
-    _require_register(register_of())   # fails closed even when nothing matches and nothing is screened
     ranked = find(args.words, scope=args.scope)
     lines = _merged_lines(args.words, today)
     limit = len(ranked) if args.all else args.top
     if limit < 1:
         print("awb kb find: --top must be at least 1", file=sys.stderr)
         return 2
-    # only what is printed goes through the screen, in slices until `limit` entries are shown: a broad query matches
-    # nearly the whole base, and screening every match sent the whole base to the name check on every search
-    shown: list[tuple[float, Entry]] = []
-    withheld = 0
-    at = 0
-    while len(shown) < limit and at < len(ranked):
-        part = ranked[at:at + (limit - len(shown))]
-        at += len(part)
-        clean, n = screen([e for _, e in part])
-        keep = {e.id for e in clean}
-        shown += [(score, e) for score, e in part if e.id in keep]
-        withheld += n
+    shown = ranked[:limit]
+    at = len(shown)
     for line in lines:
         print(line)
     if not ranked and not lines:
         print("no entry matches")
     for score, e in shown:
         print(_list_line(e, today, score))
-    if withheld:
-        print(_withheld_line(withheld))
     if at < len(ranked):
         print("%s more %s: --top N or --all prints them"
               % (len(ranked) - at, "match" if len(ranked) - at == 1 else "matches"))
@@ -2159,10 +2116,6 @@ def _cmd_find(args, today: date) -> int:
 
 def _cmd_show(args, today: date) -> int:
     e = get(args.id)
-    shown, _ = screen([e])
-    if not shown:
-        print("awb kb show: %s carries hits of the name check now; fix it by hand" % e.id, file=sys.stderr)
-        return 1
     sys.stdout.write(render(e))
     if e.is_retired:
         # an id in an old note leads here, and the reason is the answer to why the fact went away

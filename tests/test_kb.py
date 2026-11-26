@@ -225,12 +225,24 @@ REFUSALS = {
 }
 
 
+# B-089: what the knowledge base no longer refuses (inside: no name, code, identifier, secret or structured-data check)
+STORED_AS_WRITTEN = {"fixture form", "fixture form in the source", "structured data", "cust code", "tcp project code",
+                     "32-hex id", "home path", "token", "secret", "tried with a fixture form"}
+
+
 @pytest.mark.parametrize("case", sorted(REFUSALS))
 def test_refusals_carry_no_value(home, capsys, case):
     kw, marker, planted = REFUSALS[case]
     kw = dict(kw)
     statement = kw.pop("statement")
     code, out, err = run(add_argv(statement, **kw), capsys)
+    if case in STORED_AS_WRITTEN:
+        # B-089: the add passes and the entry is stored as written
+        assert code == 0 and err == ""
+        files = entry_files(home)
+        assert [f.stem for f in files] == [added_id(out)]
+        assert kb.get(added_id(out), home).statement == statement
+        return
     assert code == 1
     assert marker in err
     assert "refused" in err
@@ -244,7 +256,8 @@ def test_refused_raises_with_reasons_and_writes_nothing(home):
     with pytest.raises(kb.Refused) as info:
         new("ECS for %s costs 0.05 EUR per hour" % fixtures.CUSTOMER_FORMS[0])
     reasons = info.value.reasons
-    assert any("name check" in r for r in reasons) and any("price" in r for r in reasons)
+    # B-089: the name is no reason any more; the price is
+    assert not any("name check" in r for r in reasons) and any("price" in r for r in reasons)
     fixtures.assert_no_fixture_name(str(info.value), "Refused")
     assert not (home.kb / "entries").exists()
 
@@ -366,6 +379,10 @@ def test_an_amendment_that_would_not_pass_add_is_refused(home, capsys, case):
     e = new(S_FLAVOR)
     before = e.path.read_text(encoding="utf-8")
     code, out, err = run(["amend", e.id, statement], capsys)
+    if case == "fixture form":
+        # B-089: a name is no reason inside; the amendment passes and is stored as written
+        assert code == 0 and err == "" and kb.get(e.id, home).statement == statement
+        return
     assert code == 1 and "refused" in err and marker in err
     assert statement not in out + err
     if case != "unbacked negative":   # the planted value of that case is in the statement that stays
@@ -511,9 +528,11 @@ def test_retiring_twice_is_refused_and_a_retired_entry_cannot_be_amended(home, c
 def test_a_reason_that_carries_a_name_or_is_empty_is_refused(home, capsys):
     e = new(S_FLAVOR)
     before = e.path.read_text(encoding="utf-8")
-    code, out, err = run(["retire", "--why", "%s says so" % fixtures.PERSON_FORMS[0], e.id], capsys)
-    assert code == 1 and "the reason carries hits of the name check" in err
-    fixtures.assert_no_fixture_name(out + err, "kb retire refusal")
+    # B-089: a name in the reason is no refusal inside; an empty or a two-line reason still is
+    other = new(S_GPU, tags=["gpu"])
+    code, out, err = run(["retire", "--why", "%s says so" % fixtures.PERSON_FORMS[0], other.id], capsys)
+    assert code == 0 and err == "" and kb.get(other.id, home).is_retired
+    assert kb.get(other.id, home).why == "%s says so" % fixtures.PERSON_FORMS[0]
     code, _, err = run(["retire", "--why", "", e.id], capsys)
     assert code == 2 and "the reason is empty" in err
     code, _, err = run(["retire", "--why", "two\nlines", e.id], capsys)
@@ -523,7 +542,7 @@ def test_a_reason_that_carries_a_name_or_is_empty_is_refused(home, capsys):
 
 
 def test_a_reason_that_carries_a_name_registered_later_withholds_the_entry(home, capsys):
-    """The reason is read text like the statement, so it goes through the name check of every later read too."""
+    """B-089: the reason is shown as written; only the exit check (`exit_screen`) leaves such an entry out."""
     word = fixtures.CONTROL_UNREGISTERED
     e = new(S_FLAVOR)
     code, _, err = run(["retire", "--why", "the %s site was rebuilt" % word, e.id], capsys)
@@ -532,8 +551,9 @@ def test_a_reason_that_carries_a_name_registered_later_withholds_the_entry(home,
     register.add(home.register, register.next_code(entries, "ORG"), "ORG", word)
 
     code, out, err = run(["show", e.id], capsys)
-    assert code == 1 and word not in out + err
-    assert "carries hits of the name check" in err
+    assert code == 0 and word in out and err == ""
+    shown, left = kb.exit_screen([kb.get(e.id, home)], home.register)
+    assert shown == [] and left == 1
 
 
 def test_an_entry_written_before_retire_existed_still_parses(home):
@@ -636,29 +656,37 @@ def test_the_name_check_runs_through_check_text_with_the_configured_register(hom
 
     monkeypatch.setattr(check, "check_text", spy)
     new(S_NEGATIVE, tags=["bms"], tried=TRIED)
-    assert len(calls) >= 4    # the statement, the source and both tried texts
-    assert set(calls) == {home.register}
+    assert calls == []    # B-089: an add runs no name check; the exit does
+    kb.export(today=TODAY)
+    assert calls and set(calls) == {home.register}
 
 
 def test_an_unavailable_name_check_fails_closed(home, tmp_path, monkeypatch, capsys):
     first = new(S_FLAVOR)
     # a vault this user cannot see and no daemon behind the check socket
     monkeypatch.setenv("AWB_VAULT", str(tmp_path / "no-vault"))
+    # B-089: inside, no command needs the name check; only the exit fails closed
     code, out, err = run(add_argv(S_GPU, tag="gpu"), capsys)
-    assert code == 2 and "name check unavailable" in err
-    assert len(entry_files(home)) == 1
+    assert code == 0 and err == ""
+    assert len(entry_files(home)) == 2
     for argv in (["find", "flavor"], ["scope", "ecs"], ["show", first.id]):
         code, out, err = run(argv, capsys)
-        assert code == 2 and "name check unavailable" in err and first.id not in out
+        assert code == 0 and err == "" and first.id in out
+    code, out, err = run(["export", "--out", str(tmp_path / "facts.jsonl")], capsys)
+    assert code == 2 and "name check unavailable" in err
+    assert not (tmp_path / "facts.jsonl").exists()
 
 
 def test_a_vault_folder_without_a_register_is_refused(home, tmp_path, monkeypatch, capsys):
     empty = tmp_path / "empty-vault"
     empty.mkdir()
     monkeypatch.setenv("AWB_VAULT", str(empty))
+    # B-089: an add needs no register; the export does
     code, _, err = run(add_argv(S_FLAVOR), capsys)
+    assert code == 0 and err == ""
+    assert len(entry_files(home)) == 1
+    code, _, err = run(["export", "--out", str(tmp_path / "facts.jsonl")], capsys)
     assert code == 2 and "no register found" in err
-    assert entry_files(home) == []
 
 
 def test_an_entry_that_carries_a_name_registered_later_is_withheld(home, capsys):
@@ -668,13 +696,16 @@ def test_an_entry_that_carries_a_name_registered_later_is_withheld(home, capsys)
     entries = register.load(home.register)
     register.add(home.register, register.next_code(entries, "ORG"), "ORG", word)
 
+    # B-089: find, scope and show print the fact as written; the exit check leaves it out and counts it
     code, out, _ = run(["find", "dedicated", "rack"], capsys)
-    assert code == 0 and word not in out and kept.id not in out
-    assert clean.id in out and "1 entry withheld" in out
+    assert code == 0 and word in out and kept.id in out
+    assert clean.id in out and "withheld" not in out
     code, out, _ = run(["scope", "deh"], capsys)
-    assert code == 0 and word not in out and clean.id in out and "1 entry withheld" in out
+    assert code == 0 and word in out and clean.id in out and "withheld" not in out
     code, out, err = run(["show", kept.id], capsys)
-    assert code == 1 and word not in out + err
+    assert code == 0 and word in out and err == ""
+    records, left = kb.export(today=TODAY)
+    assert [r["id"] for r in records] == [clean.id] and left["withheld"] == 1
 
 
 @pytest.fixture
@@ -713,20 +744,22 @@ def test_the_short_form_outside_the_full_service_name_still_hits(home, services,
         "part of the name": "%s forwards ECS traffic between regions" % fixtures.SERVICE_FORM.rsplit(" ", 1)[0],
         "alias only": "%s forwards ECS traffic for %s" % (fixtures.SERVICE_ALIAS, short),
     }[case]
+    # B-089: the add passes; the exit check still hits the short form outside the full name and counts the fact
     code, out, err = run(add_argv(statement), capsys)
-    assert code == 1 and "name check" in err
-    assert short not in out + err and short.lower() not in out + err
-    assert entry_files(home) == []
+    assert code == 0 and err == ""
+    assert len(entry_files(home)) == 1
+    records, left = kb.export(today=TODAY)
+    assert records == [] and left["withheld"] == 1
 
 
 def test_an_entry_edited_to_the_bare_short_form_is_withheld(home, services, capsys):
     e = new(S_SERVICE)
     hand_edit(e, fixtures.SERVICE_FORM, fixtures.SERVICE_SHORT_FORM)
-    assert "name check" in reasons(kb.verify([e.path]))
+    assert kb.verify([e.path]) == []    # B-089: no name check inside
     code, out, err = run(["show", e.id], capsys)
-    assert code == 1 and fixtures.SERVICE_SHORT_FORM not in out + err
+    assert code == 0 and fixtures.SERVICE_SHORT_FORM in out
     code, out, _ = run(["find", "forwards", "traffic"], capsys)
-    assert code == 0 and e.id not in out and "1 entry withheld" in out
+    assert code == 0 and e.id in out and "withheld" not in out
     records, left = kb.export(today=TODAY)
     assert records == [] and left["withheld"] == 1
 
@@ -736,7 +769,9 @@ def test_without_the_service_in_the_description_the_full_name_hits(home, tmp_pat
     path.write_text("\n".join(fixtures.service_lines()[:3]) + "\n", encoding="utf-8")
     monkeypatch.setattr(offered, "CATALOG", path)
     code, _, err = run(add_argv(S_SERVICE), capsys)
-    assert code == 1 and "name check" in err
+    assert code == 0 and err == ""    # B-089: the add passes; the exit check leaves the fact out
+    records, left = kb.export(today=TODAY)
+    assert records == [] and left["withheld"] == 1
 
 
 def test_a_malformed_entry_is_named_by_id_and_line_only(home, capsys):
@@ -841,11 +876,13 @@ def test_verify_finds_an_unknown_tag_a_missing_key_and_a_wrong_expiry(home):
 
 def test_verify_finds_a_name_and_a_code(home):
     e = new(S_FLAVOR)
+    # B-089: a name and a code are no finding of verify inside; the exit check is `exit_screen`
     hand_edit(e, S_FLAVOR, "ECS flavor s3.large.2 for %s in eu-de" % fixtures.CUSTOMER_FORMS[0])
-    assert "name check" in reasons(kb.verify([e.path]))
+    assert kb.verify([e.path]) == []
     e2 = new(S_GPU)
     hand_edit(e2, S_GPU, "GPU flavor p2 for %s needs a quota increase in eu-nl" % fixtures.CUSTOMER_CODE)
-    assert "code" in reasons(kb.verify([e2.path]))
+    assert kb.verify([e2.path]) == []
+    assert kb.exit_screen([kb.get(e.id, home), kb.get(e2.id, home)], home.register)[1] == 2
 
 
 def test_verify_staged_checks_what_the_commit_carries(home):
@@ -932,7 +969,7 @@ def test_a_recheck_is_refused_for_a_retired_entry_a_bad_grade_and_a_name(home, c
         kb.recheck(e.id, grade="docs", source="x", checked="", where=home)
     code, _, err = run(["recheck", "--grade", "docs", "--source", "notes of %s" % fixtures.CUSTOMER_FORMS[0], e.id],
                        capsys)
-    assert code == 1 and fixtures.CUSTOMER_FORMS[0] not in err
+    assert code == 0 and err == ""    # B-089: a name in the source is no refusal inside
     kb.retire(e.id, "replaced by a wider fact", where=home)
     with pytest.raises(kb.Refused):
         kb.recheck(e.id, grade="docs", source="API reference", where=home)
@@ -1045,12 +1082,14 @@ def test_screen_counts_names_only_and_checks_a_long_list_in_halves(monkeypatch, 
 
     monkeypatch.setattr(kb, "_name_hits", hits)
     monkeypatch.setattr(kb, "_require_register", lambda reg: None)
-    shown, withheld = kb.screen(entries, tmp_path / "register.tsv")
+    # B-089: `screen` is a pass-through inside; `exit_screen` is the check of the exit
+    assert kb.screen(entries, tmp_path / "register.tsv") == (entries, 0) and calls == []
+    shown, withheld = kb.exit_screen(entries, tmp_path / "register.tsv")
     assert withheld == 1 and "KB-0077" not in {e.id for e in shown} and len(shown) == 255
     assert len(calls) <= 2 * 9 + 1, "halves, not one check per entry"
     calls.clear()
     clean = [e for e in entries if e.id != "KB-0077"]
-    assert kb.screen(clean, tmp_path / "register.tsv") == (clean, 0) and len(calls) == 1
+    assert kb.exit_screen(clean, tmp_path / "register.tsv") == (clean, 0) and len(calls) == 1
 
 
 # --------------------------------------------------------------------------- export
@@ -1207,6 +1246,11 @@ def test_how_refuses_a_block_that_cannot_stand_and_writes_nothing(home, recipes,
     e = new(S_FLAVOR)
     before = e.path.read_text(encoding="utf-8")
     code, out, err = run(["how", e.id, "-"], capsys, monkeypatch, stdin=block)
+    if case in ("a name", "a secret"):
+        # B-089: a name or a secret in a check block is no refusal inside; the block is stored as written
+        assert code == 0 and err == "" and kb.get(e.id, home).block["tier"] == "write"
+        assert e.path.read_text(encoding="utf-8").endswith("--- check\n" + block)
+        return
     assert code == 1 and "awb kb how: refused" in err and marker in err, err
     if planted:
         assert planted not in out + err
@@ -1434,12 +1478,12 @@ def test_export_never_prints_private_destination_values(home, tmp_path, capsys):
 def test_index_screens_registered_names_and_secrets(home):
     e = new(S_FLAVOR)
     for value in (fixtures.CUSTOMER_FORMS[0], SECRET_LINE):
+        # B-089: the index is inside and lists the fact as written
         e.path.write_text(kb.render(replace(e, statement=value)))
         kb.write_index()
-        assert value not in (home.kb / kb.INDEX).read_text()
-        # The writer's already-loaded entries must use the same screen.
+        assert value in (home.kb / kb.INDEX).read_text()
         kb.write_index(entries=[replace(e, statement=value)])
-        assert value not in (home.kb / kb.INDEX).read_text()
+        assert value in (home.kb / kb.INDEX).read_text()
 
 
 def test_screen_includes_tags_in_printed_entry_metadata(home, capsys):
@@ -1447,7 +1491,7 @@ def test_screen_includes_tags_in_printed_entry_metadata(home, capsys):
     token = GH_TOKEN.lower()
     e.path.write_text(kb.render(replace(e, tags=(token,))))
     code, stdout, stderr = run(["show", e.id], capsys)
-    assert code == 1 and token not in stdout + stderr
+    assert code == 0 and token in stdout and stderr == ""    # B-089: shown as written; the exit leaves it out
     records, left = kb.export()
     assert records == [] and left["withheld"] == 1
 
@@ -1458,8 +1502,8 @@ def test_benchmark_misses_withhold_names_and_secrets(home, tmp_path, capsys):
         path = tmp_path / "questions.json"
         path.write_text(json.dumps([{"question": value, "accept": [e.id]}]))
         code, stdout, stderr = run(["bench", str(path)], capsys)
-        assert code == 0 and value not in stdout + stderr
-        assert "withheld" in stdout
+        assert code == 0 and value in stdout    # B-089: the missed question is printed as written
+        assert "withheld" not in stdout
 
 
 def test_benchmark_rows_and_rank_limit_are_validated(home, tmp_path, capsys):
@@ -1488,6 +1532,8 @@ def test_name_check_exception_values_are_withheld(home, monkeypatch, capsys):
 
     monkeypatch.setattr(check, "check_text", unavailable)
     code, stdout, stderr = run(add_argv(S_FLAVOR), capsys)
+    assert code == 0 and stderr == ""    # B-089: an add runs no name check; the export fails closed
+    code, stdout, stderr = run(["export", "--out", str(home.kb / "facts.jsonl")], capsys)
     assert code == 2 and "name check unavailable" in stderr
     assert SECRET_VALUE not in stdout + stderr
 
@@ -1495,7 +1541,9 @@ def test_name_check_exception_values_are_withheld(home, monkeypatch, capsys):
 def test_name_check_hit_classes_cannot_echo_arbitrary_values(home, monkeypatch, capsys):
     monkeypatch.setattr(kb, "_name_hits", lambda *args: [{"cls": SECRET_LINE}])
     code, stdout, stderr = run(add_argv(S_FLAVOR), capsys)
-    assert code == 1 and SECRET_VALUE not in stdout + stderr
+    assert code == 0 and SECRET_VALUE not in stdout + stderr    # B-089: an add runs no name check
+    code, stdout, stderr = run(["export", "--out", str(home.kb / "facts.jsonl")], capsys)
+    assert code == 0 and SECRET_VALUE not in stdout + stderr    # an unknown class is no name hit at the exit
 
 
 def test_verify_git_exception_values_are_withheld(home, monkeypatch, capsys):
@@ -1665,7 +1713,9 @@ def test_output_screen_withholds_terminal_control_characters(home, capsys):
     e = new(S_FLAVOR)
     hand_edit(e, S_FLAVOR, S_FLAVOR + "\x1b[2J")
     code, stdout, stderr = run(["show", e.id], capsys)
-    assert code == 1 and "\x1b" not in stdout + stderr
+    assert code == 0 and stderr == ""    # B-089: show prints the entry as written; the exit leaves it out
+    shown, left = kb.exit_screen([kb.get(e.id, home)], home.register)
+    assert shown == [] and left == 1
 
 
 def test_concurrent_adds_keep_both_facts_and_index_rows(home, monkeypatch):
@@ -1736,11 +1786,13 @@ def test_empty_outputs_still_require_a_working_name_check(home, tmp_path, capsys
     monkeypatch.setenv("AWB_VAULT", str(missing))
     questions = tmp_path / "questions.json"
     questions.write_text("[]")
-    for argv in (["find", "flavor"], ["expired"], ["index"], ["scope", "ecs"],
-                 ["bench", str(questions)], ["export", "--out", str(tmp_path / "out.jsonl")]):
+    # B-089: only the export needs the name check, an empty one too
+    for argv in (["find", "flavor"], ["expired"], ["index"], ["scope", "ecs"], ["bench", str(questions)]):
         code, stdout, stderr = run(argv, capsys)
-        assert code == 2 and "name check unavailable" in stderr
-        assert stdout == ""
+        assert code == 0 and "name check" not in stderr
+    code, stdout, stderr = run(["export", "--out", str(tmp_path / "out.jsonl")], capsys)
+    assert code == 2 and "name check unavailable" in stderr
+    assert stdout == ""
 
 
 def test_nul_paths_are_refused_without_echoing_the_path(home, tmp_path, capsys):

@@ -44,8 +44,8 @@ or assumed. Verdict is supported, contradicted or unknown.
 The level-0 check reads the deliverable once; every check sees those bytes (a file that is not plain text is
 read from a private snapshot) and the result carries their hash. It blocks on: a blocking tell of the writing
 check (mode from the contract; scope hcs only when the project is an hcs- project and the contract says hcs, so
-that no line written in the project turns the vendor-name rule off; a missing writing check blocks too), any hit
-of the name check, more words than the budget, a claim of the
+that no line written in the project turns the vendor-name rule off; a missing writing check blocks too), more
+words than the budget, a claim of the
 current text that is not in claims.tsv, a high-risk claim without an existing evidence path or without a
 verdict, a contradicted claim, an unknown claim from tier 2, a malformed grade, verdict or evidence path. The
 risk of a row always comes from the detector, never from the file, so a row cannot be talked down by hand.
@@ -76,9 +76,11 @@ check. An edit after the final check or a record without the hash brings the ful
 that no review can read as text (an image, an unknown binary) has the state unreadable: it can never pass and
 belongs somewhere else.
 
-Name checks go through `check.check_text` with the register of `config.paths()`; a readable vault folder without
-a register refuses to run. Nothing here prints, logs or raises with a matched value, a register form or a code
-of the register: output carries claim ids, line numbers, classes, counts and paths that passed the name check.
+No content check runs here (B-089, the owner's word of 2026-11-25): the contract, the claim list, the knowledge
+list and the output are written and shown as the text is, a registered name, a secret shaped value or a code
+included. The checks stay at the entry and at the exit. What stays are the shape rules: UTF-8 text, the size
+limits, the budget, the claim format and the evidence paths. `register_path` is an argument kept for the callers
+and ignored.
 """
 from __future__ import annotations
 
@@ -145,7 +147,8 @@ class ReviewError(Exception):
 
 
 class Refused(ReviewError):
-    """An input did not pass the name check. Exit 1."""
+    """An input was refused. Exit 1. No review input is refused for its content any more (B-089); the class stays
+    for the callers that catch it."""
 
 
 # --------------------------------------------------------------------------- places
@@ -298,79 +301,8 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-# --------------------------------------------------------------------------- the name check
-
-
-def _register(register_path) -> Path:
-    return Path(register_path) if register_path is not None else config.paths().register
-
-
-def _ensure_checkable(reg: Path) -> None:
-    """Refuse when a readable vault folder holds no register at all: the names could not be checked."""
-    from awb import check, register
-
-    try:
-        kind, _ = check.register_source(reg)
-    except register.RegisterError:
-        raise ReviewError("the register cannot be read, names cannot be checked") from None
-    if kind == check.MISSING:
-        raise ReviewError("no register found, names cannot be checked")
-
-
-def _check(text: str, reg: Path) -> list[dict]:
-    from awb import check, register
-
-    try:
-        return list(check.check_text(text, reg))
-    except check.CheckUnavailable as err:
-        raise ReviewError("name check unavailable") from None
-    except register.RegisterError:
-        raise ReviewError("the register cannot be read, names cannot be checked") from None
-
-
-def _is_clean(text: str, reg: Path) -> bool:
-    """True only when the name check ran and found nothing. Used before a path is printed."""
-    try:
-        _ensure_checkable(reg)
-        return not _check(text, reg) and not _secrets(text)
-    except ReviewError:
-        return False
-
-
-def _counts(hits: list[dict]) -> str:
-    allowed = {"name", "path", "opaque", "unknown"} | {kind.lower() for kind in codes.DATA_KINDS}
-    c = Counter(h.get("cls") if isinstance(h, dict) and isinstance(h.get("cls"), str)
-                and h["cls"] in allowed else "unknown" for h in hits)
-    return ", ".join("%s %d" % kv for kv in sorted(c.items()))
-
-
-def _secrets(text: str) -> bool:
-    from awb import check
-
-    return bool(check._secret_classes(text))
-
-
-FINAL_SUFFIX = ".final.md"
-_TRANSLATION_RE = re.compile(r"\.(?:de|en|ru)\.md$")
-
-
-def _checked_path(rel: str) -> str:
-    """The path of deliverables/<rel> as the name check reads it. The name check takes x.final.md for a web address
-    (the suffix .md is a country domain), so a final text of the final check (FX) is checked under the name of its
-    draft, <stem>.md: the stem, where a name could hide, is checked all the same (RV2). The language suffix
-    `awb write translate` writes (<stem>.de.md, .en.md, .ru.md) is read the same way: .de.md reads as a host."""
-    if rel.endswith(FINAL_SUFFIX) and len(rel) > len(FINAL_SUFFIX):
-        rel = rel[:-len(FINAL_SUFFIX)] + ".md"
-    else:
-        m = _TRANSLATION_RE.search(rel)
-        if m and m.start() > 0:
-            rel = rel[:m.start()] + ".md"
+def _label(rel: str) -> str:
     return "%s/%s" % (DELIVERABLES, rel)
-
-
-def _label(rel: str, reg: Path) -> str:
-    shown = "%s/%s" % (DELIVERABLES, rel)
-    return shown if _is_clean(_checked_path(rel), reg) else "the deliverable"
 
 
 def project_tier(project) -> int:
@@ -408,11 +340,11 @@ def guess_language(path) -> str:
 
 def propose_name(project, name: str, path=None, kind_word: str | None = None, lang: str | None = None,
                  register_path=None) -> str | None:
-    """A neutral file name for a deliverable whose name the name check refused: <project code>-<kind word>-
-    <language>.<ext>, for example tcp-q7m4-mapping-de.md. The code is the name of the project folder, the kind word
-    and the language come from the caller (doc and the guess of the text when absent), the extension from the
-    name when it is plain. None when the project folder is no project code or the proposal does not pass the
-    name check itself."""
+    """A neutral file name for a deliverable: <project code>-<kind word>-<language>.<ext>, for example
+    tcp-q7m4-mapping-de.md. The code is the name of the project folder, the kind word and the language come from
+    the caller (doc and the guess of the text when absent), the extension from the name when it is plain. None
+    when the project folder is no project code or the kind word or the language has no plain shape. The name check
+    is gone (B-089): `register_path` is an ignored argument and no command offers the name any more."""
     code = Path(project).name
     if not codes.is_project_code(code):
         return None
@@ -424,7 +356,7 @@ def propose_name(project, name: str, path=None, kind_word: str | None = None, la
     if not re.fullmatch(r"\.[a-z0-9]{1,5}", ext):
         ext = ""
     proposal = "%s-%s-%s%s" % (code, kind_word, lang, ext)
-    return proposal if _is_clean(proposal, _register(register_path)) else None
+    return proposal
 
 
 # --------------------------------------------------------------------------- reading the deliverable
@@ -485,27 +417,6 @@ def _deliverable_text(path: Path, data: bytes | None = None) -> tuple[str, bool]
     if ex.state != "ok" or not (ex.text or "").strip():
         raise ReviewError("the deliverable cannot be read as text")
     return ex.text, False
-
-
-def _deliverable_hits(path: Path, rel: str, text: str, plain: bool, reg: Path) -> list[dict]:
-    """Every hit of the name check in the deliverable, plus one `path` record when its name carries one."""
-    if plain:
-        hits = _check(text, reg)
-    else:
-        from awb import check, register
-
-        try:
-            hits = list(check.check_file(path, reg))
-        except check.CheckUnavailable as err:
-            raise ReviewError("name check unavailable") from None
-        except register.RegisterError:
-            raise ReviewError("the register cannot be read, names cannot be checked") from None
-        except OSError as err:
-            raise ReviewError("the deliverable cannot be read (%s)" % type(err).__name__) from None
-        hits = [h for h in hits if h.get("cls") != "path"]
-    if _check(_checked_path(rel), reg):
-        hits.insert(0, {"start": 0, "length": 0, "cls": "path"})
-    return hits
 
 
 def _existing_file(deliverable) -> tuple[Path, Path, str]:
@@ -631,8 +542,8 @@ def _review_date(today: str | None) -> str:
 @_serialized
 def init(deliverable, request, tier: int | None, budget: int, reader: str | None = None, mode: str = "doc",
          force: bool = False, register_path=None, today: str | None = None, lowered: str | None = None) -> Path:
-    """Write `reviews/<name>/contract.md`. The request text, the reader and his words that lowered the tier must
-    pass the name check; a hit raises Refused and nothing is written. Returns the path of the contract.
+    """Write `reviews/<name>/contract.md`. The request text, the reader and his words that lowered the tier are
+    written as given, no content check runs on them (B-089). Returns the path of the contract.
 
     `lowered` carries his words when he lowered the tier of a text that goes to a customer or partner (decision
     14: the tier of the project, 3 by default, he lowers it with one word). The send gate reads it; it needs a tier
@@ -661,30 +572,11 @@ def init(deliverable, request, tier: int | None, budget: int, reader: str | None
         raise ReviewError("the request must be a UTF-8 text file")
     if not text.strip():
         raise ReviewError("the request is empty")
-    if any(_secrets(value) for value in (text, reader, lowered, rel)):
-        raise Refused("the contract carries a secret; nothing was written")
-    reg = _register(register_path)
-    _ensure_checkable(reg)
-    hits = _check(text, reg)
-    if hits:
-        raise Refused("the request was refused by the name check (%s); nothing was written" % _counts(hits))
-    if reader:
-        hits = _check(reader, reg)
-        if hits:
-            raise Refused("the reader was refused by the name check (%s); nothing was written" % _counts(hits))
-    if lowered:
-        hits = _check(lowered, reg)
-        if hits:
-            raise Refused("the words for the lowered tier were refused by the name check (%s); nothing was written"
-                          % _counts(hits))
     target = review_dir(project, rel) / CONTRACT
     if os.path.lexists(target) and not force:
         raise ReviewError("contract.md exists already; give --force to write it again")
     body = render_contract(rel, tier, budget, mode, _platform(project), reader, text,
                            _review_date(today), lowered)
-    hits = _check(body.replace("%s/%s" % (DELIVERABLES, rel), _checked_path(rel)), reg)
-    if hits:
-        raise Refused("the contract was refused by the name check (%s); nothing was written" % _counts(hits))
     _write_atomic(target, body)
     return target
 
@@ -1142,33 +1034,21 @@ def render_kb(rows: list[Claim], candidates: dict[str, list[dict]], created: str
 @_serialized
 def write_claims(deliverable, register_path=None, kb_where=None, today: date | None = None) -> ClaimsResult:
     """`awb review claims`: write reviews/<name>/claims.tsv and next to it kb.tsv, the knowledge entries that
-    `kb find` returns for each claim (V-04: the knowledge is consulted before any agent runs). Refused when the
-    deliverable carries a name hit, so that no sentence with a name is copied into the review."""
+    `kb find` returns for each claim (V-04: the knowledge is consulted before any agent runs). No content check
+    runs (B-089): a sentence is copied as it is."""
     path, project, rel = _existing_file(deliverable)
-    reg = _register(register_path)
-    _ensure_checkable(reg)
-    text, plain = _deliverable_text(path)
-    if _secrets(text):
-        raise Refused("the deliverable carries a secret; nothing was written")
-    names = [h for h in _deliverable_hits(path, rel, text, plain, reg) if h.get("cls") in ("name", "path")]
-    if names:
-        raise Refused("the deliverable carries %d name hits; replace them with codes before the claims are "
-                      "listed" % len(names))
+    text, _ = _deliverable_text(path)
     target = review_dir(project, rel) / CLAIMS
     old = load_claims(target) if os.path.lexists(target) else []
     rows, kept, gone = merge_claims_report(find_claims(text), old, text)
     dropped = len(gone)
     dropped_manual = [r.id for r in gone if is_manual(r)]
     body = render_claims(rows)
-    if _secrets(body) or any(h.get("cls") == "name" for h in _check(body, reg)):
-        raise Refused("the claim list carries a name or secret; nothing was written")
     scope = _platform(project)
     candidates = {r.id: kb_candidates(r.sentence, scope, kb_where, today) for r in rows}
     kb_path = review_dir(project, rel) / KB_FILE
     created = _created(project)
     kb_body = render_kb(rows, candidates, created)
-    if _secrets(kb_body) or any(h.get("cls") == "name" for h in _check(kb_body, reg)):
-        raise Refused("the knowledge list carries a name or secret; nothing was written")
     _write_atomic(target, body)
     _write_atomic(kb_path, kb_body)
     return ClaimsResult(path=target, rows=rows, kept=kept, dropped=dropped, dropped_manual=dropped_manual,
@@ -1189,7 +1069,6 @@ class L0Result:
     words: int
     budget: int
     tells: int
-    name_hits: int
     claims: int
     high: int
     stale_rows: int
@@ -1384,23 +1263,21 @@ def _claim_problems(c: Claim, row: Claim, project: Path, deliverable: Path, tier
 
 
 def l0(deliverable, register_path=None, kb_where=None) -> L0Result:
-    """The level-0 check. Raises ReviewError when it cannot run (no contract, no register, the name check
-    unavailable); every finding is a problem in the result, and any problem blocks."""
+    """The level-0 check. Raises ReviewError when it cannot run (no contract); every finding is a problem in the
+    result, and any problem blocks. No name, secret or structured data check runs (B-089)."""
     path, project, rel = _existing_file(deliverable)
     folder = review_dir(project, rel)
     contract = load_contract(folder / CONTRACT, _platform(project))
-    reg = _register(register_path)
-    _ensure_checkable(reg)
     # read once: every check below sees these bytes and the result carries their hash, so a file that changes
     # while the checks run can never get a record for bytes that were not checked
     data = _read_bytes(path)
     if _read_plain(data) is not None:
-        return _l0_of(path, path, rel, project, folder, contract, reg, data, kb_where)
+        return _l0_of(path, path, rel, project, folder, contract, data, kb_where)
     with _review_snapshot(path, data) as snap:
-        return _l0_of(path, snap, rel, project, folder, contract, reg, data, kb_where)
+        return _l0_of(path, snap, rel, project, folder, contract, data, kb_where)
 
 
-def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, contract: Contract, reg: Path,
+def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, contract: Contract,
            data: bytes, kb_where=None) -> L0Result:
     """The checks of l0 over `data`. `source` is a file with exactly these bytes and the name of the
     deliverable: the deliverable itself for a plain text file, a private snapshot for any other kind."""
@@ -1416,15 +1293,9 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
         problems.append("writing: %s" % exc)
         blocking = []
     for cls, line in blocking:
-        if not _is_clean(cls, reg) or not re.fullmatch(r"[a-z][a-z0-9-]{0,40}", cls):
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,40}", cls):
             cls = "unknown"
         problems.append("writing: %s line %d" % (cls, line))
-
-    hits = _deliverable_hits(source, rel, text, plain, reg)
-    if hits:
-        problems.append("name check: %d hits (%s)" % (len(hits), _counts(hits)))
-    if _secrets(text) or _secrets(rel):
-        problems.append("the deliverable carries a secret")
 
     if _platform(project) != "hcs":
         # offered is what the latest service description lists: a deliverable never proposes anything else
@@ -1461,7 +1332,7 @@ def _l0_of(path: Path, source: Path, rel: str, project: Path, folder: Path, cont
             c = replace(row, risk=row.risk if row.risk in ("high", "medium", "low") else "medium")
             problems.extend(_claim_problems(c, c, project, path, contract.tier, kb_where))
     return L0Result(blocked=bool(problems), problems=problems, tier=contract.tier, mode=contract.mode, words=words,
-                    budget=contract.budget, tells=tell_count, name_hits=len(hits), claims=len(fresh), high=high,
+                    budget=contract.budget, tells=tell_count, claims=len(fresh), high=high,
                     stale_rows=stale, sha256=digest)
 
 
@@ -1479,8 +1350,8 @@ def _valid_findings(findings) -> bool:
         for x in findings)
 
 
-def _lens_label(n: int, stem: str, reg: Path | None) -> str:
-    if reg is not None and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", stem) and _is_clean(stem, reg):
+def _lens_label(n: int, stem: str) -> str:
+    if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", stem):
         return "lens %d (%s)" % (n, stem)
     return "lens %d" % n
 
@@ -1495,9 +1366,8 @@ def lens_summary(folder: Path, tier: int, register_path=None) -> tuple[dict, lis
     problems: list[str] = []
     if tier >= LENSES_REQUIRED_FROM and not files:
         problems.append("tier %d needs the lens results in lenses/: run the review workflow" % tier)
-    reg = _register(register_path) if files else None
     for n, f in enumerate(files, start=1):
-        label = _lens_label(n, f.stem, reg)
+        label = _lens_label(n, f.stem)
         try:
             data = _json_file(f)
         except (OSError, UnicodeDecodeError, ValueError):
@@ -1527,17 +1397,16 @@ def lens_summary(folder: Path, tier: int, register_path=None) -> tuple[dict, lis
 
 
 def lens_counts(folder: Path, register_path=None) -> list[dict]:
-    """Per lens file (V-12, V-18): the lens (its file name when it passes the name check), its kind, the findings,
+    """Per lens file (V-12, V-18): the lens (its file name when it has a plain shape), its kind, the findings,
     the blocking ones, the open ones (blocking and not) and the outcomes refuted, confirmed-fixed, softened and
     plausible,
     plus the findings the workflow dropped for lack of a quote or evidence (V-09). A file that cannot be read is
     counted with the state unreadable."""
     folder = Path(folder)
     files = _lens_files(folder)
-    reg = _register(register_path) if files else None
     out: list[dict] = []
     for n, f in enumerate(files, start=1):
-        label = _lens_label(n, f.stem, reg)
+        label = _lens_label(n, f.stem)
         row = {"lens": label, "kind": "", "findings": 0, "blocking": 0, "open_blocking": 0, "open_other": 0,
                "refuted": 0, "confirmed_fixed": 0, "softened": 0, "plausible": 0, "dropped": 0, "state": "read"}
         try:
@@ -1550,7 +1419,7 @@ def lens_counts(folder: Path, register_path=None) -> list[dict]:
             out.append(row)
             continue
         kind = data.get("kind")
-        row["kind"] = kind if isinstance(kind, str) and re.fullmatch(r"[a-z-]{1,20}", kind) and _is_clean(kind, reg) else ""
+        row["kind"] = kind if isinstance(kind, str) and re.fullmatch(r"[a-z-]{1,20}", kind) else ""
         dropped = data.get("dropped")
         row["dropped"] = dropped if isinstance(dropped, int) and not isinstance(dropped, bool) and dropped > 0 else 0
         for x in findings:
@@ -2387,17 +2256,6 @@ def _request_lens_for(folder: Path, rel: str) -> bool:
 _LENS_MAX_BYTES = 4_000_000
 
 
-def _content_hits(f: Path, register_path) -> tuple[int, Counter]:
-    """(registered names in the file, the structured classes and their counts) through the name check."""
-    from awb import check
-
-    reg = register_path if register_path is not None else config.paths().register
-    hits = check.check_file(f, reg)
-    names = sum(1 for h in hits if h.get("cls") in ("name", "path"))
-    other = Counter(str(h.get("cls")) for h in hits if h.get("cls") not in ("name", "path"))
-    return names, other
-
-
 def send_check(project: Path, file: Path, for_customer: bool, register_path=None, workbench=None,
                digest_out: list | None = None, name: str | None = None) -> tuple[str, str]:
     """The send gate (decision 15), run before a file leaves the machine through the bucket: (verdict, message),
@@ -2414,13 +2272,12 @@ def send_check(project: Path, file: Path, for_customer: bool, register_path=None
     the tier (decision 14) and one at tier 3 whose lenses hold no request check of this deliverable (V-16), unless it
     is the unchanged final text of a final check, which stands in for the request check (RV2, `fx_exemption`). The
     review material of a project (its reviews/ folder) and a deliverable of another project of the Workbench
-    (`workbench`, the Paths) never leave. Anything else is an internal file: it leaves with a warning, unless it
-    or its name carries a registered name, which refuses whatever the project (a name in a text a session wrote
-    is a leak; the owner puts names back with --reveal after the gate). The message carries states, tiers and
-    counts, never a file name or a value.
+    (`workbench`, the Paths) never leave. Anything else is an internal file: it leaves with a warning. No name,
+    secret or structured data check runs on the file or its name (B-089, the bucket is no exit of the checks).
+    The message carries states, tiers and counts, never a file name or a value.
 
-    It fails closed: a file that is not a regular file, a project folder or register that cannot be read, a
-    secret in the file or any error of the check refuses, never a traceback and never a pass. Every check after
+    It fails closed: a file that is not a regular file, a project folder that cannot be read or any error of the
+    check refuses, never a traceback and never a pass. Every check after
     the hash reads a private copy of the bytes that were hashed, so a file that changes during the check cannot
     pass with bytes nobody checked."""
     try:
@@ -2441,23 +2298,6 @@ def _snapshot(f: Path, folder: Path) -> tuple[Path, str]:
             h.update(block)
             fout.write(block)
     return copy, h.hexdigest()
-
-
-def _secret_hits(f: Path) -> list[str]:
-    """The secret classes (a key, a token, a password, a home path) in the text of the file, its children included."""
-    from awb import check
-
-    texts = [_text_of(f, None)]
-    try:
-        raw = f.read_bytes().decode("utf-8", errors="replace")
-    except OSError:
-        raw = ""
-    if raw and raw != texts[0]:
-        texts.append(raw)
-    found: set[str] = set()
-    for t in texts:
-        found.update(check._secret_classes(t))
-    return sorted(found)
 
 
 def _record_digest(record: Path) -> str | None:
@@ -2529,31 +2369,11 @@ def _judge(project, f, snap, digest, for_customer, register_path, workbench, nam
         if _under(f, material) or _under(f, Path(os.path.realpath(material))):
             return SEND_REFUSE, "the review material of a project (its contract, claims and lenses) never leaves"
     try:
-        from awb import check
-
-        reg = register_path if register_path is not None else config.paths().register
-        if any(h.get("cls") == "name" for n in {f.name, name or f.name} for h in check.check_text(n, reg)):
-            return SEND_REFUSE, "the file name carries a registered name"
-    except Exception:
-        return SEND_REFUSE, "the name check did not run, nothing leaves unchecked"
-    try:
         _readable_tree(project)
     except OSError:
         return SEND_REFUSE, "the project folder cannot be read here, nothing leaves unchecked"
     rel, edited = _match_deliverable(f, digest, project, snap)
-    secrets = _secret_hits(snap)
-    if secrets:
-        return SEND_REFUSE, "the file carries a secret (%s): nothing with a secret leaves" % ", ".join(secrets)
     if rel is None:
-        # the content name check runs on internal files only: a deliverable is our own output, checked by its
-        # review, and a name check that is down never refuses it
-        try:
-            names, other = _content_hits(snap, register_path)
-        except Exception:
-            return SEND_REFUSE, "the name check did not run, nothing leaves unchecked"
-        if names:
-            return SEND_REFUSE, ("the file carries %d registered name(s): nothing with a name leaves through the "
-                                 "bucket, put names back with --reveal after the gate" % names)
         words: list[list[str]] = []
 
         def file_words() -> list[str]:
@@ -2588,10 +2408,6 @@ def _judge(project, f, snap, digest, for_customer, register_path, workbench, nam
                 carried = _fp_carries(fp, digest, file_words)
             if carried:
                 return SEND_REFUSE, "the file carries the text of a deliverable of another project"
-        if other:
-            counts = ", ".join("%s %d" % kv for kv in sorted(other.items()))
-            return SEND_WARN, ("not a reviewed deliverable of the project: it leaves as an internal file, and it "
-                               "carries structured data (%s)" % counts)
         return SEND_WARN, "not a reviewed deliverable of the project: it leaves as an internal file"
     folder = review_dir(project, rel)
     state, tier = _record_state(project / DELIVERABLES / rel, folder / RECORD)
@@ -2640,32 +2456,14 @@ def _print_problems(problems: list[str]) -> None:
         print("- %s" % p)
 
 
-def _print_name_hint(project, rel: str, path, reg: Path, file=None) -> None:
-    """When the name check refuses the file name of a deliverable, say which neutral name to give it."""
-    if _is_clean("%s/%s" % (DELIVERABLES, rel), reg):
-        return
-    proposal = propose_name(project, rel, path if Path(path).is_file() else None, register_path=reg)
-    if proposal:
-        print("name: the file name was refused by the name check; rename the file to %s (kind word and language: "
-              "<project code>-<kind word>-<language>.<ext>)" % proposal, file=file or sys.stdout)
-
-
-def _hint_args(deliverable) -> tuple:
-    project, rel = locate(deliverable)
-    return project, rel, deliverable, _register(None)
-
-
 def _cmd_init(args) -> int:
     target = init(args.deliverable, args.request, args.tier, args.budget, reader=args.reader, mode=args.mode,
                   force=args.force, lowered=args.lowered)
     project, rel = locate(args.deliverable)
     tier = args.tier if args.tier is not None else project_tier(project)
-    reg = _register(None)
     print("review init: wrote the contract of %s (tier %d%s, budget %d words, mode %s)"
-          % (_label(rel, reg), tier, ", lowered by him" if args.lowered else "", args.budget, args.mode))
-    _print_name_hint(project, rel, args.deliverable, reg)
-    print("next: fill the questions and the out of scope list in %s" % (
-        target.relative_to(project).as_posix() if _is_clean(rel, reg) else "contract.md"))
+          % (_label(rel), tier, ", lowered by him" if args.lowered else "", args.budget, args.mode))
+    print("next: fill the questions and the out of scope list in %s" % target.relative_to(project).as_posix())
     return EXIT_OK
 
 
@@ -2674,7 +2472,7 @@ def _cmd_claims(args) -> int:
     risks = Counter(r.risk for r in res.rows)
     project, rel = locate(args.deliverable)
     print("review claims: %d claims of %s (high %d, medium %d, low %d); %d rows kept their evidence, %d rows of "
-          "sentences that are gone were dropped" % (len(res.rows), _label(rel, _register(None)), risks["high"],
+          "sentences that are gone were dropped" % (len(res.rows), _label(rel), risks["high"],
                                                    risks["medium"], risks["low"], res.kept, res.dropped))
     if res.dropped_manual:
         print("review claims: %d rows added by hand were dropped because their sentence is gone: %s"
@@ -2687,18 +2485,17 @@ def _cmd_claims(args) -> int:
 
 
 def _l0_line(res: L0Result) -> str:
-    return ("%d of %d words, %d claims (%d high), %d writing tells, %d name hits"
-            % (res.words, res.budget, res.claims, res.high, res.tells, res.name_hits))
+    return ("%d of %d words, %d claims (%d high), %d writing tells"
+            % (res.words, res.budget, res.claims, res.high, res.tells))
 
 
 def _cmd_l0(args) -> int:
     res = l0(args.deliverable)
     _, rel = locate(args.deliverable)
-    label = _label(rel, _register(None))
+    label = _label(rel)
     if res.blocked:
         print("l0 blocked: %s (tier %d): %s" % (label, res.tier, _l0_line(res)))
         _print_problems(res.problems)
-        _print_name_hint(*_hint_args(args.deliverable))
         return EXIT_FINDINGS
     print("l0 passed: %s (tier %d): %s" % (label, res.tier, _l0_line(res)))
     return EXIT_OK
@@ -2707,11 +2504,10 @@ def _cmd_l0(args) -> int:
 def _cmd_pass(args) -> int:
     res = run_pass(args.deliverable)
     _, rel = locate(args.deliverable)
-    label = _label(rel, _register(None))
+    label = _label(rel)
     if not res.passed:
         print("pass blocked: %s (tier %d)" % (label, res.l0.tier))
         _print_problems(res.problems)
-        _print_name_hint(*_hint_args(args.deliverable))
         return EXIT_FINDINGS
     print("pass: %s (tier %d): %s; %d lens files, %d blocking findings closed; record.json written"
           % (label, res.l0.tier, _l0_line(res.l0), res.lenses["files"], res.lenses["blocking"]))
@@ -2727,31 +2523,24 @@ def _cmd_status(args) -> int:
     if not rows:
         print("no deliverables")
         return EXIT_OK
-    reg = _register(None)
-    for n, row in enumerate(rows, start=1):
-        shown = row["file"] if _is_clean(row["file"], reg) else "file %d" % n
-        print("%-7s  %s" % (row["state"], shown))
+    for row in rows:
+        print("%-7s  %s" % (row["state"], row["file"]))
     return EXIT_OK if all(r["state"] == VALID for r in rows) else EXIT_FINDINGS
 
 
 def _cmd_show(args) -> int:
     project, rel = locate(args.deliverable)
-    reg = _register(None)
     path = project / DELIVERABLES / rel
     state, tier = _record_state(path, review_dir(project, rel) / RECORD) if path.is_file() else (MISSING, None)
-    print("%s: record %s%s" % (_label(rel, reg), state, " (tier %d)" % tier if tier is not None else ""))
+    print("%s: record %s%s" % (_label(rel), state, " (tier %d)" % tier if tier is not None else ""))
     fc = final_check(project, rel)
     if fc is None:
         print("final check: none")
     else:
-        # The final text is named after the draft: <stem>.final.md. The name check reads x.final.md as a web
-        # address, so the path is shown when it is the draft's own name with that suffix and the draft's is clean.
-        final = fc["final"] if fc["final"] and (fc["final"] == final_name(rel) and _is_clean(
-            "%s/%s" % (DELIVERABLES, rel), reg) or _is_clean(fc["final"], reg)) else "the final text"
         print("final check: %s, %s%s, %s; %d open points in %s"
-              % (fc["date"] or "no date", fc["model"] if fc["model"] and _is_clean(fc["model"], reg) else "no model",
+              % (fc["date"] or "no date", fc["model"] or "no model",
                  " effort " + fc["effort"] if fc["effort"] else "",
-                 final, fc["open_points"], fc["table"] if _is_clean(fc["table"], reg) else "the table"))
+                 fc["final"] or "the final text", fc["open_points"], fc["table"]))
     return EXIT_OK
 
 
@@ -2829,11 +2618,6 @@ def main(argv: list[str] | None = None) -> int:
         return func(args)
     except Refused as err:
         print("%s: %s" % (prog, err), file=sys.stderr)
-        if getattr(args, "deliverable", None) is not None:
-            try:
-                _print_name_hint(*_hint_args(args.deliverable), file=sys.stderr)
-            except Exception:
-                pass
         return EXIT_FINDINGS
     except ReviewError as err:
         print("%s: %s" % (prog, err), file=sys.stderr)

@@ -7,9 +7,9 @@ It reads the coded inventories of the three places (the rows of `awb/inventory.p
 `laptop-<stamp>[-<label>].tsv` there; a NAME of that folder or a local FILE also works, and `--laptop` may be given
 more than once), the host's and the buckets' from `<shared>/files/` (the newest `host-`, `owner-bucket-` and
 `lab-bucket-<stamp>.tsv` of `awb files inventory`) or from the files named. A missing host or bucket inventory is
-said in one line and the plan is made without it. The laptop rows are checked again at entry, as every text that
-reaches the host: a path with a hit becomes `[withheld]`; a row that does not have the shape of an inventory row is
-dropped and counted.
+said in one line and the plan is made without it. The laptop rows are checked again at entry for their shape only (no
+content check, B-089): a path with a control character becomes `[withheld]`; a row that does not have the shape of an
+inventory row is dropped and counted.
 
 Matching (section 3.2). Identical: equal sha256 or equal md5 (a bucket object has the md5 only); an empty file
 matches nothing. Probable: equal size and suffix, times within two minutes, no hash to compare (a multipart object);

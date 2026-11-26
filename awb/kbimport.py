@@ -1,11 +1,10 @@
 """`awb kb import FILE`: the facts of a TCP Facts release become entries of a knowledge base.
 
 FILE is the facts.jsonl of a release or its zip. Every line is checked as `awb kb add` checks a fact (scope, grade,
-class, tags, the text checks with the name check, a negative needs its tried texts) and written with the id,
+class, tags, the text checks (English, no price; no name check, B-089), a negative needs its tried texts) and written with the id,
 the dates and the source the release carries; the source line starts with `imported: tcp-facts RELEASE`. An id that is
 taken is skipped, with --update only an entry that came from the same dataset and has an older check date is replaced.
-The run needs no vault daemon, no key service and no work user: the name check reads the register of the folder
-(on a laptop after `awb init` it is empty). The near-duplicate check of `add` is left out, since a release holds
+The run needs no vault daemon, no key service, no register and no work user. The near-duplicate check of `add` is left out, since a release holds
 facts that read alike on purpose (one per region or flavor).
 
 The counts name classes and numbers, never a statement.
@@ -150,7 +149,6 @@ def import_facts(text: str, *, where=None, release: str | None = None, update: b
     meta, rows = parse_lines(text)
     label = release_label(meta, release, today)
     reg = kb.register_of(register_path)
-    kb._require_register(reg)
     folder = kb.root(where)
     holds = kb.folder_scope(folder)
     out = {"label": label, "imported": 0, "updated": 0, "skipped": 0, "refused": {}}

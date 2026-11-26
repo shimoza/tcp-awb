@@ -141,16 +141,18 @@ def test_run_refuses_a_task_without_paths_or_acceptance(bench, capsys):
 
 def test_run_refuses_a_blocklisted_name(bench, capsys):
     path = _task(bench, "cx-block", text="Ask CLIENT123 about it.")
-    assert cli.main(["codex", "run", str(path)]) == 1
-    err = capsys.readouterr().err
-    assert "blocklist" in err and "CLIENT123" not in err
-    assert not (bench / "state" / "cx-block").exists()
+    # B-089: no content check inside, the run starts
+    assert cli.main(["codex", "run", str(path)]) == 0
+    assert not capsys.readouterr().err
+    assert (bench / "state" / "cx-block" / "result.md").exists()
 
 
 def test_run_refuses_a_registered_name(bench, capsys):
     path = _task(bench, "cx-name", text="Ask %s about it." % fixtures.CUSTOMER_FORMS[0])
-    assert cli.main(["codex", "run", str(path)]) == 1
-    assert fixtures.CUSTOMER_FORMS[0] not in capsys.readouterr().err
+    # B-089: no content check inside, the run starts
+    assert cli.main(["codex", "run", str(path)]) == 0
+    assert not capsys.readouterr().err
+    assert (bench / "state" / "cx-name" / "result.md").exists()
 
 
 def test_run_makes_worktree_and_branch_writes_result_and_leaves_no_commit(bench, monkeypatch, capsys):

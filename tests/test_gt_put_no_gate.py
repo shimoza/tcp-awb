@@ -87,9 +87,10 @@ def test_gt_a_secret_is_replaced_in_the_uploaded_copy_and_counted(home, register
     f.write_text(with_secret(value), encoding="utf-8")
     key, said = put(home, fake, folder.name, f)
     sent = fake.objects[key].decode("utf-8")
-    assert value not in sent and "[secret]" in sent and "One more line." in sent
+    # B-089: the put replaces no secret any more: the copy is the file
+    assert value in sent and "[secret]" not in sent and "One more line." in sent
     assert value in f.read_text(encoding="utf-8")                   # the file itself stays as it was
-    assert said == ["review: none; 1 secret replaced"]
+    assert said == ["review: none"]
 
 
 def test_gt_scrub_handles_text_office_and_binary_files(tmp_path):
@@ -100,9 +101,9 @@ def test_gt_scrub_handles_text_office_and_binary_files(tmp_path):
     with zipfile.ZipFile(office, "w") as z:
         z.writestr("word/document.xml", "<w:t>api_" + "key=" + value + "</w:t>")
     out = tmp_path / "out.docx"
-    assert putcopy.scrub(office, out) == 1
+    assert putcopy.scrub(office, out) == 0               # B-089: the put replaces no secret any more
     with zipfile.ZipFile(out) as z:
-        assert value not in z.read("word/document.xml").decode("utf-8")
+        assert value in z.read("word/document.xml").decode("utf-8")
     raw = tmp_path / "a.bin"
     raw.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
     assert putcopy.scrub(raw, tmp_path / "b.bin") == 0
@@ -121,8 +122,9 @@ def test_gt_the_key_service_replaces_a_secret_of_a_raw_put_and_takes_a_name(svc,
     key = "%s/from-session/2026-10-27/put-0123456789ab.md" % lab_project.code
     a = keys.request(svc.call_path, {"op": "obs", "method": "PUT", "project": lab_project.code, "key": key,
                                      "name": "notes.md"}, upload=up)
-    assert a["ok"] and a["secrets"] == 1, a
-    assert value.encode() not in lab.objects[key] and fx.CUSTOMER_FORMS[0].encode() in lab.objects[key]
+    # B-089: the key service replaces no secret any more
+    assert a["ok"] and a["secrets"] == 0, a
+    assert value.encode() in lab.objects[key] and fx.CUSTOMER_FORMS[0].encode() in lab.objects[key]
 
 
 # --------------------------------------------------------------------------- hooks

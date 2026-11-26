@@ -187,26 +187,26 @@ def test_init_refuses_a_request_with_a_fixture_form(project, tmp_path, capsys):
     d = deliver(project)
     req = request_file(tmp_path, "Please size the backup for %s by next week.\n" % fixtures.CUSTOMER_FORMS[0])
     code, out, err = run(["review", "init", str(d), "--request", str(req), "--tier", "2", "--budget", "400"], capsys)
-    assert code == 1
-    assert "refused by the name check" in err
-    assert not (project / "reviews" / NAME / "contract.md").exists()
-    fixtures.assert_no_fixture_name(out + err, "the output of a refused init")
+    # B-089: no name check inside, the contract is written with the request as given
+    assert code == 0
+    assert "name check" not in err
+    assert fixtures.CUSTOMER_FORMS[0] in (project / "reviews" / NAME / "contract.md").read_text(encoding="utf-8")
 
 
 def test_init_refuses_a_reader_with_a_fixture_form(project, tmp_path, capsys):
     d = deliver(project)
     code, out, err = run(["review", "init", str(d), "--request", str(request_file(tmp_path)), "--tier", "1",
                           "--budget", "400", "--reader", "the team of %s" % fixtures.PERSON_FORMS[0]], capsys)
-    assert code == 1
-    assert not (project / "reviews" / NAME / "contract.md").exists()
-    fixtures.assert_no_fixture_name(out + err, "the output of a refused init")
+    # B-089: no name check inside, the reader is written as given
+    assert code == 0
+    assert fixtures.PERSON_FORMS[0] in (project / "reviews" / NAME / "contract.md").read_text(encoding="utf-8")
 
 
 def test_init_refuses_without_a_register(project, tmp_path, home):
     home.register.unlink()
-    with pytest.raises(review.ReviewError, match="no register"):
-        review.init(deliver(project), request_file(tmp_path), 2, 400)
-    assert not (project / "reviews" / NAME / "contract.md").exists()
+    # B-089: nothing is checked, so a missing register stops nothing
+    review.init(deliver(project), request_file(tmp_path), 2, 400)
+    assert (project / "reviews" / NAME / "contract.md").exists()
 
 
 def test_init_needs_the_deliverables_folder_and_keeps_a_contract(project, tmp_path, capsys):
@@ -321,9 +321,10 @@ def test_claims_keeps_evidence_and_verdict_when_written_again(project, tmp_path)
 def test_claims_refuses_a_deliverable_with_a_name(project, capsys):
     d = deliver(project, DELIVERABLE_TEXT + "It was agreed with %s.\n" % fixtures.CUSTOMER_FORMS[1])
     code, out, err = run(["review", "claims", str(d)], capsys)
-    assert code == 1
-    assert not claims_path(project).exists()
-    fixtures.assert_no_fixture_name(out + err, "the output of a refused claims run")
+    # B-089: no name check inside, the claims are listed
+    assert code == 0
+    assert claims_path(project).exists()
+    fixtures.assert_no_fixture_name(out + err, "the output of a claims run")
 
 
 # --------------------------------------------------------------------------- l0
@@ -439,8 +440,9 @@ def test_l0_blocks_a_name_and_prints_no_value(project, tmp_path, writing, capsys
     fill(project)
     deliver(project, DELIVERABLE_TEXT.replace("It fits", "For %s it fits" % fixtures.CUSTOMER_FORMS[1]))
     code, out, err = run(["review", "l0", str(d)], capsys)
-    assert code == 1
-    assert "- name check: 1 hits (name 1)" in out.splitlines()
+    # B-089: no name check inside, l0 passes and names no hit
+    assert code == 0
+    assert "name check" not in out and "name hits" not in out
     fixtures.assert_no_fixture_name(out + err, "the output of l0")
 
 
@@ -572,8 +574,8 @@ def test_status_masks_a_file_name_with_a_name(project, capsys):
     deliver(project, "A text.\n", name="offer-%s.md" % fixtures.CUSTOMER_FORMS[1])
     assert [r["state"] for r in review.status(project)] == ["missing"]
     code, out, err = run(["review", "status", str(project)], capsys)
-    assert code == 1 and out.split() == ["missing", "file", "1"]
-    fixtures.assert_no_fixture_name(out + err, "the output of status")
+    # B-089: the file name is shown as it is
+    assert code == 1 and out.split() == ["missing", "deliverables/offer-%s.md" % fixtures.CUSTOMER_FORMS[1]]
 
 
 # --------------------------------------------------------------------------- the workflow
@@ -1065,32 +1067,32 @@ def test_hardening_check_errors_do_not_echo_values(project, tmp_path, monkeypatc
     monkeypatch.setattr(check, 'check_text', unavailable)
     code, out, err = run(['review', 'init', str(deliver(project)), '--request',
                           str(request_file(tmp_path)), '--budget', '400'], capsys)
-    assert code == 2
+    # B-089: the review calls no name check, so an unavailable one changes nothing
+    assert code == 0
     assert secret not in out + err
     fixtures.assert_no_fixture_name(out + err, 'unavailable check')
 
 
 def test_hardening_request_secrets_are_not_persisted(project, tmp_path):
     secret = _review_secret()
-    with pytest.raises(review.Refused):
-        review.init(deliver(project), request_file(tmp_path, secret), 2, 400)
-    assert not (project / 'reviews' / NAME / 'contract.md').exists()
+    # B-089: no secret check inside, the request is written as given
+    review.init(deliver(project), request_file(tmp_path, secret), 2, 400)
+    assert secret in (project / 'reviews' / NAME / 'contract.md').read_text(encoding='utf-8')
 
 
 def test_hardening_claims_secrets_are_not_persisted(project):
     d = deliver(project, 'There are 12 users. ' + _review_secret())
-    with pytest.raises(review.Refused):
-        review.write_claims(d)
-    assert not claims_path(project).exists()
+    # B-089: no secret check inside, the claim list is written
+    review.write_claims(d)
+    assert claims_path(project).exists()
 
 
 def test_hardening_kept_claim_metadata_is_screened(project, tmp_path):
     d = start(project, tmp_path)
     fill(project, evidence=fixtures.CUSTOMER_FORMS[0] + '/' + _review_secret())
-    before = claims_path(project).read_bytes()
-    with pytest.raises(review.Refused):
-        review.write_claims(d)
-    assert claims_path(project).read_bytes() == before
+    # B-089: no name or secret check inside, the kept evidence stays as written
+    review.write_claims(d)
+    assert fixtures.CUSTOMER_FORMS[0] in claims_path(project).read_text(encoding='utf-8')
 
 
 def test_hardening_l0_blocks_secrets(project, tmp_path, writing):
@@ -1099,7 +1101,8 @@ def test_hardening_l0_blocks_secrets(project, tmp_path, writing):
     # Supply the claim table directly, so missing claims cannot mask a missing secret check.
     claims_path(project).write_text(review.render_claims(review.find_claims(d.read_text())))
     result = review.l0(d)
-    assert result.blocked and any('secret' in p for p in result.problems)
+    # B-089: no secret check inside, l0 blocks nothing for it
+    assert not any('secret' in p for p in result.problems)
     assert _review_secret() not in str(result.problems)
 
 
@@ -1118,7 +1121,8 @@ def test_hardening_lens_kind_does_not_leak_registered_names(project, tmp_path, h
     form = fixtures.CUSTOMER_FORMS[1].lower()
     assert re.fullmatch('[a-z-]{1,20}', form)
     path.write_text(json.dumps({'kind': form, 'findings': []}))
-    fixtures.assert_no_fixture_name(json.dumps(review.lens_counts(path.parent)), 'lens kind')
+    # B-089: no name check inside, the kind is shown as written
+    assert review.lens_counts(path.parent)[0]['kind'] == form
 
 
 def test_hardening_lens_filenames_do_not_leak_into_record(project, tmp_path, writing):
@@ -1136,8 +1140,9 @@ def test_hardening_final_model_is_screened(project, tmp_path, capsys):
     path.write_text(json.dumps({'kind': 'final-check', 'deliverable': 'deliverables/' + NAME,
                                 'model': fixtures.PERSON_FORMS[0]}))
     code, out, err = run(['review', 'show', str(d)], capsys)
+    # B-089: no name check inside, the model is shown as written
     assert code == 0
-    fixtures.assert_no_fixture_name(out + err, 'final check model')
+    assert fixtures.PERSON_FORMS[0] in out
 
 
 def test_hardening_writing_class_is_screened(project, tmp_path, writing, capsys):
@@ -1301,11 +1306,10 @@ def test_hardening_extractor_errors_and_states_do_not_echo_values(tmp_path, monk
 
 def test_hardening_name_hit_classes_are_not_values():
     secret = _review_secret()
-    hits = [{'cls': fixtures.CUSTOMER_FORMS[0]}, {'cls': secret}, {'cls': []}, {'cls': 'name'}]
-    output = review._counts(hits)
-    assert output == 'name 1, unknown 3'
-    assert secret not in output
-    fixtures.assert_no_fixture_name(output, 'hit classes')
+    # B-089: the review lists no name hits any more, the counting helper is gone with them
+    assert not hasattr(review, '_counts')
+    assert 'name_hits' not in review.L0Result.__dataclass_fields__
+    assert secret
 
 
 def test_hardening_status_reports_links_and_special_files_unreadable(project, tmp_path):
@@ -1424,8 +1428,8 @@ def test_hardening_secret_filename_cannot_enter_record(project, tmp_path, writin
     d.rename(renamed)
     (project / 'reviews' / NAME).rename(project / 'reviews' / name)
     result = review.run_pass(renamed)
-    assert not result.passed and any('secret' in p for p in result.problems)
-    assert result.record is None and not result.record_path.exists()
+    # B-089: no secret check inside, a secret shaped file name does not block the pass
+    assert not any('secret' in p for p in result.problems)
 
 
 @pytest.mark.parametrize("pronoun", ["I", "We"])

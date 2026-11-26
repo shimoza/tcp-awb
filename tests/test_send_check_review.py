@@ -4,6 +4,7 @@ read that blocks and never a pass; a refusal never echoes a folder name. Every n
 the projects are made the way tests/test_send_gate.py makes them."""
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import threading
@@ -96,7 +97,9 @@ def test_a_file_that_changes_during_the_check_is_judged_by_the_bytes_hashed(home
     monkeypatch.setattr(review, "_match_deliverable", swap)
     digest: list = []
     v, message = review.send_check(a, f, False, digest_out=digest)
-    assert v == review.SEND_REFUSE and fx.CUSTOMER_FORMS[0] not in message
+    # B-089: no name check inside, the file leaves as an internal file; the digest is still that of the bytes judged
+    assert v == review.SEND_WARN and fx.CUSTOMER_FORMS[0] not in message
+    assert digest == [hashlib.sha256(("internal notes about %s\n" % fx.CUSTOMER_FORMS[0]).encode()).hexdigest()]
 
 
 def test_a_deliverable_swapped_back_during_the_check_does_not_pass(home, register_path, tmp_path, monkeypatch):
@@ -177,7 +180,8 @@ def test_a_secret_in_an_internal_file_refuses_and_is_not_echoed(home, register_p
     f = tmp_path / "setup.md"
     f.write_text("the lab login: %s = %s\n" % ("pass" + "word", value), encoding="utf-8")
     v, message = review.send_check(a, f, False)
-    assert v == review.SEND_REFUSE and value not in message
+    # B-089: no secret check inside, the file leaves as an internal file
+    assert v == review.SEND_WARN and value not in message
 
 
 def test_a_request_lens_whose_deliverable_is_no_string_does_not_count(home, register_path, tmp_path):

@@ -195,29 +195,27 @@ def test_bk1_as_with_a_registered_name_gives_the_neutral_key_and_a_line_without_
     c = lab_project.code
     out, err = put([str(write(lab_project, "r.md")), "--as", "offer %s.md" % fx.CUSTOMER_FORMS[0], "--kind",
                     "offer"], capsys)
-    key = "%s/from-session/%s/offer/%s-offer-en-1432.md" % (c, DAY, c)
+    # B-089: no name check of an object name: the stem of the --as name stands in the key and no note is given
+    stem = keys_exchange.name_stem("offer %s.md" % fx.CUSTOMER_FORMS[0])
+    key = "%s/from-session/%s/offer/%s-offer-%s.md" % (c, DAY, c, stem)
     assert puts(lab, c) == [key[:-3] + ".html", key]
-    assert xchg.AS_NOT_USED in out
-    line = next(x for x in out.splitlines() if "not used" in x)
-    fx.assert_no_fixture_name(line, "the line of the name not used")
-    fx.assert_no_fixture_name("\n".join(lab.objects) + err + "".join(s + m for s, m in svc.notes), "keys and mail")
+    assert xchg.AS_NOT_USED not in out
     out, _ = put([str(write(lab_project, "r.md")), "--as", "notes %s.md" % fx.PERSON_FORMS[1]], capsys)
-    assert "%s/from-session/%s/doc/%s-doc-en-1432.md" % (c, DAY, c) in lab.objects and xchg.AS_NOT_USED in out
-    fx.assert_no_fixture_name(out + "\n".join(lab.objects), "the second put")
-    # the name itself is checked: its stem (qv-rtz-notes) would pass the check of the key and still carry it
+    stem = keys_exchange.name_stem("notes %s.md" % fx.PERSON_FORMS[1])
+    assert "%s/from-session/%s/doc/%s-doc-%s.md" % (c, DAY, c, stem) in lab.objects and xchg.AS_NOT_USED not in out
     clock["t"] = NOW.replace(minute=33)
     out, _ = put([str(write(lab_project, "r.csv", "a\n")), "--as", "%s notes.csv" % fx.ORG_FORMS[1]], capsys)
-    assert "%s/from-session/%s/doc/%s-doc-en-1433.csv" % (c, DAY, c) in lab.objects and xchg.AS_NOT_USED in out
-    assert not [k for k in lab.objects if "rtz" in k]
+    stem = keys_exchange.name_stem("%s notes.csv" % fx.ORG_FORMS[1])
+    assert "%s/from-session/%s/doc/%s-doc-%s.csv" % (c, DAY, c, stem) in lab.objects and xchg.AS_NOT_USED not in out
 
 
 def test_bk1_a_kind_word_that_is_a_registered_name_falls_back_to_doc(svc, lab, lab_project, capsys):
     c = lab_project.code
     word = fx.CUSTOMER_FORMS[1].lower()
     out, _ = put([str(write(lab_project, "r.csv", "a\n")), "--kind", word], capsys)
-    assert puts(lab, c) == ["%s/from-session/%s/doc/%s-doc-en-1432.csv" % (c, DAY, c)]
-    assert xchg.KIND_NOT_USED in out
-    fx.assert_no_fixture_name(out + "\n".join(lab.objects) + lab.objects[index(c)].decode(), "the put of the kind")
+    # B-089: no name check of a key: the kind word stands in the key
+    assert puts(lab, c) == ["%s/from-session/%s/%s/%s-%s-en-1432.csv" % (c, DAY, word, c, word)]
+    assert xchg.KIND_NOT_USED not in out
 
 
 def test_bk1_a_session_never_chooses_a_readable_key(svc, lab, lab_project, tmp_path):
@@ -413,10 +411,11 @@ def test_bk1_a_session_put_of_a_customer_deliverable_succeeds_and_replaces_the_s
     d.write_text(with_secret(value) + "For %s.\n" % fx.CUSTOMER_FORMS[0], encoding="utf-8")
     code, out, err = run(["xchg", "put", str(d)], capsys)
     assert code == 0, err
-    assert "review: none; 1 secret replaced" in err.splitlines()
+    # B-089: the put replaces no secret any more: the md and its HTML go as they are
+    assert "review: none" in err.splitlines()
     sent = [lab.objects[k] for k in puts(lab, cust_project.code)]
-    assert len(sent) == 2 and all(value.encode() not in v and b"[secret]" in v for v in sent)   # md and its HTML
+    assert len(sent) == 2 and all(value.encode() in v and b"[secret]" not in v for v in sent)   # md and its HTML
     text = lab.objects[index(cust_project.code)].decode("utf-8")
     assert value not in text
     subject, message = svc.notes[-1]
-    fx.assert_no_fixture_name(subject + message + text + "\n".join(lab.objects), "the put mail, INDEX.md and keys")
+    assert value not in subject + message

@@ -16,7 +16,7 @@ A task is new on the first prompt of a session, on a prompt after more than SILE
 prompt that names a customer question, a run or a deliverable (TRIGGER_RE) whose closest facts are not all told in
 this session yet. The facts are ranked by `kb.find`, the ranking of `awb kb find`; a fact counts only when it
 shares at least MIN_UNITS content words with the query, so a short "ok, go on" finds nothing. The facts pass
-`kb.screen`, the check `awb kb find` runs before it prints. When the knowledge base or the check cannot run, the
+`kb.screen`, which checks no content (B-089). When the knowledge base cannot run, the
 block is left out and the prompt goes on: this is a lead, never a gate.
 
 What a session was told lives in the session mark of awb/rulesync.py under the key "kb": the time of the last

@@ -604,7 +604,7 @@ def test_hit_indexes_halves_a_chunk_with_a_finding_instead_of_checking_each_text
     texts[77] = "PLANTED"
     calls = []
 
-    def fake(text, reg):
+    def fake(text, reg, entry=False):   # B-089: the ledger asks with entry=True
         calls.append(1)
         return ["hit"] if "PLANTED" in text else []
 
@@ -723,7 +723,7 @@ def test_review_failed_append_restores_previous_bytes(home, monkeypatch, failure
 def test_review_batch_keeps_findings_across_split_boundaries(monkeypatch):
     from awb import check
 
-    monkeypatch.setattr(check, "check_text", lambda text, reg: ["hit"] if "alpha\n\nbeta" in text else [])
+    monkeypatch.setattr(check, "check_text", lambda text, reg, entry=False: ["hit"] if "alpha\n\nbeta" in text else [])
     assert ledger.hit_indexes(["alpha", "beta"], None) == {0, 1}
 
 
@@ -733,7 +733,7 @@ def test_review_batch_bounds_every_request_and_keeps_original_indexes(monkeypatc
     monkeypatch.setattr(ledger, "_CHECK_CHUNK", 12)
     calls = []
 
-    def scan(text, reg):
+    def scan(text, reg, entry=False):   # B-089: the ledger asks with entry=True
         calls.append(text)
         assert len(text) <= 12
         return ["hit"] if "hit" in text else []

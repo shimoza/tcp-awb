@@ -15,9 +15,8 @@
 The owner-actions service runs as its own system user and reads this one file and nothing else, so everything the
 owner page shows comes from here: the state of the vault and of the key service from their pings, the deployed
 release, the page facts, the runs of the UI queue, the intake counts per customer code and the project decisions.
-Decision text and app lines pass the owner-status name check before export. Values are checked field by field
-before the file is written, and the whole text passes the
-name check when the check can run (a locked vault cannot check; the fixed shape still holds then).
+Decision text and app lines are exported as written: the file goes to the owner, so it is inside and runs no content
+check (B-089). Values are checked field by field for their shape before the file is written.
 
 The intake and `awb register review` keep `<vault>/intake-counts.json`: per customer code the candidates that wait
 for a review and the time of the last report. No report is opened to count.
@@ -175,29 +174,9 @@ def run_summary(folder: Path) -> str | None:
 
 
 def summary_screen():
-    """A screen for run summaries: text -> (summary, None) when the name check passes it, (None, classes) when it
-    finds a name, a secret, a token or a private key, (None, "unavailable") when the check cannot run."""
-    from awb import check, register
-    from awb.tcp.web import publish
-
-    state = {}
-
+    """A screen for run summaries: text -> (text, None). No content check (B-089: the status goes to the owner); the
+    pair keeps the shape the callers read (the second part is the class that withheld the text, here never)."""
     def screen(text: str | None) -> tuple[str | None, str | None]:
-        if text is None:
-            return None, None
-        if "matcher" not in state:
-            try:
-                state["matcher"] = publish.name_matcher()
-            except (publish.Refused, check.CheckUnavailable, register.RegisterError, OSError):
-                state["matcher"] = None
-        if state["matcher"] is None:
-            return None, "unavailable"
-        try:
-            found = set(check.screen(text, state["matcher"]).found) & set(publish.CLASSES)
-        except check.CheckUnavailable:
-            return None, "unavailable"
-        if found:
-            return None, ",".join(c for c in publish.CLASSES if c in found)
         return text, None
 
     return screen
@@ -326,7 +305,7 @@ def ask_blocks(p: config.Paths):
 
 
 def push_check(text: str) -> str:
-    """The name check of a push: "passed", "unavailable" or "found"."""
+    """The check of a push: "passed" (no content check since B-089), or what a checker given to name_check says."""
     try:
         return name_check(text)
     except StatusError:
@@ -365,18 +344,8 @@ def push_tick(status: dict, p: config.Paths | None = None, state_path: Path | No
 
 
 def name_check(text: str) -> str:
-    """'passed', 'unavailable' (the vault cannot check now) or StatusError when the text carries a name, a secret,
-    a token or a private key (check.screen, the classes of publish.CLASSES refuse)."""
-    from awb import check, register
-    from awb.tcp.web import publish
-
-    try:
-        matcher = publish.name_matcher()
-        found = set(check.screen(text, matcher).found) & set(publish.CLASSES)
-    except (publish.Refused, check.CheckUnavailable, register.RegisterError, OSError):
-        return "unavailable"
-    if found:
-        raise StatusError("the status is withheld: the name check found %s" % ", ".join(sorted(found)))
+    """Always 'passed': the status and the pushes go to the owner, so they are inside and run no content check
+    (B-089). The function and its words stay for the callers that take a checker."""
     return "passed"
 
 
@@ -399,7 +368,7 @@ def _status_text(status: dict, checker) -> tuple[str, str]:
 
 
 def write(status: dict, path: Path = STATUS, checker=name_check) -> str:
-    """Check and write the status atomically (mode 640); returns the result of the name check."""
+    """Write the status atomically (mode 640); returns the result of the checker ("passed" for the default)."""
     text, result = _status_text(status, checker)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".status.", dir=path.parent)

@@ -109,24 +109,21 @@ def _run_folder(q: Path, job_id: str, validation: str = "PASS: inline JS syntax;
 def test_submit_refuses_a_task_file_with_a_registered_form_with_the_class_only(queue, capsys):
     form = fixtures.CUSTOMER_FORMS[0]
     path = _task("ui-20261008-001", "The page shows the offer for %s." % form)
-    assert ui.main(["submit", str(path), "--no-watch"]) == 1
+    # B-089: no content check inside, the task goes to the queue
+    assert ui.main(["submit", str(path), "--no-watch"]) == 0
     captured = capsys.readouterr()
-    assert "name: 1 line" in captured.err
-    for text in (captured.err, captured.out):
-        for f in fixtures.ALL_REGISTERED:
-            assert f not in text
-    assert _rows(queue) == []
+    assert "submitted: queued" in captured.out and not captured.err
+    assert _rows(queue) == [("ui-20261008-001", "queued")]
 
 
 @pytest.mark.parametrize("cls", ["secret", "token", "private-key"])
 def test_submit_refuses_a_task_file_with_a_planted_secret(queue, capsys, cls):
     planted = gate._selftest_cases()[cls].decode("utf-8")
     path = _task("ui-20261008-002", planted)
-    assert ui.main(["submit", str(path), "--no-watch"]) == 1
-    err = capsys.readouterr().err
-    assert "%s: 1 line" % cls in err
-    assert planted.splitlines()[1] not in err
-    assert _rows(queue) == []
+    # B-089: no content check inside, the task goes to the queue
+    assert ui.main(["submit", str(path), "--no-watch"]) == 0
+    assert not capsys.readouterr().err
+    assert _rows(queue) == [("ui-20261008-002", "queued")]
 
 
 def test_submit_refuses_a_task_file_out_of_the_form(queue, capsys):
@@ -194,9 +191,8 @@ def test_watch_names_a_run_that_cannot_be_published_and_withholds_a_text_with_a_
     assert ui.main(["watch", "ui-20261008-007"]) == 0
     note = (ui.tasks_dir() / "ui-20261008-007.result.md").read_text(encoding="utf-8")
     assert "Not publishable: the validation is not PASS." in note
-    assert "(withheld: name: 1 line; read it in the run folder)" in note
-    for f in fixtures.ALL_REGISTERED:
-        assert f not in note
+    # B-089: no content check inside, the summary stands as the run wrote it
+    assert "Built the page for %s." % form in note and "withheld" not in note
     _insert(queue, "ui-20261008-008", "blocked", "2026-10-08T09:06:00+00:00", detail="A missing contract.")
     assert ui.main(["watch", "ui-20261008-008"]) == 0
     note = (ui.tasks_dir() / "ui-20261008-008.result.md").read_text(encoding="utf-8")

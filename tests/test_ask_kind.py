@@ -298,9 +298,10 @@ def test_kb_add_from_an_ask_project_runs_every_check(home, monkeypatch, capsys):
     monkeypatch.chdir(folder)
     argv = ["kb", "add", "--scope", "tcp", "--tag", "ecs", "--grade", "docs", "--class", "api", "--source",
             "docs mirror, user guide"]
-    assert cli.main(argv + ["ecs flavor s3.large.2 is offered to %s in eu-de" % fixtures.CUSTOMER_FORMS[1]]) == 1
-    assert "name check" in capsys.readouterr().err
-    assert cli.main(argv + ["ecs flavor s3.large.2 is offered in eu-de"]) == 0
+    # B-089: a fact inside the knowledge base runs no name check
+    assert cli.main(argv + ["ecs flavor s3.large.2 is offered to %s in eu-de" % fixtures.CUSTOMER_FORMS[1]]) == 0
+    assert "added KB-" in capsys.readouterr().out
+    assert cli.main(argv + ["the volume type ssd keeps its size after a resize of the disk"]) == 0
     assert "added KB-" in capsys.readouterr().out
 
 
