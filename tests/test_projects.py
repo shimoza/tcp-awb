@@ -755,10 +755,11 @@ def test_a_spawned_project_gets_the_commit_gate(home, register_path, monkeypatch
     planted = "remote push uses " + "gh" + "p_" + "Zx8Kq3Lw7Rt2Vn5Bm9Yc4Hd6Jf1Gs0Pa3Ue7Wi" + "\n"
     (folder / "evidence" / "notes.md").write_text(planted, encoding="utf-8")
     _git(folder, "add", "-A")
-    refused = _commit(folder)
-    assert refused.returncode != 0
-    assert "token" in refused.stdout + refused.stderr
-    assert _git(folder, "rev-parse", "HEAD").strip() == head
+    # DMZ (B-087..B-089): a project commit is inside; the gate hook stays but checks no content, so a planted
+    # token commits; the check of secrets runs at the entry and at the public exits
+    taken = _commit(folder)
+    assert taken.returncode == 0, taken.stdout + taken.stderr
+    assert _git(folder, "rev-parse", "HEAD").strip() != head
     (folder / "evidence" / "notes.md").write_text("two app clusters, one per zone\n", encoding="utf-8")
     _git(folder, "add", "-A")
     passed = _commit(folder)
@@ -829,11 +830,7 @@ def test_spawn_from_the_outbox_commits_through_the_gate_hook(home, register_path
     planted = box / "brief.md"
     planted.write_text("sizing\n-----BEGIN RSA " + "PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA " + "PRIVATE KEY-----\n",
                        encoding="utf-8")
-    with pytest.raises(projects.ProjectError, match="refused the outbox copies"):
-        projects.spawn(home, "engagement", GOAL, fixtures.CUSTOMER_CODE, register_path, from_outbox=True)
-    assert planted.is_file() and not projects.load(home)
-    assert not [d for d in home.projects_root.glob("tcp-*")]
-    planted.write_text("sizing for %s\n" % fixtures.CUSTOMER_CODE, encoding="utf-8")
+    # DMZ (B-087..B-089): the outbox copies passed the entry check already; the spawn checks them no second time
     pr = projects.spawn(home, "engagement", GOAL, fixtures.CUSTOMER_CODE, register_path, from_outbox=True)
     assert (Path(pr.path) / ".git" / "hooks" / "pre-commit").is_file() and not planted.exists()
 
