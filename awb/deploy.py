@@ -227,7 +227,6 @@ COMMAND_ONLY: dict[str, str] = {
     "awb/tcp/migrate.py": "awb migrate, run in a working session",
     "awb/tcp/billed.py": "awb tenant billed and awb cost billed, run by the owner side and in working sessions",
     "awb/tcp/lab.py": "awb lab list|dry-run|run, run in a working session",
-    "awb/tcp/diskreader.py": "the user data of the disk-reader recipe, rendered by awb lab in a working session",
     "awb/labclient.py": "awb lab run start|keep|end|status and the scripts of a project session (task LR)",
     "awb/winlabsession.py": "awb winlab run|start|status|log|stop|put|get, run in a project session (task WL part 3)",
     "awb/kbpattern.py": "awb kb pattern add|support|find|list|show|retire, run in a project session (Q-0019)",
