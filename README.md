@@ -434,8 +434,8 @@ ages in days (unknown for legacy undated items), text, defaults and evidence. A 
 receipt requires `Default taken: X.` as a complete commit-message line or a cell in a
 RESOURCES.md handle row, matching the full default apart from case, whitespace and its
 final period. The table shows the commit hash or resource handle and row, never the raw
-evidence. Text that fails the name or secret check is withheld; an unavailable check
-refuses the sweep.
+evidence. Texts are shown as written (no content check inside, DMZ 4); only a control
+character withholds one.
 
 After carrying out a default, run `awb open close N [N ...] --default` with numbers from
 the current sweep. This ticks the selected items, moves them under a Closed heading and
@@ -525,9 +525,10 @@ returns the questions left. It shares the daily budget and the name check with t
 engine: the same model loop, the same budget (an unreadable usage record refuses) and the same check of the tool
 answers and the answer.
 Every door that sends or shows a text runs the same screen (`check.screen`): the Ask question, the project chat, the
-working copy of an imported material, the project read API and the owner status. It looks for registered names,
-structured data, secrets, tokens, private keys and home paths, also behind base64 and hex. The project read API
-masks what it finds as `[withheld]`, the owner status refuses names and secrets only, the others refuse. The table
+working copy of an imported material and the owner status. It looks for registered names,
+structured data, secrets, tokens, private keys and home paths, also behind base64 and hex. The owner status refuses
+names and secrets only, the others refuse. The project read API of the console shows the files of a project as
+written (DMZ 4: no content check inside). The table
 "One text screen" in `INTERFACES.md` lists each door.
 
 The console page lives in the repository as `awb/tcp/web/portal.html` and ships with `sudo awb deploy`: when its
@@ -990,7 +991,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | switch | `awb projects kind tcp-xxxx project` (a customer project: `--customer CUST-XXXX`, the code you type from `awb register`) | a query that needs a live test becomes a project (or back). The grant records the customer and is written only when you confirm it with `--customer`; without it the command prints `grant not written`, shows the row as information and asks you to type the code yourself (no ready command), another code is refused |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | park a project | `awb projects park tcp-xxxx --reason "waits on the customer"`, later `awb projects unpark tcp-xxxx` | the board counts it apart and leaves its open items out; nothing else changes, material still comes in |
-| finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources and lists them with their commands when it refuses, then writes the fingerprint of the deliverables to the shared side and pins its hash in the vault; a session that leaves you an item with an allowed `awb` command in OPEN.md gets you one mail, sent by the 15 minute timer of `awb build nudge` after the name check; delete removes the folder and keeps the code |
+| finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources and lists them with their commands when it refuses, then writes the fingerprint of the deliverables to the shared side and pins its hash in the vault; a session that leaves you an item with an allowed `awb` command in OPEN.md gets you one mail, sent by the 15 minute timer of `awb build nudge`; delete removes the folder and keeps the code |
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | the first 20 ranked facts (`--top N`, `--all`) with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
 | act on an expired or duplicate fact | `awb kb expired [--days N]`, `awb kb renew KB-XXXX --source URL`, `awb kb retire KB-XXXX --why "..."`, `awb kb merge KEEP DROP` | renew when it still holds where you read it, retire when it no longer does, merge two entries that say the same; each runs the checks of `amend` |
@@ -1831,7 +1832,7 @@ From a project session, run `awb dev ask "TEXT" [--blocks]`; in a side session (
 text, command and error. Supply failure details with `--command "COMMAND" --error "ERROR"`;
 without those options the fields say `not supplied`. The command is recorded without being run.
 `--blocks` marks a blocked project task. The first line of TEXT becomes the title (at most 120 characters).
-The name and secret checks run before writing; a hit or an unavailable name check refuses the ask.
+The text is written as it is (DMZ 4: no name, data or secret check inside); a control character refuses the ask.
 
 An owner-side session in this repository sees `request from tcp-xxxx: TITLE (notices/dev/FILE)`
 once per ask per session at its next prompt, while the ask is new (its first 24 hours). An older open ask is not
@@ -1846,7 +1847,7 @@ awb projects note tcp-xxxx --answers ASK_FILE --title "filter ready" ANSWER_FILE
 ```
 
 ASK_FILE is the ask's full path, `notices/dev/FILE` or its basename. ANSWER_FILE contains the answer;
-use `-` to read it from standard input. The answer title and text pass the name and secret checks.
+use `-` to read it from standard input. The answer title and text are written as they are (DMZ 4: no content check inside).
 Only a successfully delivered note closes the matching project's ask, removing it from `--dev`
 and overdue reminders. The project prompt shows the answer note once through the existing note notice.
 
@@ -1860,7 +1861,7 @@ is passed over. A failed close is one line of the deploy's output and never fail
 
 A note written on his word carries his words: `awb projects note ... --owner-word "TEXT"` (and the same option of
 `awb desk close`) ends the note with the line `owner's word: "TEXT", 2026-11-20T09:30Z` (UTC, to the minute). His
-words pass the name and secret checks first. The project rules and the development rules take a note with this line
+words are written as he said them (one line, no control character). The project rules and the development rules take a note with this line
 as his decision: the session acts on it and does not ask him again.
 
 `awb version live` prints the live release from the deploy journal `/opt/tcp-awb/DEPLOYED` (or, without a journal,
@@ -1872,7 +1873,7 @@ counts nothing as live. A session checks this itself instead of asking him wheth
 
 From a project session, run `awb desk ask "TEXT" [--blocks]` for desk work: DNS records, Cloudflare, EIPs between
 projects, tenant steps. It writes `<shared>/notices/desk/<YYYY-MM-DD>-<code>-<n>.md` with the header of a dev ask,
-after the same name and secret checks. A desk session (an owner session outside a project and outside a checkout of
+under the same rule (written as it is). A desk session (an owner session outside a project and outside a checkout of
 this repository) sees `desk request from tcp-xxxx: TITLE (notices/desk/FILE, awb desk close HANDLE --note TEXT)`
 once per ask per session at its next prompt, while the ask is new. `awb desk list` lists the open asks with their
 handles. The desk answers as the work user on a sealed host:
@@ -1894,7 +1895,7 @@ awb ux note "the dictation gate asked twice for one prompt"
 awb ux report --since 2026-11-02
 ```
 
-`note` writes one line of class `note` with the text, after the name and secret checks (a hit refuses, as a dev ask
+`note` writes one line of class `note` with the text as written (a control character refuses, as a dev ask
 does) and the project code of the folder it runs in. `report` prints one row per class with its count in each ISO
 week from `--since` (default: the last four weeks) and the change of the current week against the week before, then
 the notes of the period. On a Monday `awb owner status` and its mail end with five lines on the week that ended
@@ -1919,12 +1920,8 @@ The owner-side file is `~/tcp-awb/presentations/work-profile/queue.tsv`, one ope
 an id, creation and update dates, the date the next step changed, what, next, who and optional project.
 `done` moves an item to `queue-done.tsv` beside it. A next step unchanged for 24 hours is marked `stale`;
 reassigning the same step does not reset that clock. `awb owner status` includes owner rows and their next steps.
-Names, secrets and unchecked text are refused on write. A row is checked once when it is added or changed;
-its verdict is kept in `queue-verdicts.tsv` beside the queue, signed with a key in the owner's state folder
-(`~/.local/state/awb/queue-verdict.key`) and bound to the register stamp (with the vault daemon: its `revision`,
-one request per run). A later call checks only a row with no verdict, a hand-edited row or every row after the
-register changed; a row with a finding still refuses. `AWB_WORK_QUEUE` selects another queue file, including for
-temporary tests.
+A row is kept as written (DMZ 4: no name, data or secret check inside, so no verdict file and no register stamp);
+only its shape is checked. `AWB_WORK_QUEUE` selects another queue file, including for temporary tests.
 
 Run `awb queue migrate` once on the owner host to import the open rows of the old `QUEUE.md` beside the TSV.
 The old text stays intact with an archive notice prepended. Completed, accepted, cancelled and superseded
@@ -1939,8 +1936,7 @@ Review `awb queue list` after migration and close resolved work; the host accept
 
 `awb handover write` saves `build/HANDOVER.md` in the owner's repository checkout from open queue rows,
 Git history since the last successful write, open build tasks (not done or stopped), the checks of a branch of the
-last 48 hours that did not pass, held release notes, open development asks and the default owner status. It uses no model and checks the complete file for names and secrets before
-replacing it. A failure keeps the previous hand-over.
+last 48 hours that did not pass, held release notes, open development asks and the default owner status. It uses no model and runs no content check (DMZ 4): the file holds the lines as they are. A failure keeps the previous hand-over.
 
 Development installs the owner's PreCompact, SessionStart and prompt hooks on his word, using
 `awb.hooks.owner_client_settings("awb hook")`. Before compaction they write the file; session start

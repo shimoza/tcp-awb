@@ -446,19 +446,13 @@ def _cmd_close(args, p: config.Paths) -> int:
 
 
 def _cmd_projects_list(args, p: config.Paths) -> int:
-    from awb import ledger, projects, sessions
+    from awb import projects, sessions
 
     rows = [r for r in projects.load(p) if args.all or r.state != "deleted"]
     if not rows:
         print("no projects")
         return EXIT_OK
     goals = [projects.goal_of(r.path) for r in rows]
-    # a goal passed the name check at spawn; the register grows, so it is checked again before it is shown
-    try:
-        hidden = ledger.hit_indexes(goals, ledger.register_path(p))
-        unchecked = False
-    except ledger.LedgerError:
-        hidden, unchecked = set(), True
     last = "path" if args.paths else "goal"
     print("code      kind        customer   state   created     owner     %s" % last)
     service = config.service_project()
@@ -466,10 +460,6 @@ def _cmd_projects_list(args, p: config.Paths) -> int:
         held = sessions.owner(p, r.code) if r.state in projects.LIVE_STATES else None
         if args.paths:
             tail = r.path
-        elif unchecked:
-            tail = "(goal not shown: the name check is unavailable)"
-        elif i in hidden:
-            tail = ledger.WITHHELD
         else:
             tail = projects.short_goal(goals[i])
         if r.code == service:

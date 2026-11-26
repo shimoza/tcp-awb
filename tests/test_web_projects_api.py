@@ -84,17 +84,18 @@ class Tests(unittest.TestCase):
             api.base_record(self.row, self.paths)
 
     def test_data_check_failure_is_closed(self):
+        # DMZ 4 (B-088): the console runs no content check on the files of a project, so a data check that fails
+        # stops nothing and the projects are listed
         with patch.object(vault, "check_remote", side_effect=vault.VaultUnavailable("unavailable")):
-            with self.assertRaises(api.Unavailable):
-                api.project_list(self.paths)
+            self.assertEqual(api.project_list(self.paths)["projects"][0]["goal"], "Test a sample deployment")
 
     def test_redaction_preserves_safe_content(self):
         def check(text, sock):
             return [{"start": text.index("MASKME"), "length": 6, "cls": "name"}] if "MASKME" in text else []
         with patch.object(vault, "check_remote", side_effect=check):
             text, redacted = api.checked("Before MASKME after", self.paths)
-            self.assertTrue(redacted)
-            self.assertEqual(text, "Before [withheld] after")
+            self.assertFalse(redacted)
+            self.assertEqual(text, "Before MASKME after")
 
     def test_deliverable_symlink_blocks_review_reader(self):
         (self.folder / "deliverables").mkdir()

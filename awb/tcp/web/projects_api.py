@@ -10,7 +10,7 @@ import stat
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
-from awb import check, codes, config, projects, review, vault, normalize
+from awb import codes, config, projects, review
 from awb import status as recorded
 from awb.tcp.web import reader_api
 
@@ -46,18 +46,9 @@ def read_text(root, name):
 
 
 def checked(text, paths):
-    """Use the check-only socket. Never read the vault or its register."""
-    normal = normalize.normalize(text).text
-    try:
-        # check.screen masks every class; a hit it cannot mask withholds the whole text
-        screened = check.screen(normal, check.RemoteCheck(paths.check_socket), mask=True)
-    except (check.CheckUnavailable, vault.VaultError, OSError):
-        raise Unavailable('The data check is unavailable. Project content was not returned.') from None
-    if not screened.found:
-        return normal, False
-    if screened.text is None:
-        return '[Content withheld by the data check.]', True
-    return screened.text, True
+    """The text as written and the flag `redacted`, always false: the console runs no content check on the
+    files of a project (DMZ 4). The pair keeps the shape of the JSON the pages read."""
+    return text, False
 
 
 def resource_rows(text):
@@ -122,7 +113,7 @@ def app_for(root,paths):
 
 
 def status_of(state,root,paths):
-    """The Status: and Next: lines of STATE.md after the data check, its date and the commits newer than it."""
+    """The Status: and Next: lines of STATE.md as written, its date and the commits newer than it."""
     if state['status']!='available':
         return {'summary':None,'next':None,'updated':None,'behind':None,'redacted':False}
     lines=recorded.lines(state['text'])
@@ -201,7 +192,7 @@ def bullets(text,heading=None):
 
 
 def waiting_items(texts,total):
-    """Structured companions to the legacy strings, classified only after the data check."""
+    """Structured companions to the legacy strings, classified as written."""
     from awb import ownerwait
 
     def where(text):
@@ -219,7 +210,7 @@ def waiting_items(texts,total):
 
 
 def checked_items(texts,paths):
-    """Keep the item count even when the data check withholds a whole block."""
+    """Keep the item count even when `checked` withholds a whole block (it never does since B-088)."""
     if not texts:
         return [],False
     joined,redacted=checked('\n'.join(texts),paths)
@@ -230,7 +221,7 @@ def checked_items(texts,paths):
 def board(paths):
     """Every active project for management: the recorded status with its time and lag, what the project waits on,
     its first open items, its deliverables by review state and its live resources. Codes only; the texts of one
-    project pass the data check in one call. The open items leave out the sections of OPEN.md under a heading with
+    project are shown as written (no content check inside, DMZ 4). The open items leave out the sections of OPEN.md under a heading with
     closed, done, erledigt or abgeschlossen in it (projects.open_bullets). A parked project (awb projects park) is
     not in `projects` and in no count: it has its own short list `parked` (code, customer, kind, reason, since)."""
     rows=[];parked=[]
@@ -272,20 +263,10 @@ def board(paths):
 
 def platform(paths):
     """The open incidents and the planned maintenances of the TCP platform for the board (awb/tcp/board.py,
-    platform_data): the rows of <shared>/platform-status/state.tsv, each cell matched again, the titles after the
-    data check in one call. Without a file or a pull it is an empty list with `pulled` null."""
+    platform_data): the rows of the platform-status state file of the shared side, each cell matched again, the
+    titles as written. Without a file or a pull it is an empty list with `pulled` null."""
     from awb.tcp import board as board_file
-    data=board_file.platform_data(paths)
-    titles=[e['title'] for e in data['events'] if e['title']]
-    if titles:
-        joined,_=checked('\n'.join(titles),paths)
-        parts=joined.split('\n')
-        parts=parts if len(parts)==len(titles) else [WITHHELD]*len(titles)
-        shown=iter(parts)
-        for e in data['events']:
-            if e['title']:
-                e['title']=next(shown)
-    return data
+    return board_file.platform_data(paths)
 
 
 def project_detail(code,paths):
@@ -335,12 +316,6 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404,{'error':'No such project endpoint.'});return
         try:
             paths=config.paths()
-            state=vault.ping_state(paths.check_socket)
-            if state['state']=='locked':
-                # T3: the board opens with the time of the lock (fixed shape or "unknown"); the project routes keep
-                # their text, which the chat service matches
-                text='The data check is locked. Project content was not returned.'
-                raise Unavailable('%s. %s'%(vault.locked_line(state['since']),text) if path=='/api/board' else text)
             if path=='/api/projects':data=project_list(paths)
             elif path=='/api/board':data=board(paths)
             else:data=project_detail(path.rsplit('/',1)[1],paths)

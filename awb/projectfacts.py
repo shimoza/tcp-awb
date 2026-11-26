@@ -4,8 +4,6 @@
 - `git_dates`: the committer dates of the project's own repository, optionally of some paths;
 - `mtime_date`: the day a file was last written;
 - `status_of`: the text of the Status line of STATE.md;
-- `withhold`: some text fields of a list of items through the name check, a text with a hit becomes
-  "(withheld by the name check)";
 - `export_hits`: the stronger check of a text that leaves the host (the codes file): the name check, the secret
   and pattern detectors of the commit gate and the candidate rule of short texts.
 
@@ -61,24 +59,6 @@ def status_of(folder: Path) -> str:
         if line.startswith("Status:"):
             return " ".join(line[len("Status:"):].split())
     return ""
-
-
-def withhold(items: list, reg: Path, names: tuple[str, ...] = ("goal", "status")) -> int:
-    """The fields `names` of every item through the name check; a text that carries a name becomes WITHHELD.
-    Returns the count withheld. Raises LedgerError when the check cannot run."""
-    texts, where = [], []
-    for it in items:
-        for name in names:
-            if getattr(it, name):
-                texts.append(getattr(it, name))
-                where.append((it, name))
-    if not texts:
-        return 0
-    ledger.ensure_checkable(reg)
-    hits = ledger.hit_indexes(texts, reg)
-    for i in hits:
-        setattr(where[i][0], where[i][1], ledger.WITHHELD)
-    return len(hits)
 
 
 def export_hits(texts: list[str], reg: Path) -> set[int]:

@@ -222,25 +222,16 @@ def test_two_spawns_give_two_codes(home, register_path):
     fixtures.CUSTOMER_FORMS[1] + "s",
 ])
 def test_goal_with_a_registered_name_is_refused_without_echo(home, register_path, form):
+    """DMZ 4 (B-088): no content check inside, a registered name in the goal is spawned and kept as written."""
     goal = "review the network plan for " + form
-    with pytest.raises(projects.ProjectError) as ei:
-        _spawn(home, register_path, goal=goal)
-    msg = str(ei.value)
-    assert goal not in msg
-    assert form.lower() not in msg.lower()
-    fixtures.assert_no_fixture_name(msg, "error message")
-    assert "name" in msg
-    _nothing_created(home)
+    pr = _spawn(home, register_path, goal=goal)
+    assert _scope(Path(pr.path))["goal"] == goal
 
 
 def test_goal_with_structured_data_is_refused(home, register_path):
     goal = "open the firewall for 203.0.113.7 today"
-    with pytest.raises(projects.ProjectError) as ei:
-        _spawn(home, register_path, goal=goal)
-    msg = str(ei.value)
-    assert "203.0.113.7" not in msg
-    assert "ip" in msg
-    _nothing_created(home)
+    pr = _spawn(home, register_path, goal=goal)
+    assert _scope(Path(pr.path))["goal"] == goal
 
 
 def test_tag_with_a_registered_name_is_refused(home, register_path):
@@ -253,34 +244,32 @@ def test_tag_with_a_registered_name_is_refused(home, register_path):
 
 
 def test_a_blocked_tag_is_refused(home, register_path):
+    """B-088: the blocklist is no check inside; a tag stays one of rules/tags.txt, so this one is refused as unknown."""
     with pytest.raises(projects.ProjectError) as ei:
         _spawn(home, register_path, tags=[OLD_TAG])
     msg = str(ei.value)
-    assert "blocklist" in msg
+    assert "rules/tags.txt" in msg
     assert OLD_TAG not in msg
     _nothing_created(home)
 
 
 @pytest.mark.parametrize("tag", ["TIC" + "KT7", "x_" + OLD_TAG])
 def test_a_blocked_tag_in_another_spelling_is_refused(home, register_path, tag):
-    with pytest.raises(projects.ProjectError, match="blocklist"):
+    with pytest.raises(projects.ProjectError, match="rules/tags.txt"):
         _spawn(home, register_path, tags=[tag])
     _nothing_created(home)
 
 
 def test_a_blocked_word_in_the_goal_is_refused(home, register_path):
     goal = "follow up the notes of " + OLD_GOAL_WORD
-    with pytest.raises(projects.ProjectError) as ei:
-        _spawn(home, register_path, goal=goal)
-    assert "blocklist" in str(ei.value)
-    assert OLD_GOAL_WORD not in str(ei.value)
-    _nothing_created(home)
+    pr = _spawn(home, register_path, goal=goal)
+    assert _scope(Path(pr.path))["goal"] == goal
 
 
 def test_a_blocked_path_in_the_goal_is_refused(home, register_path):
-    with pytest.raises(projects.ProjectError, match="blocklist"):
-        _spawn(home, register_path, goal="port the tooling of " + OLD_PATH_WORD)
-    _nothing_created(home)
+    goal = "port the tooling of " + OLD_PATH_WORD
+    pr = _spawn(home, register_path, goal=goal)
+    assert _scope(Path(pr.path))["goal"] == goal
 
 
 @pytest.mark.parametrize("customer", [
@@ -350,23 +339,21 @@ def test_second_project_with_the_same_code_is_refused(home, register_path, monke
 
 
 def test_missing_name_check_refuses(home, register_path, monkeypatch):
+    """B-088: a project needs no name check, so a missing check module stops nothing."""
     monkeypatch.delattr(awb, "check", raising=False)
     monkeypatch.setitem(sys.modules, "awb.check", None)
-    with pytest.raises(projects.ProjectError, match="name check is not available"):
-        _spawn(home, register_path)
-    _nothing_created(home)
+    pr = _spawn(home, register_path)
+    assert pr.code.startswith("tcp-")
 
 
 def test_final_check_refuses_a_generated_file_with_a_name(home, register_path, tmp_path, monkeypatch):
+    """B-088: no final check of the generated files: a rules file under a registered name is copied as it is."""
     rules = tmp_path / fixtures.CUSTOMER_FORMS[1].lower() / "CLAUDE.md"
     rules.parent.mkdir()
     rules.write_text("rules\n", encoding="utf-8")
     monkeypatch.setattr(projects, "RULES_FILE", rules)
-    with pytest.raises(projects.ProjectError) as ei:
-        _spawn(home, register_path)
-    assert "CLAUDE.md" in str(ei.value)
-    fixtures.assert_no_fixture_name(str(ei.value), "error message")
-    _nothing_created(home)
+    pr = _spawn(home, register_path)
+    assert (Path(pr.path) / "CLAUDE.md").is_file()
 
 
 def test_git_failure_leaves_nothing_behind(home, register_path, tmp_path, monkeypatch):
@@ -570,11 +557,8 @@ def test_spawn_refuses_to_add_to_a_malformed_register(home, register_path):
     "migration for " + fixtures.CUSTOMER_FORMS[1].replace("o", "о"),
 ])
 def test_goal_with_a_disguised_registered_name_is_refused(home, register_path, goal):
-    with pytest.raises(projects.ProjectError) as ei:
-        _spawn(home, register_path, goal=goal)
-    fixtures.assert_no_fixture_name(str(ei.value), "error message")
-    assert "name check" in str(ei.value)
-    _nothing_created(home)
+    pr = _spawn(home, register_path, goal=goal)
+    assert _scope(Path(pr.path))["goal"] == goal
 
 
 @pytest.mark.parametrize("goal", [
@@ -583,21 +567,16 @@ def test_goal_with_a_disguised_registered_name_is_refused(home, register_path, g
     "call " + "Herr " + fixtures.PLANTED_PERSON.split()[1] + " about the network",
 ])
 def test_goal_with_an_unregistered_name_is_refused(home, register_path, goal):
-    with pytest.raises(projects.ProjectError) as ei:
-        _spawn(home, register_path, goal=goal)
-    msg = str(ei.value)
-    for word in fixtures.PLANTED_CANDIDATE.split()[:1] + fixtures.PLANTED_PERSON.split():
-        assert word.lower() not in msg.lower()
-    assert "not in the register" in msg
-    _nothing_created(home)
+    pr = _spawn(home, register_path, goal=goal)
+    assert _scope(Path(pr.path))["goal"] == goal
 
 
 def test_spawn_without_a_register_is_refused(home, tmp_path):
+    """B-088: a project without a customer needs no register at all."""
     missing = tmp_path / "no-vault" / "register.tsv"
-    with pytest.raises(projects.ProjectError) as ei:
-        _spawn(home, missing, customer=None, goal="migration for " + fixtures.CUSTOMER_FORMS[0])
-    assert "register is missing" in str(ei.value)
-    _nothing_created(home)
+    goal = "migration for " + fixtures.CUSTOMER_FORMS[0]
+    pr = _spawn(home, missing, customer=None, goal=goal)
+    assert _scope(Path(pr.path))["goal"] == goal
 
 
 def test_ordinary_capitalised_goal_still_spawns(home, register_path):
@@ -723,10 +702,9 @@ def test_spawn_on_the_owner_side_of_an_encrypted_vault(daemon):
     assert not p.register.exists()
     pr = _spawn(p, p.register)
     assert pr.customer == fixtures.CUSTOMER_CODE
-    with pytest.raises(projects.ProjectError, match="name check") as ei:
-        _spawn(p, p.register, goal="migration for " + fixtures.CUSTOMER_FORMS[0])
-    fixtures.assert_no_fixture_name(str(ei.value), "error message")
-    assert [r.code for r in projects.load(p)] == [pr.code]
+    # B-088: the goal runs no name check, the daemon is asked for the customer code only
+    named = _spawn(p, p.register, goal="migration for " + fixtures.CUSTOMER_FORMS[0])
+    assert [r.code for r in projects.load(p)] == [pr.code, named.code]
 
 
 def test_spawn_on_the_work_side_checks_names_over_the_check_socket(daemon, tmp_path):
@@ -736,12 +714,11 @@ def test_spawn_on_the_work_side_checks_names_over_the_check_socket(daemon, tmp_p
         _spawn(p, work_register)
     assert fixtures.CUSTOMER_CODE in str(ei.value)
     (p.outbox / fixtures.CUSTOMER_CODE).mkdir(parents=True)
-    with pytest.raises(projects.ProjectError, match="name check") as ei:
-        _spawn(p, work_register, goal="migration for " + fixtures.CUSTOMER_FORMS[1])
-    fixtures.assert_no_fixture_name(str(ei.value), "error message")
-    _nothing_created(p)
+    # B-088: the check socket is not asked for the goal, a name in it is kept as written
+    named = _spawn(p, work_register, goal="migration for " + fixtures.CUSTOMER_FORMS[1])
     pr = _spawn(p, work_register)
     assert pr.customer == fixtures.CUSTOMER_CODE
+    assert _scope(Path(named.path))["goal"] == "migration for " + fixtures.CUSTOMER_FORMS[1]
     assert (Path(pr.path) / ".claude" / "settings.json").is_file()
 
 
@@ -749,11 +726,12 @@ def test_spawn_on_the_work_side_refuses_while_the_vault_is_locked(daemon, tmp_pa
     p = daemon
     _encrypt(p, unlock=False)
     (p.outbox / fixtures.CUSTOMER_CODE).mkdir(parents=True)
-    for reg in (tmp_path / "not-here" / "register.tsv", p.register):
-        with pytest.raises(projects.ProjectError, match="vault locked") as ei:
-            _spawn(p, reg)
-        assert "nothing was created" in str(ei.value)
-        _nothing_created(p)
+    # B-088: no name check, so a locked vault stops a spawn only where the register itself must be read
+    pr = _spawn(p, tmp_path / "not-here" / "register.tsv")
+    assert pr.customer == fixtures.CUSTOMER_CODE
+    with pytest.raises(projects.ProjectError, match="register cannot be read"):
+        _spawn(p, p.register)
+    assert [r.code for r in projects.load(p)] == [pr.code]
 
 
 # --- the commit gate of a project -------------------------------------------------------------------------------
@@ -863,13 +841,13 @@ def test_spawn_from_the_outbox_commits_through_the_gate_hook(home, register_path
 @pytest.mark.skipif(os.geteuid() == 0, reason="root opens every folder")
 def test_spawn_without_the_check_module_names_no_traceback_for_a_vault_it_cannot_open(home, register_path,
                                                                                        monkeypatch):
-    """The fallback of spawn when the name check cannot be imported looks at the register; a vault folder the
-    work user may not open answers with the refusal, not with PermissionError (2026-10-12)."""
+    """A vault folder the work user may not open answers with the refusal, not with PermissionError (2026-10-12);
+    B-088: without the check module the customer code is looked up in the register alone."""
     monkeypatch.delattr(awb, "check", raising=False)
     monkeypatch.setitem(sys.modules, "awb.check", None)
     os.chmod(home.vault, 0)
     try:
-        with pytest.raises(projects.ProjectError, match="the name check is not available, nothing was created"):
+        with pytest.raises(projects.ProjectError, match="register"):
             projects.spawn(home, "engagement", GOAL, fixtures.CUSTOMER_CODE, home.register)
     finally:
         os.chmod(home.vault, 0o700)
@@ -987,23 +965,18 @@ def test_admin_list_withholds_secrets_in_changed_goals(home, capsys, value):
     (Path(row.path) / "SCOPE.md").write_text("- goal: " + value + "\n", encoding="utf-8")
     assert cli.main(["projects", "list"]) == 0
     output = capsys.readouterr()
-    assert value not in output.out + output.err
+    # B-088: a goal is listed as written
+    assert value in output.out and output.err == ""
     assert row.code in output.out
-    assert "withheld" in output.out
+    assert "withheld" not in output.out
 
 
 def test_admin_goal_withholds_when_pattern_checks_fail(home, monkeypatch):
-    from awb import ledger
-
     row = _admin_project(home)
     secret = "pass" + "word=fixture-admin-value"
     (Path(row.path) / "SCOPE.md").write_text("- goal: " + secret, encoding="utf-8")
-
-    def unavailable(*args):
-        raise ledger.LedgerError(secret)
-
-    monkeypatch.setattr(ledger, "_pattern_counts", unavailable)
-    assert projects.goal_of(row.path) == ledger.WITHHELD
+    # B-088: no pattern check inside, so there is nothing that can fail: the goal is read as written
+    assert projects.goal_of(row.path) == secret
 
 
 @pytest.mark.timeout(5)
@@ -1182,7 +1155,8 @@ def test_admin_list_rechecks_names_and_hides_unchecked_goals(home, monkeypatch, 
     scope.write_text("- goal: compare storage for " + NAME, encoding="utf-8")
     assert cli.main(["projects", "list"]) == 0
     out = capsys.readouterr()
-    assert NAME not in out.out + out.err and "withheld" in out.out
+    # B-088: no name check inside: the goal is listed as written, whatever the register says
+    assert NAME in out.out and "withheld" not in out.out and out.err == ""
     scope.write_text("- goal: compare storage classes", encoding="utf-8")
 
     def unavailable(*args):
@@ -1191,8 +1165,7 @@ def test_admin_list_rechecks_names_and_hides_unchecked_goals(home, monkeypatch, 
     monkeypatch.setattr(ledger, "hit_indexes", unavailable)
     assert cli.main(["projects", "list"]) == 0
     out = capsys.readouterr()
-    assert "compare storage" not in out.out + out.err and NAME not in out.out + out.err
-    assert "name check is unavailable" in out.out
+    assert "compare storage classes" in out.out and "name check is unavailable" not in out.out
 
 
 def test_admin_list_deleted_filter_and_missing_goal(home, capsys):

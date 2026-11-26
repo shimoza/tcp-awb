@@ -36,12 +36,14 @@ def ask(world, *options):
     return sorted((home.shared / "notices/dev").glob("*.md"))[-1]
 
 
-def owner_status(monkeypatch, capsys, *options):
+def owner_status(monkeypatch, capsys, *options, names=False):
+    """`names=True` for a test that puts a registered name into an ask on purpose (DMZ 4: it is shown as written)."""
     monkeypatch.setattr(config, "is_work_user", lambda: False)
     capsys.readouterr()
     assert cli.main(["owner", "status", *options]) == 0
     out = capsys.readouterr().out
-    fx.assert_no_fixture_name(out)
+    if not names:
+        fx.assert_no_fixture_name(out)
     return out
 
 
@@ -55,7 +57,7 @@ def _checkout(base: Path) -> Path:
     return co
 
 
-def prompt(monkeypatch, capsys, cwd=None, sid="ux4-session"):
+def prompt(monkeypatch, capsys, cwd=None, sid="ux4-session", names=False):
     import tempfile
 
     if cwd is None:
@@ -67,7 +69,8 @@ def prompt(monkeypatch, capsys, cwd=None, sid="ux4-session"):
     capsys.readouterr()
     assert hooks.main(["prompt"]) == 0
     out = capsys.readouterr().out
-    fx.assert_no_fixture_name(out)
+    if not names:
+        fx.assert_no_fixture_name(out)
     return out
 
 
@@ -98,39 +101,45 @@ def test_owner_repository_prompt_shows_each_request_once_per_session(world, monk
 
 
 def test_registered_name_in_any_ask_field_refuses_without_writing(world, capsys):
+    """DMZ 4: no content check inside, a registered name in any field is written as written."""
     home, _ = world
     ask(world)
     folder = home.shared / "notices/dev"
-    before = {p.name: p.read_bytes() for p in folder.iterdir()}
     for args in ([fx.CUSTOMER_FORMS[0]], ["safe", "--command", fx.PERSON_FORMS[0]],
                  ["safe", "--error", fx.ORG_FORMS[0]]):
-        assert cli.main(["dev", "ask", *args]) == 2
+        before = {p.name for p in folder.iterdir()}
+        assert cli.main(["dev", "ask", *args]) == 0
         out = capsys.readouterr()
-        fx.assert_no_fixture_name(out.out + out.err)
-        assert "name" in out.err
-        assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
+        assert out.err == ""
+        (new,) = {p.name for p in folder.iterdir()} - before
+        written = (folder / new).read_text(encoding="utf-8")
+        assert all(a in written for a in args if not a.startswith("--") and a != "safe")
 
 
 def test_secret_in_any_ask_field_refuses_without_writing(world, capsys):
+    """DMZ 4: a value that looks like a secret is written as written too."""
     home, _ = world
     ask(world)
-    before = list((home.shared / "notices/dev").iterdir())
+    folder = home.shared / "notices/dev"
     secret = "pass" + "word=" + "invented-value-123"
     for args in ([secret], ["safe", "--command", secret], ["safe", "--error", secret]):
-        assert cli.main(["dev", "ask", *args]) == 2
+        before = {p.name for p in folder.iterdir()}
+        assert cli.main(["dev", "ask", *args]) == 0
         out = capsys.readouterr()
-        assert secret not in out.out + out.err and "secret" in out.err
-        assert list((home.shared / "notices/dev").iterdir()) == before
+        assert out.err == ""
+        (new,) = {p.name for p in folder.iterdir()} - before
+        assert secret in (folder / new).read_text(encoding="utf-8")
 
 
 def test_unavailable_name_check_refuses_without_writing(world, capsys):
+    """DMZ 4: an ask needs no register: it is written without one."""
     home, _ = world
     ask(world)
     before = list((home.shared / "notices/dev").iterdir())
     home.register.unlink()
-    assert cli.main(["dev", "ask", "another filter"]) == 2
-    assert "name check" in capsys.readouterr().err
-    assert list((home.shared / "notices/dev").iterdir()) == before
+    assert cli.main(["dev", "ask", "another filter"]) == 0
+    assert capsys.readouterr().err == ""
+    assert len(list((home.shared / "notices/dev").iterdir())) == len(before) + 1
 
 
 def test_answer_note_closes_only_its_ask_and_reaches_project(world, monkeypatch, capsys):
@@ -169,8 +178,7 @@ def test_invalid_answer_target_and_unsafe_answer_leave_ask_open(world, monkeypat
     home, pr = world
     path = ask(world)
     before = path.read_bytes()
-    for code, target, body in (("tcp-zzzz", path, "ready"), (pr.code, path.parent / "missing.md", "ready"),
-                               (pr.code, path, fx.CUSTOMER_FORMS[0])):
+    for code, target, body in (("tcp-zzzz", path, "ready"), (pr.code, path.parent / "missing.md", "ready")):
         monkeypatch.setattr(sys, "stdin", io.StringIO(body))
         assert cli.main(["projects", "note", code, "--answers", str(target), "--title", "ready", "-"]) == 2
         out = capsys.readouterr()
@@ -178,14 +186,24 @@ def test_invalid_answer_target_and_unsafe_answer_leave_ask_open(world, monkeypat
         assert path.read_bytes() == before
         assert not list((Path(pr.path) / "notes/from-dev").glob("*.md"))
     assert path.name in owner_status(monkeypatch, capsys, "--dev")
+    # DMZ 4: an answer with a registered name is delivered as written and closes the ask
+    monkeypatch.setattr(sys, "stdin", io.StringIO(fx.CUSTOMER_FORMS[0]))
+    assert cli.main(["projects", "note", pr.code, "--answers", str(path), "--title", "ready", "-"]) == 0
+    assert path.name not in owner_status(monkeypatch, capsys, "--dev")
+    assert fx.CUSTOMER_FORMS[0] in "".join(p.read_text() for p in (Path(pr.path) / "notes/from-dev").glob("*.md"))
 
 
 def test_tampered_ask_is_withheld_by_hook_and_status(world, monkeypatch, capsys):
+    """DMZ 4: a name in an ask file is shown as written; a control character (a tampered file) still withholds it."""
     _, _ = world
     path = ask(world)
-    path.write_text(path.read_text().replace("missing docs filter", fx.CUSTOMER_FORMS[0]))
+    original = path.read_text()
+    path.write_text(original.replace("missing docs filter", fx.CUSTOMER_FORMS[0]))
     monkeypatch.setattr(config, "is_work_user", lambda: False)
-    assert prompt(monkeypatch, capsys) == ""
+    assert fx.CUSTOMER_FORMS[0] in prompt(monkeypatch, capsys, names=True)
+    assert path.name in owner_status(monkeypatch, capsys, "--dev", names=True)
+    path.write_text(original.replace("missing docs filter", "missing\x07docs filter"))
+    assert prompt(monkeypatch, capsys, sid="ux4-other") == ""
     assert path.name not in owner_status(monkeypatch, capsys, "--dev")
 
 
@@ -194,14 +212,21 @@ def test_escaped_metadata_is_checked_before_display(world, monkeypatch, capsys):
     original = path.read_text()
     monkeypatch.setattr(config, "is_work_user", lambda: False)
     secret = "pass" + "word=" + "invented-value-123"
+    # DMZ 4: the decoded title shows as written; an escaped control character still withholds the ask
     for value in (fx.CUSTOMER_FORMS[0], secret):
         data = json.loads(original.splitlines()[0][5:-4])
         data["title"] = value
         metadata = json.dumps(data).replace(value, "".join("\\u%04x" % ord(c) for c in value))
         path.write_text("<!-- %s -->\n%s" % (metadata, original.split("\n", 1)[1]))
-        assert prompt(monkeypatch, capsys, sid=value) == ""
-        out = owner_status(monkeypatch, capsys, "--dev")
-        assert path.name not in out and value not in out
+        assert value in prompt(monkeypatch, capsys, sid=value, names=True)
+        out = owner_status(monkeypatch, capsys, "--dev", names=True)
+        assert path.name in out and value in out
+    data = json.loads(original.splitlines()[0][5:-4])
+    data["title"] = "bell\x07title"
+    path.write_text("<!-- %s -->\n%s" % (json.dumps(data), original.split("\n", 1)[1]))
+    assert prompt(monkeypatch, capsys, sid="bell") == ""
+    out = owner_status(monkeypatch, capsys, "--dev")
+    assert path.name not in out
 
 
 def test_owner_notice_does_not_need_write_access_to_work_sessions(world, monkeypatch, capsys):
@@ -349,6 +374,8 @@ def test_answer_checks_existing_body_and_decoded_metadata(world, monkeypatch):
     secret = "pass" + "word=" + "invented-value-123"
     calls = []
     monkeypatch.setattr(devnote, "write", lambda *a: calls.append(a) or Path("2026-11-15-1.md"))
+    # DMZ 4: a secret shaped value or a registered name in the body or the decoded metadata is answered as written;
+    # a control character still refuses the answer and leaves the ask as it was
     for value in (secret, fx.PERSON_FORMS[0]):
         for field in ("body", "title", "extra"):
             path.write_text(original)
@@ -357,11 +384,20 @@ def test_answer_checks_existing_body_and_decoded_metadata(world, monkeypatch):
             else:
                 _metadata(path, **{field: value})
                 path.write_text(path.read_text().replace(value, "".join("\\u%04x" % ord(c) for c in value)))
-            before = path.read_bytes()
-            with pytest.raises(devask.AskError) as err:
-                devask.answer(home, pr.code, str(path), "ready", "use the filter")
-            assert value not in str(err.value)
-            assert path.read_bytes() == before
+            devask.answer(home, pr.code, str(path), "ready", "use the filter")
+    assert len(calls) == 6
+    calls.clear()
+    for field in ("body", "title"):
+        path.write_text(original)
+        if field == "body":
+            path.write_text(original + "bell\x07")
+        else:
+            _metadata(path, **{field: "bell\x07"})
+        before = path.read_bytes()
+        with pytest.raises(devask.AskError) as err:
+            devask.answer(home, pr.code, str(path), "ready", "use the filter")
+        assert "bell" not in str(err.value)
+        assert path.read_bytes() == before
     assert calls == []
 
 
@@ -649,24 +685,26 @@ def test_write_refuses_unregistered_inactive_and_external_projects(world, monkey
 
 
 def test_checker_and_io_errors_do_not_echo_values(world, monkeypatch, capsys):
-    from awb import devask, ledger
+    from awb import check, devask
 
     home, _ = world
     secret = "pass" + "word=" + "invented-value-123"
-    for failure in (ledger.LedgerError, PermissionError):
+    for failure in (check.CheckUnavailable, PermissionError):
         def fail(*args, **kwargs):
             raise failure(secret + fx.CUSTOMER_FORMS[0])
 
         with monkeypatch.context() as m:
-            if failure is ledger.LedgerError:
-                m.setattr(ledger, "screen", fail)
+            if failure is check.CheckUnavailable:
+                # DMZ 4: an ask calls no name check, so a failing one never reaches it
+                m.setattr(check, "check_text", fail)
+                assert devask.main(["ask", "another request"]) == 0
             else:
                 m.setattr(os, "open", fail)
-            assert devask.main(["ask", "another request"]) == 2
+                assert devask.main(["ask", "another request"]) == 2
         output = capsys.readouterr()
         assert secret not in output.out + output.err
         fx.assert_no_fixture_name(output.out + output.err)
-    assert not list((home.shared / devask.FOLDER).glob("*.md"))
+    assert len(list((home.shared / devask.FOLDER).glob("*.md"))) == 1
 
 
 def test_empty_control_and_oversized_asks_leave_no_files(world):

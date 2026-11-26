@@ -58,15 +58,19 @@ def test_desk_ask_writes_a_checked_file_beside_the_dev_asks(world, capsys):
 def test_desk_ask_refuses_a_name_or_a_secret_and_outside_a_project(world, monkeypatch, capsys, tmp_path):
     home, _ = world
     ask(world)
-    before = sorted(p.name for p in (home.shared / "notices/desk").iterdir())
+    folder = home.shared / "notices/desk"
+    # DMZ 4: a name and a secret shaped value are written as written; outside a project the ask is still refused
     for text in (fx.CUSTOMER_FORMS[0], "pass" + "word=" + "invented-value-123"):
-        assert cli.main(["desk", "ask", text]) == 2
-        out = capsys.readouterr()
-        fx.assert_no_fixture_name(out.out + out.err)
+        before = {p.name for p in folder.iterdir()}
+        assert cli.main(["desk", "ask", text]) == 0
+        assert capsys.readouterr().err == ""
+        (new,) = {p.name for p in folder.iterdir()} - before
+        assert text in (folder / new).read_text(encoding="utf-8")
+    before = sorted(p.name for p in folder.iterdir())
     monkeypatch.chdir(tmp_path)
     assert cli.main(["desk", "ask", "an EIP"]) == 2
     assert "registered project" in capsys.readouterr().err
-    assert sorted(p.name for p in (home.shared / "notices/desk").iterdir()) == before
+    assert sorted(p.name for p in folder.iterdir()) == before
 
 
 def test_desk_session_sees_a_new_ask_once_and_project_or_checkout_sessions_do_not(world, monkeypatch, capsys,
@@ -124,12 +128,13 @@ def test_desk_close_with_owner_word_stamps_the_note(world, capsys):
 def test_desk_close_refuses_a_name_in_his_words_and_keeps_the_ask_open(world, capsys):
     _, pr = world
     path = ask(world)
-    before = path.read_bytes()
-    assert cli.main(["desk", "close", path.name[:-3], "--note", "done", "--owner-word", fx.CUSTOMER_FORMS[0]]) == 2
+    # DMZ 4: a name in his words is written as he said it and the ask closes
+    assert cli.main(["desk", "close", path.name[:-3], "--note", "done", "--owner-word", fx.CUSTOMER_FORMS[0]]) == 0
     out = capsys.readouterr()
-    fx.assert_no_fixture_name(out.out + out.err)
-    assert path.read_bytes() == before
-    assert not list((Path(pr.path) / "notes/from-dev").glob("*.md"))
+    assert out.err == ""
+    note = sorted((Path(pr.path) / "notes/from-dev").glob("*.md"))[0].read_text()
+    assert 'owner\'s word: "%s", ' % fx.CUSTOMER_FORMS[0] in note
+    assert '"state": "closed"' in path.read_text()
     assert cli.main(["desk", "close", "../../etc/passwd", "--note", "done"]) == 2
 
 

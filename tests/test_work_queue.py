@@ -103,16 +103,15 @@ def test_stale_uses_the_next_step_clock_and_same_step_does_not_reset_it(queue, c
 
 
 def test_registered_names_are_refused_on_add_and_next_without_echo(queue, capsys):
+    """DMZ 4: no content check inside, a registered name is kept as written on add and on next."""
     path, _ = queue
-    assert add(what="call " + fx.PERSON_FORMS[0]) == 1
-    assert not path.exists()
-    assert add() == 0
-    before = path.read_bytes()
+    assert add(what="call " + fx.PERSON_FORMS[0]) == 0
+    assert rows(path)[0]["what"] == "call " + fx.PERSON_FORMS[0]
     assert cli.main(["queue", "next", rows(path)[0]["id"], "call " + fx.PERSON_FORMS[0],
-                     "--who", "owner"]) == 1
-    assert path.read_bytes() == before
+                     "--who", "owner"]) == 0
+    assert rows(path)[0]["next"] == "call " + fx.PERSON_FORMS[0]
     captured = capsys.readouterr()
-    fx.assert_no_fixture_name(captured.out + captured.err)
+    assert captured.err == ""
 
 
 def test_reads_recheck_names_and_secrets_even_after_a_file_edit(queue, capsys):
@@ -122,21 +121,21 @@ def test_reads_recheck_names_and_secrets_even_after_a_file_edit(queue, capsys):
     for planted in (fx.PERSON_FORMS[0], "password=" + "invented-value-8273"):
         original = path.read_text()
         path.write_text(original.replace("review the result", planted))
-        assert cli.main(["queue", "list"]) == 1
+        assert cli.main(["queue", "list"]) == 0
         assert cli.main(["owner", "status"]) == 0
         output = capsys.readouterr()
-        assert planted not in output.out + output.err
+        assert planted in output.out and output.err == ""
         path.write_text(original)
 
 
 def test_missing_register_refuses_writes_and_listing(queue, home, capsys):
     path, _ = queue
     assert add() == 0
-    before = path.read_bytes()
     home.register.unlink()
-    assert add() == 2
-    assert cli.main(["queue", "list"]) == 2
-    assert path.read_bytes() == before
+    # DMZ 4: the queue needs no register
+    assert add() == 0
+    assert cli.main(["queue", "list"]) == 0
+    assert len(rows(path)) == 2
 
 
 def test_owner_side_and_argument_shapes_are_enforced(queue, monkeypatch, capsys):
@@ -190,8 +189,9 @@ def test_migration_refuses_names_without_marking_or_writing_the_queue(queue):
     original = ("| id | what | state | next |\n|---|---|---|---|\n"
                 "| X1 | call %s | waiting | review the result |\n" % fx.PERSON_FORMS[0])
     source.write_text(original)
-    assert cli.main(["queue", "migrate"]) == 1
-    assert source.read_text() == original and not path.exists()
+    assert cli.main(["queue", "migrate"]) == 0
+    assert source.read_text().startswith("Archive:") and source.read_text().endswith(original)
+    assert rows(path)[0]["id"] == "X1" and fx.PERSON_FORMS[0] in rows(path)[0]["what"]
 
 
 def test_failed_done_removal_keeps_archive_and_hides_completed_row(queue, monkeypatch, capsys):
@@ -220,39 +220,36 @@ def test_failed_done_removal_keeps_archive_and_hides_completed_row(queue, monkey
 
 
 def test_a_read_sends_only_new_or_edited_rows_to_the_name_check(queue, monkeypatch, capsys):
-    """2026-11-14: a read checked every field of every row (about 190 checks per read, each minute)."""
-    from awb import ledger, workqueue
+    """2026-11-14: a read checked every field of every row. DMZ 4: a read sends no row to the name check at all."""
+    from awb import check, workqueue
 
     path, _ = queue
     assert add("owner") == 0 and add("owner") == 0
     capsys.readouterr()
     calls = []
-    real = ledger.screen_fields
-    monkeypatch.setattr(ledger, "screen_fields", lambda fields, reg, **k: calls.append(1) or real(fields, reg, **k))
+    monkeypatch.setattr(check, "check_text", lambda *a, **k: calls.append(1) or [])
     workqueue.load(path)
-    first = len(calls)
-    workqueue.load(path)
-    assert len(calls) == first
     path.write_text(path.read_text().replace("review the result", "review the result again", 1))
     workqueue.load(path)
-    assert len(calls) == first + 1
+    assert cli.main(["queue", "list"]) == 0
+    assert calls == []
 
 
 def test_disk_cache_cannot_certify_a_secret(queue, capsys):
-    import json
-    from awb import ledger, workqueue
+    """DMZ 4: no check, so no cache and no verdict file: a row with a secret shaped value is listed as written."""
+    from awb import workqueue
 
     path, _ = queue
     assert add() == 0
     planted = "pass" + "word=" + "invented-value-8273"
     row = dict(rows(path)[0], next=planted)
     workqueue._write(path, [row])
-    key = workqueue._row_key(row, workqueue._register_stamp(ledger.register_path()))
-    path.with_name("queue-checked.json").write_text(json.dumps([key]))
     capsys.readouterr()
-    assert cli.main(["queue", "list"]) == 1
+    assert cli.main(["queue", "list"]) == 0
     output = capsys.readouterr()
-    assert not output.out and planted not in output.err
+    assert planted in output.out and output.err == ""
+    assert not path.with_name("queue-checked.json").exists()
+    assert not path.with_name("queue-verdicts.tsv").exists()
 
 
 def test_corrupt_disk_cache_does_not_break_checked_reads(queue):
@@ -291,24 +288,25 @@ def test_register_edit_with_same_size_and_mtime_invalidates_cache(queue, home, c
     home.register.write_text(home.register.read_text().replace("review the draft", "check the export"))
     os.utime(home.register, ns=(before.st_atime_ns, before.st_mtime_ns))
     capsys.readouterr()
-    assert cli.main(["queue", "list"]) == 1
-    assert not capsys.readouterr().out
+    # DMZ 4: a register edit changes nothing for the queue, it checks no row
+    assert cli.main(["queue", "list"]) == 0
+    assert capsys.readouterr().out
 
 
 def test_unknown_register_revision_never_reuses_a_safety_verdict(queue, monkeypatch):
-    from awb import ledger, workqueue
+    """DMZ 4: no verdict and no stamp: a read of the queue calls no check, whatever the register says."""
+    from awb import check, workqueue
 
     path, _ = queue
     assert add() == 0
-    monkeypatch.setattr(workqueue, "_register_stamp", lambda reg: "")
     workqueue.load(path)
 
     def refused(*args, **kwargs):
-        raise ledger.Refused("planted refusal")
+        raise AssertionError("the queue runs no content check")
 
-    monkeypatch.setattr(ledger, "screen_fields", refused)
-    with pytest.raises(ledger.Refused):
-        workqueue.load(path)
+    monkeypatch.setattr(check, "check_text", refused)
+    monkeypatch.setattr(check, "register_source", refused)
+    assert len(workqueue.load(path)) == 1
 
 
 def test_queue_storage_links_are_refused_including_dangling_links(queue, tmp_path, monkeypatch, capsys):
@@ -394,9 +392,10 @@ def test_ledger_errors_never_echo_backend_values(queue, monkeypatch, capsys):
         raise ledger.LedgerError(planted + " " + fx.PERSON_FORMS[0])
 
     monkeypatch.setattr(ledger, "ensure_checkable", unavailable)
-    assert add() == 2
+    # DMZ 4: the queue calls no ledger check, so a failing backend never reaches it
+    assert add() == 0
     output = capsys.readouterr()
-    assert not output.out and planted not in output.err
+    assert planted not in output.out + output.err
     fx.assert_no_fixture_name(output.err)
 
 
@@ -515,9 +514,10 @@ def test_handles_and_outside_paths_are_screened_before_output(queue, capsys):
                          ("next", "/home/" + "invented-owner/private")):
         workqueue._write(path, [dict(valid, **{field: value})])
         capsys.readouterr()
-        assert cli.main(["queue", "list"]) == 1
+        # DMZ 4: a handle that reads like a name or a path is a handle: listed as written
+        assert cli.main(["queue", "list"]) == 0
         output = capsys.readouterr()
-        assert not output.out and value not in output.err
+        assert value in output.out and output.err == ""
 
 
 def test_failed_archive_write_leaves_open_work_and_no_success_output(queue, monkeypatch, capsys):

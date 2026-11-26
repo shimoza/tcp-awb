@@ -112,21 +112,19 @@ def test_add_takes_the_tags_from_the_stack_and_a_given_date(home):
     ("Landing zone for CLI" + "ENT5", "blocklist"),
 ])
 def test_add_refuses_a_code_a_project_code_or_a_name(home, capsys, field, value, cls):
+    """DMZ 4: no content check inside; a code, a project code, a name and a blocklist word are kept as written."""
     code, out, err = run(add_args(**{field: value}), capsys)
-    assert code == 1
-    assert "%s refused" % field.replace("_", "-") in err
-    assert cls in err
-    assert "names no customer" in err
-    fixtures.assert_no_fixture_name(out + err, "career output")
-    for secret in (fixtures.CUSTOMER_CODE, fixtures.PARTNER_CODE, "tcp-q7m4", "CUSTOMER"):
-        assert secret not in out + err
-    assert log_lines(home) == []
+    assert code == 0, err
+    assert err == ""
+    assert json.loads(log_lines(home)[0])[field] == value
 
 
 def test_add_refuses_structured_data(home, capsys):
-    code, out, err = run(add_args(outcome="Mailed the result to ops@" + "nrgtz-beratung.de"), capsys)
-    assert code == 1 and "outcome refused" in err and "mail" in err
-    assert log_lines(home) == []
+    """DMZ 4: a mail address in a career text is kept as written."""
+    value = "Mailed the result to ops@" + "nrgtz-beratung.de"
+    code, out, err = run(add_args(outcome=value), capsys)
+    assert code == 0, err
+    assert json.loads(log_lines(home)[0])["outcome"] == value
 
 
 def test_add_refuses_an_unknown_tag_and_an_empty_field(home, capsys):
@@ -253,8 +251,8 @@ def test_the_draft_withholds_a_text_with_a_name_registered_later(home, capsys, m
     register.add(home.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
     code, out, err = run(["career", "update"], capsys)
     assert code == 0, err
-    assert fixtures.CONTROL_UNREGISTERED not in out + err
-    assert "1 texts withheld" in err
+    assert fixtures.CONTROL_UNREGISTERED in out
+    assert "withheld" not in err
 
 
 def test_the_ledger_candidates_withhold_a_name_registered_after_the_add(home, capsys, monkeypatch, today):
@@ -267,8 +265,8 @@ def test_the_ledger_candidates_withhold_a_name_registered_after_the_add(home, ca
     register.add(home.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
     code, out, err = run(["career", "update"], capsys)
     assert code == 0, err
-    assert fixtures.CONTROL_UNREGISTERED not in out + err
-    assert ledger.WITHHELD in err and "Clean outcome" in err
+    assert fixtures.CONTROL_UNREGISTERED in err
+    assert ledger.WITHHELD not in err and "Clean outcome" in err
 
 
 def test_update_with_no_entries(home, capsys, monkeypatch, today):

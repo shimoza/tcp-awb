@@ -256,8 +256,9 @@ def test_r1_a_failed_put_is_an_owner_item_until_a_put_succeeds(planted, tmp_path
 
 
 def test_r1_the_period_report_reads_the_shared_module():
-    """The three helpers moved to awb/projectfacts.py; the period report uses them unchanged."""
-    assert period.status_of is projectfacts.status_of and period.withhold is projectfacts.withhold
+    """The helpers moved to awb/projectfacts.py; the period report uses them unchanged (B-088: withhold is gone, the
+    period report runs no content check)."""
+    assert period.status_of is projectfacts.status_of and not hasattr(projectfacts, "withhold")
     assert period._git_dates is projectfacts.git_dates and period._mtime_date is projectfacts.mtime_date
 
 

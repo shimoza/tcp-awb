@@ -1,5 +1,6 @@
 """Ask 2026-11-25-tcp-s2z5-3: the result of a side session is a background agent's result: a host name or an
-address of its work passes awb side take, a registered name or a mail still withholds it."""
+address of its work passes awb side take. DMZ 4 (B-088): a registered name or a mail passes it too, the result is
+taken as written."""
 import pytest
 
 from awb import side
@@ -27,5 +28,5 @@ def test_a_name_or_a_mail_still_withholds_the_result(proj, bad):
     side.start("audit", "notes/brief-mail.md", cwd=proj)
     _wait(proj, "audit")
     (proj / ".side" / "audit" / side.RESULT).write_text("result line\n%s\n" % bad)
-    with pytest.raises(side.SideError, match="withheld"):
-        side.take("audit", cwd=proj)
+    side.take("audit", cwd=proj)
+    assert bad in (proj / "notes" / "side-audit.md").read_text()

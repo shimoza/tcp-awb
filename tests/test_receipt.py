@@ -501,9 +501,11 @@ def test_receipt_log_and_mark_withhold_names_secrets_and_unknown_guards(home):
         receipts._log_receipt(home, sid, Path(name), [secret])
         mark = receipts._receipt_mark(home, sid)
         assert mark is not None
-        assert name not in str(mark) and "hidden" not in str(mark)
+        assert "hidden" not in str(mark)
+        # DMZ 4 (B-088): an ordinary session id is kept as written, one with other characters is hashed
+        assert (name in str(mark)) == (sid == name)
     text = (home.shared / "sessions" / receipts.RECEIPTS_LOG).read_text()
-    assert secret not in text and "hidden" not in text and name not in text
+    assert secret not in text and "hidden" not in text
 
 
 def test_receipt_log_does_not_follow_links_or_special_files(home, tmp_path):

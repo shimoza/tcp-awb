@@ -435,7 +435,8 @@ def test_cli_prints_no_hit_list_when_the_check_fails_after_the_first_file(tmp_pa
 # --------------------------------------------------------------------------- the five doors (B-021)
 # The same invented inputs go through every door that screens a text before it leaves or is shown: the Ask
 # question (awb/tcp/ask.py), the project chat (chat_service.py), the working copy of an imported material
-# (materials_api.py), the project read API (projects_api.py, which masks) and the owner status (owner.py). The
+# (materials_api.py), the project read API (projects_api.py, which runs no check since B-088) and the owner status
+# (owner.py). The
 # tests named "as_before" passed on the code before check.screen and must keep passing: no door accepts what it
 # refused before and no door masks less. The table "One text screen" in INTERFACES.md says the same.
 
@@ -553,11 +554,9 @@ def test_the_materials_door_refuses_as_before(home, tmp_path):
 def test_the_projects_door_masks_as_before(home, daemon):
     from awb.tcp.web import projects_api
 
-    assert projects_api.checked(DOOR_INPUTS["name"], home) == ("Notes for [withheld] on the cluster.", True)
-    assert projects_api.checked(DOOR_INPUTS["ip"], home) == ("Is the server [withheld] still running?", True)
-    assert projects_api.checked(DOOR_INPUTS["mail"], home) == ("Write to [withheld] today.", True)
-    assert projects_api.checked(DOOR_INPUTS["phone"], home) == ("Call [withheld] now.", True)
-    assert projects_api.checked(DOOR_INPUTS["iban"], home) == ("Pay to [withheld] today.", True)
+    # DMZ 4 (B-088): the console runs no content check on the files of a project, nothing is masked
+    for cls in ("name", "ip", "mail", "phone", "iban"):
+        assert projects_api.checked(DOOR_INPUTS[cls], home) == (DOOR_INPUTS[cls], False), cls
     assert projects_api.checked(DOOR_CLEAN, home) == (DOOR_CLEAN, False)
 
 
@@ -620,8 +619,8 @@ def test_screen_fails_closed_when_the_daemon_does_not_answer(home, monkeypatch):
     with pytest.raises(chat_service.ChatError) as err:
         chat_service.screen(DOOR_CLEAN, home)
     assert err.value.status == 503
-    with pytest.raises(projects_api.Unavailable):
-        projects_api.checked(DOOR_CLEAN, home)
+    # DMZ 4: the project read API runs no check, so a daemon that does not answer stops nothing
+    assert projects_api.checked(DOOR_CLEAN, home) == (DOOR_CLEAN, False)
 
 
 def test_the_doors_now_refuse_what_another_door_already_refused(home, daemon):
@@ -633,7 +632,7 @@ def test_the_doors_now_refuse_what_another_door_already_refused(home, daemon):
         assert _ask_refuses(home, DOOR_INPUTS[cls]), cls
     assert _chat_refuses(home, DOOR_INPUTS["hidden-name"])
     for cls in ("hidden-name",) + SECRETS:
-        assert projects_api.checked(DOOR_INPUTS[cls], home) == ("[Content withheld by the data check.]", True), cls
+        assert projects_api.checked(DOOR_INPUTS[cls], home) == (DOOR_INPUTS[cls], False), cls
 
 
 def test_the_table_of_the_doors_names_every_door():

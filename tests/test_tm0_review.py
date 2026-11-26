@@ -31,8 +31,8 @@ def test_a_possessive_after_a_listed_first_name_still_meets_the_short_text_rule(
     msg.write_text(subject + "\n", encoding="utf-8")
     found = gate.scan_message(msg, None)
     assert [f.cls for f in found] == ["candidate-person"], "the commit gate let the possessive form pass"
-    with pytest.raises(ledger.Refused):
-        ledger.add("other", subject, day="2026-09-22", p=home)
+    # DMZ 4: the ledger runs no content check inside, the line is written as it is
+    assert ledger.add("other", subject, day="2026-09-22", p=home).done == subject
 
 
 @pytest.mark.parametrize("mark", ["\u2019s", "\u2019S", "'S"])
@@ -44,8 +44,8 @@ def test_a_possessive_with_a_typographic_apostrophe_still_meets_the_short_text_r
     msg = tmp_path / "COMMIT_EDITMSG"
     msg.write_text(subject + "\n", encoding="utf-8")
     assert [f.cls for f in gate.scan_message(msg, None)] == ["candidate-person"]
-    with pytest.raises(ledger.Refused):
-        ledger.add("other", subject, day="2026-09-22", p=home)
+    # DMZ 4: the ledger runs no content check inside, the line is written as it is
+    assert ledger.add("other", subject, day="2026-09-22", p=home).done == subject
 
 
 def test_a_possessive_of_a_plain_word_stays_no_name(tmp_path, home, register_path):
@@ -106,8 +106,8 @@ def test_a_registered_name_in_lookalike_letters_or_mixed_scripts_is_a_hit_of_eve
     msg = tmp_path / "COMMIT_EDITMSG"
     msg.write_text(text + "\n", encoding="utf-8")
     assert [f.cls for f in gate.scan_message(msg, gate._load_matcher(register_path))] == ["name"]
-    with pytest.raises(ledger.Refused):
-        ledger.add("other", text, day="2026-09-22", p=home)
+    # DMZ 4: the ledger runs no content check inside, the line is written as it is
+    assert ledger.add("other", text, day="2026-09-22", p=home).done == text
 
 
 def test_the_generated_table_maps_letters_of_other_scripts_to_one_latin_letter():

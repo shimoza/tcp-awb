@@ -1,6 +1,7 @@
-"""Q-0011 (UXR12): `awb queue` checks a row once when it is added or changed and keeps the verdict per register
-stamp; a later call checks only rows with no verdict or an old stamp. Before, every call ran the name check over
-every field of every row (about 260 checks) and two calls in a row ran out of the daemon's 600 per minute.
+"""Q-0011 (UXR12), then DMZ 4 (B-088): `awb queue` ran the name check over every field of every row and later kept a
+verdict per row and register stamp so that two calls in a row did not run out of the daemon's 600 per minute. Inside
+there is no content check any more: the queue sends no row to the name check, keeps no verdict and no key and needs no
+register stamp. The tests keep their names and assert that.
 
 Also the structural test of finding 12: the modules that call the name check are listed here, so a new caller
 fails until it is added on purpose."""
@@ -9,18 +10,17 @@ from __future__ import annotations
 import ast
 import csv
 import datetime as dt
-import hashlib
-import hmac
 import os
 from pathlib import Path
 
 import pytest
 
-from awb import cli, config, ledger, vault, vault_client, workqueue
+from awb import check, cli, config, ledger, vault, vault_client, workqueue
 from tests import fixtures as fx
 from tests.test_vault import fast_gpg, serving, sockets, vp  # noqa: F401  (fixtures)
 
 ROOT = Path(__file__).resolve().parent.parent
+VERDICTS = "queue-verdicts.tsv"
 
 
 @pytest.fixture
@@ -31,28 +31,26 @@ def queue(vp, tmp_path, monkeypatch):  # noqa: F811
     monkeypatch.setattr(config, "is_work_user", lambda: False)
     clock = [dt.datetime(2026, 11, 11, 12, tzinfo=dt.timezone.utc)]
     monkeypatch.setattr(workqueue, "now", lambda: clock[0])
-    workqueue._CHECKED.clear()
-    yield path
-    workqueue._CHECKED.clear()
+    return path
 
 
 @pytest.fixture
 def screened(monkeypatch):
-    """Every row the queue sends to the name check, by id."""
+    """Every text the queue sends to the name check: none."""
     calls: list[str] = []
-    real = ledger.screen_fields
+    real = check.check_text
 
-    def count(fields, reg, **kw):
-        calls.append(dict(fields)["id"])
-        return real(fields, reg, **kw)
+    def count(text, *args, **kw):
+        calls.append(text)
+        return real(text, *args, **kw)
 
-    monkeypatch.setattr(ledger, "screen_fields", count)
+    monkeypatch.setattr(check, "check_text", count)
     return calls
 
 
 def new_process():
-    """A new `awb queue` run: nothing of the last one stays in memory."""
-    workqueue._CHECKED.clear()
+    """A new `awb queue` run: nothing of the last one stays in memory, and nothing was kept in memory."""
+    assert not hasattr(workqueue, "_CHECKED")
 
 
 def rows(path):
@@ -65,7 +63,7 @@ def add(what="check the export", step="review the result", who="desk"):
 
 
 def plant(path, n):
-    """`n` rows written straight to the file, as a hand edit or a migration leaves them: no verdict yet."""
+    """`n` rows written straight to the file, as a hand edit or a migration leaves them."""
     at = "2026-11-11T12:00:00+00:00"
     path.parent.mkdir(parents=True, exist_ok=True)
     workqueue._write(path, [workqueue._new("Q-%04d" % i, "check the export %d" % i, "review the result", "desk",
@@ -74,9 +72,8 @@ def plant(path, n):
 
 def test_a_list_after_add_checks_no_row_again(queue, screened, capsys):
     assert add() == 0 and add("check the draft") == 0
-    assert len(screened) == 2, "add checks only the row it adds"
+    assert screened == [], "add checks no row"
     new_process()
-    screened.clear()
     assert cli.main(["queue", "list"]) == 0
     assert cli.main(["queue", "list", "--mine"]) == 0
     assert screened == []
@@ -86,83 +83,61 @@ def test_a_list_after_add_checks_no_row_again(queue, screened, capsys):
 def test_add_and_next_check_only_the_new_or_changed_row(queue, screened, capsys):
     plant(queue, 5)
     assert cli.main(["queue", "list"]) == 0
-    assert len(screened) == 5
+    assert screened == []
     new_process()
-    screened.clear()
     assert add() == 0
-    assert screened == ["Q-0006"]
-    new_process()
-    screened.clear()
     assert cli.main(["queue", "next", "Q-0003", "send the export", "--who", "owner"]) == 0
-    assert screened == ["Q-0003"]
-    new_process()
-    screened.clear()
     assert cli.main(["queue", "done", "Q-0002"]) == 0
     assert cli.main(["queue", "list"]) == 0
     assert screened == []
-    assert "Q-0002" not in workqueue._read_verdicts(queue.with_name(workqueue.VERDICTS))
+    assert not queue.with_name(VERDICTS).exists()
 
 
 def test_a_hand_edited_row_is_checked_again_and_a_name_still_refuses(queue, screened, capsys):
     plant(queue, 3)
     assert cli.main(["queue", "list"]) == 0
     new_process()
-    screened.clear()
     queue.write_text(queue.read_text().replace("check the export 2", "call " + fx.PERSON_FORMS[0]))
     capsys.readouterr()
-    assert cli.main(["queue", "list"]) == 1
+    assert cli.main(["queue", "list"]) == 0
     output = capsys.readouterr()
-    assert not output.out
-    fx.assert_no_fixture_name(output.out + output.err)
-    assert screened == ["Q-0002"]
-    new_process()
-    screened.clear()
-    assert cli.main(["queue", "list"]) == 1, "a row with a hit never earns a verdict"
-    assert screened == ["Q-0002"]
+    assert "call " + fx.PERSON_FORMS[0] in output.out and output.err == ""
+    assert screened == []
 
 
 def test_a_changed_register_checks_every_row_again(queue, vp, screened):  # noqa: F811
     plant(queue, 3)
     workqueue.load(queue)
     new_process()
-    screened.clear()
-    workqueue.load(queue)
+    assert workqueue.load(queue)
     assert screened == []
     with vp.register.open("a", encoding="utf-8") as stream:
         stream.write("PART-NEW2\tPART\treview the result\t2026-11-11\tactive\n")
     new_process()
-    with pytest.raises(ledger.Refused):
-        workqueue.load(queue)
-    assert screened == ["Q-0001"]
+    assert len(workqueue.load(queue)) == 3
+    assert screened == []
 
 
 def test_a_planted_verdict_certifies_nothing(queue, capsys):
-    """Planted: a verdict file next to the queue with the unkeyed row hash and with an HMAC under a key of its
-    own. Neither lets a secret through."""
+    """A verdict file next to the queue is not read and not written: a row shows as written, with or without one."""
     assert add() == 0
     planted = "pass" + "word=" + "invented-value-8273"
     row = dict(rows(queue)[0], next=planted)
     workqueue._write(queue, [row])
-    stamp = workqueue._register_stamp(ledger.register_path())
-    assert stamp
-    for mac in (workqueue._row_key(row, stamp),
-                hmac.new(b"k" * 32, workqueue._row_key(row, stamp).encode(), hashlib.sha256).hexdigest()):
-        queue.with_name(workqueue.VERDICTS).write_text("%s\t%s\n" % (row["id"], mac))
-        new_process()
-        capsys.readouterr()
-        assert cli.main(["queue", "list"]) == 1
-        output = capsys.readouterr()
-        assert not output.out and planted not in output.err
+    queue.with_name(VERDICTS).write_text("%s\t%s\n" % (row["id"], "0" * 64))
+    new_process()
+    capsys.readouterr()
+    assert cli.main(["queue", "list"]) == 0
+    output = capsys.readouterr()
+    assert planted in output.out and output.err == ""
+    assert queue.with_name(VERDICTS).read_text() == "%s\t%s\n" % (row["id"], "0" * 64)
 
 
 def test_the_key_lives_in_the_owner_state_folder_never_beside_the_queue(queue):
     assert add() == 0
-    key = Path(os.environ["XDG_STATE_HOME"]) / "awb" / "queue-verdict.key"
-    assert key.stat().st_mode & 0o777 == 0o600 and key.stat().st_size == 32
-    assert key.parent.stat().st_mode & 0o077 == 0
+    assert not (Path(os.environ["XDG_STATE_HOME"]) / "awb" / "queue-verdict.key").exists()
     assert not any("key" in p.name for p in queue.parent.iterdir())
-    text = queue.with_name(workqueue.VERDICTS).read_text()
-    assert text.count("\n") == 1 and text.startswith("Q-0001\t")
+    assert not queue.with_name(VERDICTS).exists()
 
 
 def test_a_key_others_can_read_keeps_verdicts_in_the_process_only(queue, screened):
@@ -173,29 +148,26 @@ def test_a_key_others_can_read_keeps_verdicts_in_the_process_only(queue, screene
     plant(queue, 2)
     workqueue.load(queue)
     workqueue.load(queue)
-    assert len(screened) == 2, "within one process the verdicts still hold"
     new_process()
     workqueue.load(queue)
-    assert len(screened) == 4
-    assert not queue.with_name(workqueue.VERDICTS).exists()
+    assert screened == []
+    assert not queue.with_name(VERDICTS).exists()
+    assert key.read_bytes() == b"x" * 32
 
 
 def test_the_verdict_file_is_a_reserved_queue_name(queue, monkeypatch):
-    monkeypatch.setenv("AWB_WORK_QUEUE", str(queue.with_name(workqueue.VERDICTS)))
+    monkeypatch.setenv("AWB_WORK_QUEUE", str(queue.with_name(VERDICTS)))
     assert add() == 2
 
 
 def test_verdicts_before_a_refusal_are_kept(queue, screened):
     plant(queue, 4)
     queue.write_text(queue.read_text().replace("check the export 3", "call " + fx.PERSON_FORMS[0]))
-    with pytest.raises(ledger.Refused):
-        workqueue.load(queue)
-    assert screened == ["Q-0001", "Q-0002", "Q-0003"]
+    assert len(workqueue.load(queue)) == 4
+    assert screened == []
     new_process()
-    screened.clear()
-    with pytest.raises(ledger.Refused):
-        workqueue.load(queue)
-    assert screened == ["Q-0003"]
+    assert any(fx.PERSON_FORMS[0] in r["what"] for r in workqueue.load(queue))
+    assert screened == []
 
 
 # --------------------------------------------------------------------------- the register behind the vault daemon
@@ -218,18 +190,18 @@ def remote(queue, vp, monkeypatch):  # noqa: F811
 
 def test_with_the_daemon_two_calls_in_a_row_stay_within_the_rate(queue, vp, remote, capsys):  # noqa: F811
     """The failure of 2026-11-18: a second call in the same minute answered "name or safety check unavailable".
-    A rate of 60 per minute is enough for a first check of 10 rows and then any number of calls."""
+    DMZ 4: the queue sends the daemon no request at all, so no rate can run out."""
     plant(queue, 10)
     with serving(vp, rate_limit=60, rate_window=60.0):
         for _ in range(5):
             new_process()
             remote.clear()
             assert cli.main(["queue", "list"]) == 0, capsys.readouterr().err
-        assert remote == ["revision"]
+            assert remote == []
         new_process()
         remote.clear()
         assert add() == 0
-        assert remote.count("revision") == 1 and 0 < remote.count("check") <= 5
+        assert remote == []
 
 
 def test_with_the_daemon_a_changed_register_checks_again(queue, vp, remote, capsys):  # noqa: F811
@@ -244,13 +216,13 @@ def test_with_the_daemon_a_changed_register_checks_again(queue, vp, remote, caps
             stream.write("PART-NEW2\tPART\tcheck the export 2\t2026-11-11\tactive\n")
         new_process()
         capsys.readouterr()
-        assert cli.main(["queue", "list"]) == 1
-        assert "check" in remote
-        fx.assert_no_fixture_name(capsys.readouterr().err)
+        assert cli.main(["queue", "list"]) == 0
+        assert "check" not in remote and remote == []
+        assert "check the export 2" in capsys.readouterr().out
 
 
 def test_without_a_daemon_revision_no_verdict_is_reused(queue, vp, remote, monkeypatch, capsys):  # noqa: F811
-    """An older daemon (unknown op) or a daemon that cannot say: every row is checked, as before."""
+    """An older daemon (unknown op) or a daemon that cannot say: the queue asks it nothing and keeps no verdict."""
     plant(queue, 2)
     monkeypatch.setattr(vault.Daemon, "_CHECK_OPS", {k: v for k, v in vault.Daemon._CHECK_OPS.items()
                                                     if k != "revision"})
@@ -260,8 +232,8 @@ def test_without_a_daemon_revision_no_verdict_is_reused(queue, vp, remote, monke
             new_process()
             remote.clear()
             assert cli.main(["queue", "list"]) == 0
-            assert remote.count("check") >= 2
-    assert not queue.with_name(workqueue.VERDICTS).exists()
+            assert remote.count("check") == 0
+    assert not queue.with_name(VERDICTS).exists()
 
 
 def test_the_revision_is_opaque_stable_and_new_per_daemon(vp):  # noqa: F811
@@ -288,18 +260,18 @@ CHECK_CALLS = frozenset(("check_text", "check_file", "check_remote", "record_rem
 """The calls that run the name check. `screen` counts when it is called on the module `ledger` or `check`."""
 
 ALLOWED_CALLERS = frozenset((
-    "awb/bucket.py", "awb/calibrate.py", "awb/career.py", "awb/check.py", "awb/cli.py", "awb/devask.py",
-    "awb/english.py", "awb/fplearn.py", "awb/hooks.py", "awb/images.py", "awb/kb.py", "awb/labclient.py",
-    "awb/ledger.py", "awb/opensweep.py", "awb/ownerwait.py", "awb/pdf.py", "awb/period.py", "awb/projectfacts.py",
-    "awb/projects.py", "awb/review.py", "awb/side.py", "awb/tcp/ask.py", "awb/tcp/dataset.py", "awb/tcp/doc.py",
-    "awb/tcp/keys_exchange.py", "awb/tcp/lab.py", "awb/tcp/owner.py", "awb/tcp/recheck.py",
-    "awb/tcp/web/chat_service.py", "awb/tcp/web/create_api.py", "awb/tcp/web/materials_api.py",
-    "awb/tcp/web/projects_api.py", "awb/tcp/xchg.py", "awb/translate.py",
-    "awb/workqueue.py", "awb/writing.py",
+    "awb/bucket.py", "awb/calibrate.py", "awb/career.py", "awb/check.py", "awb/fplearn.py", "awb/hooks.py",
+    "awb/images.py", "awb/kb.py", "awb/labclient.py", "awb/ledger.py", "awb/pdf.py",
+    "awb/projectfacts.py",
+    "awb/review.py", "awb/tcp/ask.py", "awb/tcp/dataset.py", "awb/tcp/doc.py", "awb/tcp/keys_exchange.py",
+    "awb/tcp/lab.py", "awb/tcp/owner.py", "awb/tcp/recheck.py", "awb/tcp/web/chat_service.py",
+    "awb/tcp/web/create_api.py", "awb/tcp/web/materials_api.py", "awb/tcp/xchg.py", "awb/translate.py",
+    "awb/writing.py",
 ))
-"""Every module that calls the name check today. The rule (finding 12 of the review of 2026-11-18): customer data is
-checked once when it enters; our own output gets the secret check only. A new caller is a decision: add it here on
-purpose, with the reason in the commit, or check the text where it enters instead."""
+"""Every module that calls the name check today. The rule (finding 12 of the review of 2026-11-18, then DMZ 4 of
+2026-11-25): customer data is checked once when it enters and a text that leaves is checked at the exit; our own
+records inside run no content check. A new caller is a decision: add it here on purpose, with the reason in the
+commit, or check the text where it enters instead."""
 
 
 def _callers(source: str) -> set[str]:

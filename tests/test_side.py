@@ -376,22 +376,22 @@ def test_take_refuses_worktree_link_and_drop_keeps_external_files(proj, tmp_path
 
 
 def test_take_does_not_copy_secrets_or_print_commit_values(proj):
+    """B-088: no content check inside: a result and a commit subject are taken as written."""
     side.start("audit", "notes/brief-mail.md", cwd=proj)
     _wait(proj, "audit")
     wt = proj / ".side" / "audit"
     value = "pass" + "word=" + "N7v2" + "q9Z!k6R8" + "b5C3s1T4"
     (wt / side.RESULT).write_text(value)
-    with pytest.raises(side.SideError) as err:
-        side.take("audit", cwd=proj)
-    assert value not in str(err.value)
-    assert not (proj / "notes" / "side-audit.md").exists()
+    side.take("audit", cwd=proj)
+    assert (proj / "notes" / "side-audit.md").read_text() == value
     (wt / side.RESULT).write_text("safe result")
     _git(wt, "commit", "--allow-empty", "-qm", value)
     text = "\n".join(side.take("audit", cwd=proj))
-    assert value not in text
+    assert value in text
 
 
 def test_names_are_checked_in_session_labels_and_git_output(proj, monkeypatch):
+    """B-088: a name in a file name or a commit subject is shown as written; the name check is never asked."""
     from awb import check
 
     side.start("audit", "notes/brief-mail.md", cwd=proj)
@@ -401,16 +401,18 @@ def test_names_are_checked_in_session_labels_and_git_output(proj, monkeypatch):
     (wt / value).write_text("safe")
     _git(wt, "add", value)
     _git(wt, "commit", "-qm", value)
-    monkeypatch.setattr(check, "check_text", lambda text, reg: [{"cls": "name", "start": 0}]
-                        if value in text else [])
-    assert value not in "\n".join(side.take("audit", cwd=proj))
-    with pytest.raises(side.SideError):
-        side.start(value, "notes/brief-mail.md", cwd=proj)
-    (proj / ".side" / (value + ".state")).write_text('{}')
-    assert value not in "\n".join(side.status_lines(proj))
+
+    def refused(*args, **kwargs):
+        raise AssertionError("a side session runs no name check")
+
+    monkeypatch.setattr(check, "check_text", refused)
+    assert value in "\n".join(side.take("audit", cwd=proj))
+    (proj / ".side" / (value + ".state")).write_text("{}")
+    assert any(value in line for line in side.status_lines(proj))
 
 
 def test_output_checks_fail_closed_without_echoing_errors(proj, monkeypatch):
+    """B-088: no output check, so a check that fails changes nothing and shows nothing."""
     from awb import check
 
     _record(proj)
@@ -421,9 +423,7 @@ def test_output_checks_fail_closed_without_echoing_errors(proj, monkeypatch):
 
     monkeypatch.setattr(check, "check_text", unavailable)
     assert value not in "\n".join(side.status_lines(proj))
-    with pytest.raises(side.SideError) as err:
-        side.start("audit2", "notes/brief-mail.md", cwd=proj)
-    assert value not in str(err.value)
+    assert value not in side.start("audit2", "notes/brief-mail.md", cwd=proj)
 
 
 def test_cli_io_errors_never_echo_values(proj, monkeypatch, capsys):
@@ -670,8 +670,6 @@ def test_stop_does_not_report_success_when_signal_is_denied(proj, tmp_path, monk
 
 
 def test_git_filenames_are_checked_whole_and_controls_withheld(proj, monkeypatch):
-    from awb import check
-
     side.start("audit", "notes/brief-mail.md", cwd=proj)
     _wait(proj, "audit")
     wt = proj / ".side" / "audit"
@@ -680,10 +678,9 @@ def test_git_filenames_are_checked_whole_and_controls_withheld(proj, monkeypatch
         (wt / name).write_text("safe")
         _git(wt, "add", name)
     _git(wt, "commit", "-qm", "files")
-    monkeypatch.setattr(check, "check_text", lambda text, reg: [{"cls": "name", "start": 0}]
-                        if value in text else [])
+    # B-088: a file name is shown as written; one with a control character is still withheld
     output = "\n".join(side.take("audit", cwd=proj))
-    assert "client" not in output and "sentinel" not in output and "forged" not in output
+    assert value in output and "forged" not in output and "[withheld]" in output
 
 
 def test_unreadable_brief_is_a_fixed_refusal(proj, monkeypatch):
@@ -774,12 +771,11 @@ def test_stop_kills_a_client_that_ignores_termination(proj, tmp_path, monkeypatc
 
 
 def test_missing_name_register_withholds_output_and_refuses_start(proj, home):
+    """B-088: a side session needs no register: the output and the start do not depend on it."""
     _record(proj)
     home.register.unlink()
-    assert side.status_lines(proj) == ["no side sessions"]
-    with pytest.raises(side.SideError, match="withheld"):
-        side.start("other", "notes/brief-mail.md", cwd=proj)
-    assert not (proj / ".side" / "other").exists()
+    assert side.status_lines(proj) != ["no side sessions"]
+    assert "side session other started" in side.start("other", "notes/brief-mail.md", cwd=proj)
 
 
 def test_git_environment_cannot_redirect_side_work_outside_project(proj, tmp_path, monkeypatch):

@@ -145,18 +145,19 @@ def test_file_names_and_content_never_enter_status_or_mail(world):
 def test_registered_folder_name_is_withheld_with_its_command(world):
     _export(world, "export-" + fx.CUSTOMER_FORMS[1])
     item = _one(world)
-    assert item.label == "?" and item.text == ledger.WITHHELD and item.block is None
-    fx.assert_no_fixture_name("\n".join(ownerwait.render([item], 0)))
+    # B-088: a folder name is shown as written, with its command
+    assert item.label == "export export-" + fx.CUSTOMER_FORMS[1] and item.text == "1 files, not imported"
+    assert item.block is not None and "withheld" not in "\n".join(ownerwait.render([item], 0))
 
 
 def test_secret_and_control_characters_in_folder_are_withheld(world):
     folder, _ = _export(world, "export-batch " + "pass" + "word=Q7m4Kx2aB3np9z8v")
     item = _one(world)
-    assert item.text == ledger.WITHHELD and item.block is None
-    assert "Q7m4Kx2aB3np9z8v" not in "\n".join(ownerwait.render([item], 0))
+    # B-088: a secret shaped folder name is shown as written; a control character is still withheld
+    assert item.text == "1 files, not imported" and item.block is not None
     folder.rename(folder.with_name("export-batch\nextra line"))
     item = _one(world)
-    assert item.label == "?" and item.text == ledger.WITHHELD and item.block is None
+    assert item.label == "?" and item.text == "[withheld]" and item.block is None
 
 
 def test_unavailable_name_check_withholds_export_and_refuses_mail(world, monkeypatch):
@@ -166,9 +167,10 @@ def test_unavailable_name_check_withholds_export_and_refuses_mail(world, monkeyp
         raise ledger.LedgerError("check unavailable")
 
     monkeypatch.setattr(ledger, "hit_indexes", unavailable)
+    # B-088: no name check inside, so one that cannot run withholds nothing and stops no mail
     item = _one(world)
-    assert item.text == ledger.WITHHELD and item.block is None
-    assert ownerwait.mail(world[0], lambda *a: pytest.fail("unchecked mail")) == "not sent: the name check cannot run"
+    assert item.text == "1 files, not imported" and item.block is not None
+    assert ownerwait.mail(world[0], lambda *a: True) == "sent"
 
 
 def test_any_logged_hash_excludes_folder_but_unlogged_original_does_not(world):

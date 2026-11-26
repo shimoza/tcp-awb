@@ -34,8 +34,8 @@ under a heading with closed, done, erledigt or abgeschlossen in it (any case) ar
 The column "Waits on you" is the oldest open owner wait of each project, in hours, from <shared>/owner-waits/waits.tsv,
 which the owner's hourly `awb owner status --record` writes (awb/ownerwaits.py); a summary older than 3 hours gives
 the line "waits on you: not measured since <time>" and no hours.
-While the vault is locked both commands open with "locked since <time>" (T3); the project texts wait for the
-unlock, because the data check cannot run.
+While the vault is locked both commands open with "locked since <time>" (T3); the project texts are shown as
+written all the same (B-088: the board runs no content check, so it needs no unlock).
 """
 from __future__ import annotations
 

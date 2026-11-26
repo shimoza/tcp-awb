@@ -8,7 +8,7 @@ The class of a prompt comes from the phrase list `rules/ux-phrases.tsv`, matched
 counted line never carries a word of the prompt (its text field is "-") and calls nothing: no vault, no name check. A
 prompt that matches no phrase writes no line. The stop hook writes `held-draft` or `held-note` when it holds a reply,
 the pre-compact hook `compaction`. `awb ux note TEXT` adds a hand-written line of class `note`; its text passes the
-name and secret checks once, as a dev ask does. `awb ux report` counts the classes per ISO week and the owner status
+line format check once, as a dev ask does. `awb ux report` counts the classes per ISO week and the owner status
 shows five lines of the week before on a Monday.
 
 The folder is written by both sides: group writable with the setgid bit (2775), the file 664, every line one append
@@ -220,7 +220,7 @@ def hook_event(hook: str, data: dict, cls: str | None = None) -> str | None:
 
 
 def note(text: str, folder=None, p: config.Paths | None = None) -> str:
-    """`awb ux note TEXT`: the text checked once (names and secrets, as a dev ask), then one line of class note."""
+    """`awb ux note TEXT`: the text checked once (the line format, as a dev ask), then one line of class note."""
     from awb import devask
 
     p = p or config.paths()

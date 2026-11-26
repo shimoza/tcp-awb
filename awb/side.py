@@ -193,41 +193,23 @@ def _write(root: Path, path: Path, text: str) -> None:
 
 
 def _safe(text: str) -> bool:
-    from awb import ledger
-
-    try:
-        ledger.ensure_checkable(ledger.register_path())
-        return not any(ord(c) < 32 and c not in "\n\t" for c in text) and not ledger.screen(
-            text, ledger.register_path(), candidates=False)
-    except Exception:
-        return False
+    """No content check inside (DMZ 4): a control character only, where a line format needs it."""
+    return not any(ord(c) < 32 and c not in "\n\t" for c in text)
 
 
 def _display_safe(text: str) -> bool:
-    return not any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in text) and _safe(text)
+    return not any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in text)
 
 
 def _require_safe(text: str) -> None:
     if not _safe(text):
-        raise SideError("text withheld: a name or secret was found, or the text check is unavailable")
+        raise SideError("text refused: it holds a control character")
 
 
 def _require_safe_result(text: str) -> None:
-    """The result of a side session is a background agent's result (D-T8): an address, a host name, a phone number
-    or a MAC address of its work passes as in hooks.SOFT_CLASSES (tcp-s2z5 2026-11-25: a vendor host name withheld
-    a result). A registered name, a mail, bank data, a register or tax number and a secret still withhold it."""
-    from awb import hooks, ledger
-
-    soft = set(hooks.SOFT_CLASSES) | {"ipv4", "ipv6"}
-    try:
-        ledger.ensure_checkable(ledger.register_path())
-        found = ledger.screen(text, ledger.register_path(), candidates=False)
-        clean = not any(ord(c) < 32 and c not in "\n\t" for c in text) and not any(
-            n for cls, n in found.items() if cls not in soft)
-    except Exception:
-        clean = False
-    if not clean:
-        raise SideError("text withheld: a name or secret was found, or the text check is unavailable")
+    """The result of a side session is shown as written: a name, an address, a host name or a secret in it passes."""
+    if not _safe(text):
+        raise SideError("text refused: it holds a control character")
 
 
 def _command(fn):

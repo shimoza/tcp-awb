@@ -3,8 +3,8 @@
     owner's word: "<his words>", 2026-11-20T09:30Z
 
 at its end. The project rules (seal/work-claude/CLAUDE.md) and the development rules (CLAUDE.md) take a note with
-this line as his decision: the session acts on it and does not ask him again. The words run through the name and
-secret check of the asks (devask.screen) before anything is written.
+this line as his decision: the session acts on it and does not ask him again. The words run through the line
+format check of the asks (devask.screen) before anything is written; no name, data or secret check inside.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def stamped(text: str) -> bool:
 
 
 def screened(p, text: str, words, now: datetime | None = None) -> str:
-    """`add`, after the name and secret check of the asks over his words; raises devask.AskError on a hit."""
+    """`add`, after the line format check of the asks over his words; raises devask.AskError on a control character."""
     from awb import devask
 
     now = now or datetime.now(timezone.utc)

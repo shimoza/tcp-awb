@@ -59,13 +59,15 @@ def test_names_and_unavailable_checks_never_offer_a_default(decisions, monkeypat
     home, pr = decisions
     (Path(pr.path) / "OPEN.md").write_text("## Waiting on the owner\n- owner: " +
                                          fx.PERSON_FORMS[0] + ". Default: keep ecs-1 stopped.\n")
+    # DMZ 4 (B-088): no content check inside, a name is shown as written and the default is offered
     rows = ownerwait.page_items(home)
-    assert rows and rows[0]["text"] == ledger.WITHHELD and not rows[0]["has_default"]
-    fx.assert_no_fixture_name(json.dumps(rows))
+    assert rows and fx.PERSON_FORMS[0] in rows[0]["text"] and rows[0]["has_default"]
+    assert rows[0]["text"] != ledger.WITHHELD
+
     def unavailable(*args):
         raise ledger.LedgerError("unavailable")
     monkeypatch.setattr(ledger, "hit_indexes", unavailable)
-    assert ownerwait.page_items(home) == []
+    assert ownerwait.page_items(home) == rows
 
 
 def test_app_line_is_checked_and_never_guessed(decisions, monkeypatch):
@@ -75,8 +77,8 @@ def test_app_line_is_checked_and_never_guessed(decisions, monkeypatch):
     monkeypatch.setattr(config, "host_conf", lambda: {"work_host": fx.CUSTOMER_FORMS[1],
                                                     "projects": str(home.projects_root)})
     rows = ownerwait.page_items(home)
-    fx.assert_no_fixture_name(json.dumps(rows))
-    assert all(r["app"] == ledger.WITHHELD for r in rows)
+    # DMZ 4: the configured host is shown as written, a host name that reads like a name included
+    assert rows and all(r["app"] == "app: SSH host %s, folder %s" % (fx.CUSTOMER_FORMS[1], pr.path) for r in rows)
 
 
 def test_get_decisions_uses_only_the_status_file_and_owner_host(home, tmp_path, monkeypatch):

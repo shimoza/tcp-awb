@@ -166,9 +166,8 @@ def test_a_text_that_carries_a_name_is_withheld(planted, capsys):
                      encoding="utf-8")
     code, out, err = run(["report", "--period", "--from", START, "--to", END], capsys)
     assert code == 0
-    assert "- goal: %s" % ledger.WITHHELD in section(out, QUERY)
-    assert "1 texts withheld" in err
-    fixtures.assert_no_fixture_name(out + err, "the period report")
+    assert "- goal: gpu nodes for %s" % NAME in section(out, QUERY)
+    assert "withheld" not in out + err
 
 
 def test_the_call_log_not_readable_here_is_said(planted, capsys, monkeypatch):

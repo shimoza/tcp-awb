@@ -1,4 +1,4 @@
-"""UX4: checked project requests to development and their answer notes."""
+"""UX4: project requests to development and their answer notes."""
 from __future__ import annotations
 
 import fcntl
@@ -35,23 +35,13 @@ class AskClosed(AskError):
 
 
 def screen(p: config.Paths, text: str) -> None:
-    from awb import check, ledger
-
+    """The line format only (DMZ 4): valid UTF-8 and no control character. No name, data or secret check inside."""
     try:
         text.encode("utf-8")
     except UnicodeError:
         raise AskError("the text is not valid UTF-8") from None
     if any((ord(c) < 32 and c not in "\n\r\t") or ord(c) == 127 for c in text):
         raise AskError("the text carries a control character")
-    if check._secret_classes(text):
-        raise AskError("a secret was found; nothing was written")
-    try:
-        ledger.ensure_checkable(p.register)
-        hits = ledger.screen(text, p.register, candidates=False)
-    except ledger.LedgerError:
-        raise AskError("the name check is unavailable; nothing was written") from None
-    if hits:
-        raise AskError("the name check or secret check found a hit; nothing was written")
 
 
 def folder(p: config.Paths) -> Path:

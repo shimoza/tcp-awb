@@ -14,24 +14,19 @@ itself and written whole, so two sessions that append at the same time give two 
 
 What goes in. The project is a project code or "none", the customer a top-level CUST code or "none", the partner
 a top-level PART code or "none"; a value of another shape is refused and never repeated, because it may be a name
-typed by mistake. Tags come from `rules/tags.txt`, the kind from `KINDS`. Every text (done, outcome, each
-deliverable, each open item) goes through the name check (`check.check_text` with the register of
-`config.paths()`, through the vault daemon when the register is not readable here) and through the pattern
-detectors of the commit gate (secrets, tokens, home paths, the owner's blocklist, identifiers). A hit
-refuses the entry (exit 1) and nothing is written. A check that cannot run refuses too (exit 2): the ledger never
-takes a text it could not check.
+typed by mistake. Tags come from `rules/tags.txt`, the kind from `KINDS`. The texts (done, outcome, each
+deliverable, each open item) are one line each without a control character and are kept as written: the ledger
+runs no name, structured data or secret check inside (DMZ 4, owner's word of 2026-11-25). A name, an address, a
+host name, a UUID or a key in a text is written and shown as it is; what leaves the host is checked at its exit.
 
-What comes out. `awb ledger list` and `awb report` check the texts once more, because the register grows: a text
-that carries a name registered after it was written is shown as "(withheld by the name check)". A report is
-grouped by the key, newest first inside a group. It carries codes, dates, kinds and tags besides his texts. It is
-written in plain style: no em-dash and no comma before "and" or "or" (`plain` rewrites both in his texts too).
+What comes out. `awb ledger list` and `awb report` show the texts as written. A report is grouped by the key,
+newest first inside a group. It carries codes, dates, kinds and tags besides his texts. It is written in plain
+style: no em-dash and no comma before "and" or "or" (`plain` rewrites both in his texts too).
 
-Messages name fields, classes, counts, week files and line numbers. They never carry a text, a matched value or a
-code that was refused.
+Messages name fields, counts, week files and line numbers. They never carry a text.
 """
 from __future__ import annotations
 
-import dataclasses
 import fcntl
 import html
 import json
@@ -40,7 +35,6 @@ import re
 import stat
 import sys
 import unicodedata
-from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -58,6 +52,7 @@ BY = ("customer", "tech", "kind", "project")
 FORMATS = ("md", "html")
 NONE = "none"
 WITHHELD = "(withheld by the name check)"
+"""What the checks of an exit (`projectfacts.export_hits` and its callers) write in place of a text."""
 
 MAX_FILE_BYTES = 32 * 1024 * 1024
 """Maximum bytes read from one weekly ledger file."""
@@ -87,7 +82,7 @@ class LedgerError(Exception):
 
 
 class Refused(LedgerError):
-    """A text carries a name, structured data, a secret or a blocklist word. Exit 1."""
+    """Kept for the callers that catch it: no text check inside raises it any more (DMZ 4). Exit 1."""
 
 
 @dataclass
@@ -254,11 +249,7 @@ def clean_code(value, what: str) -> str:
     raise LedgerError("%s must be a top-level %s code or none" % (what, kind))
 
 
-def _counts_text(counts: dict[str, int]) -> str:
-    return ", ".join("%s %d" % (c, n) for c, n in sorted(counts.items()))
-
-
-# --------------------------------------------------------------------------- the checks
+# --------------------------------------------------------------------------- the check of an exit
 
 
 def _detectors() -> dict:
@@ -299,18 +290,6 @@ def _check_reason(err: Exception) -> str:
     return "the register cannot be read"
 
 
-def _pattern_counts(text: str) -> dict[str, int]:
-    """Screen raw, decoded and normalised views; an unavailable detector is never a clean result."""
-    from awb import check, normalize
-
-    try:
-        views = check.with_hidden_views(text)
-        normalized = normalize.normalize(views).text
-        return {cls: max(len(fn(views)), len(fn(normalized))) for cls, fn in _detectors().items()}
-    except Exception:
-        raise LedgerError("pattern checks unavailable") from None
-
-
 def _name_hits(text: str, reg: Path | None) -> list:
     from awb import check
 
@@ -318,51 +297,6 @@ def _name_hits(text: str, reg: Path | None) -> list:
     if not isinstance(hits, list):
         raise LedgerError("invalid name check response")
     return hits
-
-
-def screen(text: str, reg: Path | None, *, codes_too: bool = False, candidates: bool = True) -> dict[str, int]:
-    """Counts per class of what makes `text` unfit for the shared side: hits of the name check (a registered
-    name or structured data), hits of the gate detectors and, with `codes_too`, register codes and project codes.
-    Raises LedgerError when the name check cannot run. Never returns or raises with a value."""
-    counts: Counter = Counter()
-    try:
-        hits = _name_hits(text, reg)
-    except Exception as err:  # CheckUnavailable and RegisterError
-        raise LedgerError(_check_reason(err)) from None
-    for h in hits:
-        cls = h.get("cls") if isinstance(h, dict) else None
-        allowed = {"name", "mail", "url", "domain", "ipv4", "ipv6", "mac", "iban", "bic", "vat", "phone", "hrb"}
-        counts[cls if isinstance(cls, str) and cls in allowed else "unknown"] += 1
-    if candidates and not counts.get("name"):
-        # after the register check, the name-shaped candidates of the strong rules (TM0): a name not registered
-        from awb import intake
-
-        for cls, _ in intake.short_text_candidates(text):
-            counts["candidate-%s" % cls] += 1
-    counts.update(_pattern_counts(text))
-    if codes_too:
-        # also a code written with a look-alike dash, fullwidth characters or invisible characters inside
-        n_reg, n_proj = codes.count_codes(text)
-        if n_reg:
-            counts["code"] += n_reg
-        if n_proj:
-            counts["project-code"] += n_proj
-    return {cls: n for cls, n in counts.items() if n}
-
-
-def screen_fields(fields: list[tuple[str, str]], reg: Path | None, *, codes_too: bool = False,
-                  refused=Refused, hint: str = "", candidates: bool = True) -> None:
-    """Raise `refused` on the first field whose text does not pass `screen`. Field names and counts only."""
-    for what, text in fields:
-        if not text:
-            continue
-        found = screen(text, reg, codes_too=codes_too, candidates=candidates)
-        if found:
-            if any(c.startswith("candidate-") for c in found):
-                from awb import intake
-
-                hint = "; %s%s" % (intake.REWORD_HINT, hint)
-            raise refused("%s refused (%s)%s" % (what, _counts_text(found), hint))
 
 
 def hit_indexes(texts: list[str], reg: Path | None) -> set[int]:
@@ -415,38 +349,12 @@ def hit_indexes(texts: list[str], reg: Path | None) -> set[int]:
         raise LedgerError(_check_reason(err)) from None
 
 
-def withhold(entries: list[Entry], reg: Path | None) -> tuple[list[Entry], int]:
-    """Copy entries, withholding text and tags with name or pattern findings. Return the number withheld."""
-    texts: list[str] = []
-    where: list[tuple[int, str, int | None]] = []
-    for n, e in enumerate(entries):
-        for name in ("done", "outcome"):
-            texts.append(getattr(e, name))
-            where.append((n, name, None))
-        for name in ("deliverables", "open", "tags"):
-            for k, v in enumerate(getattr(e, name)):
-                texts.append(v)
-                where.append((n, name, k))
-    hits = hit_indexes(texts, reg)
-    hits.update(i for i, text in enumerate(texts) if text and any(_pattern_counts(text).values()))
-    if not hits:
-        return list(entries), 0
-    out = [dataclasses.replace(e, deliverables=list(e.deliverables), open=list(e.open), tags=list(e.tags)) for e in entries]
-    for i in hits:
-        n, name, k = where[i]
-        if k is None:
-            setattr(out[n], name, WITHHELD)
-        else:
-            getattr(out[n], name)[k] = WITHHELD
-    return out, len(hits)
-
-
 # --------------------------------------------------------------------------- entries
 
 
 def make_entry(*, kind: str, done: str, project=None, customer=None, partner=None, tags=(), outcome="",
                deliverables=(), open_items=(), day=None, known_tags: list[str] | None = None) -> Entry:
-    """A validated entry. Shapes only: the texts are checked by `check_entry`."""
+    """A validated entry. Shapes only."""
     if kind not in KINDS:
         raise LedgerError("kind must be one of %s" % ", ".join(KINDS))
     if day is None:
@@ -467,16 +375,6 @@ def make_entry(*, kind: str, done: str, project=None, customer=None, partner=Non
         deliverables=clean_items(deliverables, "deliverable"),
         open=clean_items(open_items, "open item"),
     )
-
-
-def check_entry(e: Entry, reg: Path | None) -> None:
-    """Refuse an entry whose texts carry a name, structured data, a secret, an identifier or the old grammar."""
-    if reg is not None:
-        ensure_checkable(reg)
-    fields =[("done", e.done), ("outcome", e.outcome)]
-    fields += [("deliverable %d" % n, v) for n, v in enumerate(e.deliverables, start=1)]
-    fields += [("open item %d" % n, v) for n, v in enumerate(e.open, start=1)]
-    screen_fields(fields, reg)
 
 
 @contextmanager
@@ -555,14 +453,12 @@ def append_line(path: Path, obj: dict, mode: int = 0o640) -> None:
 
 def add(kind: str, done: str, *, project=None, customer=None, partner=None, tags=(), outcome="",
         deliverables=(), open_items=(), day=None, p: config.Paths | None = None) -> Entry:
-    """Validate, check and append one entry to the week file of its date. Returns the entry.
-
-    Raises LedgerError on a wrong shape or when the check cannot run, Refused on a hit."""
+    """Validate and append one entry to the week file of its date. Returns the entry. Raises LedgerError on a
+    wrong shape."""
     p = p or config.paths()
     e = make_entry(kind=kind, done=done, project=project, customer=customer, partner=partner, tags=tags,
                    outcome=outcome, deliverables=deliverables, open_items=open_items, day=day,
                    known_tags=load_tags())
-    check_entry(e, register_path(p))
     append_line(week_file(p, e.date), e.as_dict())
     return e
 
@@ -787,17 +683,12 @@ def _render_html(title: str, summary: list[str], groups: dict[str, list[Entry]])
     return "\n".join(out) + "\n"
 
 
-def report(by: str, start=None, end=None, fmt: str = "md", p: config.Paths | None = None) -> tuple[str, int]:
-    """Load, check once more and render. Returns the report text and the count of texts withheld."""
+def report(by: str, start=None, end=None, fmt: str = "md", p: config.Paths | None = None) -> str:
+    """Load and render the entries as written."""
     p = p or config.paths()
     if start is not None and end is not None and parse_date(start) > parse_date(end):
         raise LedgerError("--from is after --to")
-    entries = load(p, start, end)
-    reg = register_path(p)
-    if entries:
-        ensure_checkable(reg)
-    entries, withheld = withhold(entries, reg)
-    return render(entries, by, fmt, start, end), withheld
+    return render(load(p, start, end), by, fmt, start, end)
 
 
 # --------------------------------------------------------------------------- command line
@@ -838,8 +729,6 @@ def _cmd_list(args, p: config.Paths) -> int:
     if not entries:
         print("no entries")
         return EXIT_OK
-    ensure_checkable(register_path(p))
-    entries, withheld = withhold(entries, register_path(p))
     for e in entries:
         print("%s  %-8s  %-8s  %-9s  %-9s  %s" % (e.date, e.kind, e.project, e.customer, e.partner,
                                                   ",".join(e.tags) or NONE))
@@ -850,8 +739,6 @@ def _cmd_list(args, p: config.Paths) -> int:
             print("    deliverable: %s" % d)
         for o in e.open:
             print("    open: %s" % o)
-    if withheld:
-        print("ledger: %d texts withheld by the name check" % withheld, file=sys.stderr)
     return EXIT_OK
 
 
@@ -885,12 +772,10 @@ def _main_report(argv: list[str]) -> int:
         sys.stdout.write(questions.render(config.paths()))
         return EXIT_OK
     try:
-        text, withheld = report(args.by, args.start, args.end, args.fmt)
+        text = report(args.by, args.start, args.end, args.fmt)
     except (LedgerError, OSError) as err:
         return _fail(prog, err)
     sys.stdout.write(text)
-    if withheld:
-        print("%s: %d texts withheld by the name check" % (prog, withheld), file=sys.stderr)
     return EXIT_OK
 
 
@@ -902,7 +787,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "report":
         return _main_report(argv[1:])
     prog = "awb ledger"
-    ap = SafeParser(prog=prog, description="The activity ledger. Codes only, every text is name-checked.")
+    ap = SafeParser(prog=prog, description="The activity ledger. Codes only; the texts are kept as written.")
     sub = ap.add_subparsers(dest="command", parser_class=SafeParser)
     s = sub.add_parser("add", help="add one entry")
     s.add_argument("--kind", required=True, choices=KINDS)

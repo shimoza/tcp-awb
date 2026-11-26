@@ -269,8 +269,8 @@ def test_kept_tenant_and_location_are_screened_before_rendering(home, monkeypatc
         _only(monkeypatch, [item])
         items, parked = ownerwait.collect(home)
         text = "\n".join(ownerwait.render(items, parked))
-        fx.assert_no_fixture_name(text)
-        assert ledger.WITHHELD in text
+        # B-088: no content check inside, the tenant and the location are rendered as they are
+        assert ledger.WITHHELD not in text
 
 
 def test_truncated_failure_reasons_are_screened_in_full(home, tmp_path, monkeypatch):
@@ -283,7 +283,8 @@ def test_truncated_failure_reasons_are_screened_in_full(home, tmp_path, monkeypa
     items = ownerwait.dataset_items(path) + ownerwait.refresh_items(path) + ownerwait.report_items(path)
     _only(monkeypatch, items)
     checked, _ = ownerwait.collect(home)
-    assert len(checked) == 3 and all(it.text == ledger.WITHHELD for it in checked)
+    # B-088: shown as written (cut to the line width), never withheld
+    assert len(checked) == 3 and all(it.text != ledger.WITHHELD and "review capacity" in it.text for it in checked)
 
 
 def test_truncated_queue_text_is_screened_in_full(home, tmp_path, monkeypatch):
@@ -294,7 +295,7 @@ def test_truncated_queue_text_is_screened_in_full(home, tmp_path, monkeypatch):
                     fx.CUSTOMER_FORMS[0] + " | waiting | review |\n")
     _only(monkeypatch, ownerwait.queue_items(path))
     checked, _ = ownerwait.collect(home)
-    assert len(checked) == 1 and checked[0].text == ledger.WITHHELD
+    assert len(checked) == 1 and checked[0].text != ledger.WITHHELD and "review capacity" in checked[0].text
 
 
 def test_mail_sender_failures_never_echo_values_or_exception_names(home, monkeypatch):
@@ -322,7 +323,8 @@ def test_mail_refuses_if_check_becomes_unavailable_after_probe(home, monkeypatch
         raise ledger.LedgerError("private detail")
 
     monkeypatch.setattr(ledger, "hit_indexes", unavailable)
-    assert ownerwait.mail(home, lambda *a: pytest.fail("unchecked mail")) == "not sent: the name check cannot run"
+    # B-088: the mail runs no name check, so a check that cannot run stops nothing
+    assert ownerwait.mail(home, lambda *a: True) == "sent"
 
 
 def test_status_bad_container_types_raise_value_free_errors(tmp_path):
@@ -527,7 +529,8 @@ def test_lab_and_tenant_full_reasons_are_screened(home, monkeypatch):
     items = ownerwait.lab_run_items(home) + ownerwait.tenant_mode_items()
     _only(monkeypatch, items)
     checked, _ = ownerwait.collect(home)
-    assert len(checked) == 2 and all(it.text == ledger.WITHHELD for it in checked)
+    # B-088: no content check inside, nothing is withheld
+    assert len(checked) == 2 and all(it.text != ledger.WITHHELD for it in checked)
 
 
 def test_ui_queue_link_is_not_opened(tmp_path):

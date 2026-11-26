@@ -30,8 +30,9 @@ def test_a_command_off_the_allow_list_is_not_mailed(home, proj):
 def test_an_item_with_a_name_is_not_mailed(home, proj):
     _open(proj, "- (owner) run `awb close %s` for %s" % (proj.code, fx.CUSTOMER_FORMS[0]))
     mails = []
-    assert projects.mail_owner_commands(home, Path(proj.path), lambda s, m: mails.append(m) or True) == 0
-    assert mails == []
+    # B-088: no name check inside, the item is mailed as written
+    assert projects.mail_owner_commands(home, Path(proj.path), lambda s, m: mails.append(m) or True) == 1
+    assert len(mails) == 1 and fx.CUSTOMER_FORMS[0] in mails[0]
 
 
 def test_the_owner_timer_mails_every_active_project(home, proj):

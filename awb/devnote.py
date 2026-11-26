@@ -8,8 +8,7 @@ work user, `sudo -n -u awb -H awb projects note ...`, on a sealed host) and leav
 like the "new input" notice of `awb import` (awb/rulesync.py). The prompt hook of a session of that project shows
 it once per session: "note from development: TITLE (notes/from-dev/FILE): read it first". The work rules of the
 project (projects._claude) say a note is followed like his word on the Workbench and never overrides his own word
-on the project. The note text and the title run through the secret check only: a note is written by the
-development side, which carries no customer material.
+on the project. The note text and the title are written as they are: no name, data or secret check inside (DMZ 4).
 """
 from __future__ import annotations
 
@@ -44,14 +43,6 @@ class NoteError(Exception):
     """A note cannot be written. The message names the reason, never the text."""
 
 
-def _secret_check(text: str, what: str) -> None:
-    from awb import check
-
-    found = check._secret_classes(text)
-    if found:
-        raise NoteError("the %s carries a secret (%s); nothing was written" % (what, ", ".join(sorted(found))))
-
-
 def clean_title(title) -> str:
     title = " ".join(str(title or "").split())
     if not title:
@@ -81,8 +72,6 @@ def write(p: config.Paths, code: str, title: str, text: str, today: date | None 
         raise NoteError("the note is empty")
     if len(text.encode("utf-8")) > MAX_TEXT:
         raise NoteError("the note is larger than %d bytes" % MAX_TEXT)
-    _secret_check(title, "title")
-    _secret_check(text, "note")
     pr = _project(p, code)
     root = Path(pr.path)
     folder = root / FOLDER

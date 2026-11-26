@@ -179,10 +179,11 @@ def test_the_english_note_of_the_last_reply_is_kept_once_and_never_with_a_name(h
     assert run_hook("stop", {"cwd": str(tmp_path), "transcript_path": str(t)}, monkeypatch, capsys) == (0, "", "")
     assert [n["note"] for n in english.load(home)] == ["\"more cheaper\" should be \"cheaper\"."]
     named = transcript(tmp_path, "Done.\n\nEnglish note: write \"%s\" with a capital." % fx.CUSTOMER_FORMS[0])
-    assert not english.capture(home, named)
-    assert len(english.load(home)) == 1
+    # B-088: a note is kept as written, with a registered name in it
+    assert english.capture(home, named)
+    assert len(english.load(home)) == 2
     assert cli.main(["english", "list", "--month", datetime.date.today().isoformat()[:7]]) == 0
-    assert "1 note(s)" in capsys.readouterr().out
+    assert "2 note(s)" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- career and the detector

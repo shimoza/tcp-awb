@@ -151,7 +151,10 @@ def test_invalid_commit_and_secret_are_refused_without_output_values(notes, caps
         out = capsys.readouterr()
         fx.assert_no_fixture_name(out.out + out.err)
         assert not invalid or invalid not in out.err
+    # B-088: a note is held as written, a secret shaped value included (no content check inside)
     source.write_text("pass" + "word=" + "ux12-secret-value")
-    assert cli.main(["projects", "note", pr.code, str(source), "--after", notes[5]]) == 2
+    assert cli.main(["projects", "note", pr.code, str(source), "--after", notes[5]]) == 0
     out = capsys.readouterr()
     assert "ux12-secret-value" not in out.out + out.err
+    held = sorted((Path(pr.path) / "notes" / "from-dev").glob("held-*.md"))
+    assert any("ux12-secret-value" in f.read_text(encoding="utf-8") for f in held)

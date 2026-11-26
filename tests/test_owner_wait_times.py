@@ -247,6 +247,7 @@ def test_nothing_is_recorded_while_the_name_check_cannot_run(monkeypatch):
     def broken(texts, reg):
         raise ledger.LedgerError("no check")
     monkeypatch.setattr(ledger, "hit_indexes", broken)
+    # B-088: no name check inside, so a check that cannot run stops no record
     shown, _ = ownerwait.collect(p, view="all", record=True, now=at(5))
-    assert ownerwait.LAST_RECORD == "not recorded: the name check cannot run" and shown[0].waited is None
-    assert [(e["code"], e["last"], e["end"]) for e in ownerwaits.load()] == [(A, "2026-11-23T17:48:00Z", None)]
+    assert ownerwait.LAST_RECORD.startswith("1 open") and shown[0].waited is not None
+    assert [(e["code"], e["end"]) for e in ownerwaits.load()] == [(A, None)]

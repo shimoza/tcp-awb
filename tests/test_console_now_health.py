@@ -322,9 +322,10 @@ def test_queue_rows_carry_the_stale_mark_and_withhold_a_text_with_a_finding(home
     assert (second["what"], second["next"], second["withheld"], second["stale"]) == (None, None, "secret", False)
     assert second["who"] == "session:%s" % CODE and second["project"] == CODE
     status_shape.validate_lists({"queue": got})
-    # a row with a registered name never leaves the queue: awb queue refuses it, the page says it cannot be read
+    # B-088: awb queue keeps a row with a registered name as written, so the page reads it like any other row
     write_queue(queue, [queue_row("Q-0003", "call %s" % fx.CUSTOMER_FORMS[0], "x")])
-    assert nowhealth.queue_rows(screen, now=NOW) == {"readable": False, "rows": []}
+    named = nowhealth.queue_rows(screen, now=NOW)
+    assert named["readable"] is True and named["rows"][0]["what"] == "call %s" % fx.CUSTOMER_FORMS[0]
 
 
 def test_one_screen_call_for_all_texts_and_one_each_only_after_a_finding():

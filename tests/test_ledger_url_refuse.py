@@ -85,11 +85,10 @@ def test_a_link_and_a_bare_host_are_taken_out_of_the_draft(home, register_path):
 
 
 def test_planted_the_raw_subject_is_refused_so_the_cleaning_is_what_lets_it_in(home, register_path):
-    """Planted failure: without the cleaning the same subject is refused for url."""
+    """DMZ 4: the ledger keeps no text screen, so the raw subject with its link is written as it is by `add` too."""
     pr = spawn(home, register_path)
-    with pytest.raises(ledger.Refused, match="url"):
-        ledger.add("other", "%s: 1 commit(s): Read the guide at %s" % (pr.code, fx.LEDGER_LINK), project=pr.code,
-                   p=home)
+    text = "%s: 1 commit(s): Read the guide at %s" % (pr.code, fx.LEDGER_LINK)
+    assert ledger.add("other", text, project=pr.code, p=home).done == text
 
 
 def test_entries_by_hand_after_a_refusal_cover_the_refused_commits(home, register_path, refusing_ledger):

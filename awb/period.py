@@ -13,8 +13,7 @@ of SCOPE.md, the ledger kinds and technologies with counts, the files of deliver
 tenant was used (rows of RESOURCES.md and calls of the key service's log, counts only) and the Status line of
 STATE.md. Above the blocks a summary: projects per block and per kind, ledger entries per kind and per technology.
 
-The goal and the status are his texts: they go through the name check once more, as the ledger report does, and a
-text that now carries a registered name is shown as "(withheld by the name check)".
+The goal and the status are his texts and are shown as written: no name, data or secret check inside (DMZ 4).
 
 Codes only by default. `--reveal` replaces each code by its registered name (`awb.reveal`). It is refused for the
 work user and inside an assistant session, like `awb reveal`, and its output goes either to his own terminal or to
@@ -33,7 +32,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from awb import codes, config, ledger, projects
-from awb.projectfacts import git_dates as _git_dates, mtime_date as _mtime_date, status_of, withhold
+from awb.projectfacts import git_dates as _git_dates, mtime_date as _mtime_date, status_of
 
 RECENT_DAYS = 30
 """The last days of the period that decide between active and finished customer work."""
@@ -320,16 +319,15 @@ def _render_html(title, intro, summary, blocks, rules) -> str:
     return "\n".join(out) + "\n"
 
 
-def report(start=None, end=None, fmt: str = "md", p: config.Paths | None = None) -> tuple[str, int]:
-    """Gather, check the texts once more and render. Returns the text and the count of texts withheld."""
+def report(start=None, end=None, fmt: str = "md", p: config.Paths | None = None) -> str:
+    """Gather and render, the texts as written."""
     p = p or config.paths()
     start = ledger.parse_date(start) if start is not None else None
     end = ledger.parse_date(end) if end is not None else ledger.today()
     if start is not None and start > end:
         raise PeriodError("--from is after --to")
     items, entries = gather(p, start, end)
-    withheld = withhold(items, ledger.register_path(p))
-    return render(items, entries, start, end, fmt), withheld
+    return render(items, entries, start, end, fmt)
 
 
 # --------------------------------------------------------------------------- names back, owner side only
@@ -427,7 +425,7 @@ def main(argv: list[str]) -> int:
                 out = check_out(args.out, p)
             elif not sys.stdout.isatty():
                 raise PeriodError("--reveal prints to a terminal only, never to a pipe or a file; give --out PATH")
-        text, withheld = report(args.start, args.end, args.fmt, p)
+        text = report(args.start, args.end, args.fmt, p)
         if args.reveal:
             text, n = reveal_report(text, p, args.fmt)
             if out is not None:
@@ -439,6 +437,4 @@ def main(argv: list[str]) -> int:
             sys.stdout.write(text)
     except (PeriodError, ledger.LedgerError, projects.ProjectError, register.RegisterError, OSError) as err:
         return ledger._fail(prog, err)
-    if withheld:
-        print("%s: %d texts withheld by the name check" % (prog, withheld), file=sys.stderr)
     return ledger.EXIT_OK

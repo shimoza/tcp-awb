@@ -252,7 +252,7 @@ into `screen` and so reaches every door.
 | Ask question (`awb ask`, the form page) | `awb/tcp/ask.py` `screen` | register or check socket | every class | nothing | nothing |
 | Project chat (question, project files, tool answers, model answer) | `awb/tcp/web/chat_service.py` `screen` | check socket only | every class | nothing | `phone` in the answer of the public price tool only |
 | Working copy of an imported material | `awb/tcp/web/materials_api.py` `Store.checked` | register or check socket | every class | nothing | nothing |
-| Project read API (goal, project files) | `awb/tcp/web/projects_api.py` `checked` | check socket only | nothing: shows "[Content withheld by the data check.]" when `text` is None | names and structured data | nothing |
+| Project read API (goal, project files) | `awb/tcp/web/projects_api.py` `checked` | none (B-088: no content check inside; `checked` returns the text as written and `redacted` false) | nothing | nothing | everything |
 | Owner status file and run summaries | `awb/tcp/owner.py` `name_check`, `summary_screen` | `publish.name_matcher` (register or check socket) | `publish.CLASSES`: name, secret, token, private-key | nothing | structured data and `homepath` (a status file carries times and numbers) |
 
 A door that cannot run the name check refuses (Ask, chat, materials, projects) or writes the status as
@@ -667,14 +667,15 @@ or "none"), customer (CUST code or "none"), partner (PART code or "none"), tags 
 inquiry, pricing, tender, training, tooling, code, other), done, outcome, deliverables (list), open (list).
 
 - `awb ledger add --kind K --done TEXT [--project C] [--customer C] [--partner C] [--tag T]... [--outcome TEXT]
-  [--deliverable P]... [--open TEXT]... [--date D]`: every text is name-checked; codes must have the right shape.
+  [--deliverable P]... [--open TEXT]... [--date D]`: the texts are one line each and kept as written (B-088: no name,
+  structured data or secret check inside; a control character is refused); codes must have the right shape.
 - `awb ledger list [--from D] [--to D]`.
 - `awb report --by customer|tech|kind|project [--from D] [--to D] [--format md|html]`: Markdown (or a small HTML
   table page) grouped by the key, newest first inside a group, codes only. Written in plain style: no em-dash, no
   comma before "and" or "or".
 
-Career: `<shared>/career.jsonl`. `awb career add --title --role --stack --outcome --cv-line`: refuses any register
-code, project code or name (a career entry names no customer at all). `awb career update [--since D]`: a Markdown
+Career: `<shared>/career.jsonl`. `awb career add --title --role --stack --outcome --cv-line`: the texts are kept as written (B-088: no
+content check inside; the candidates of the ledger show a code as "a customer" or "a project"). `awb career update [--since D]`: a Markdown
 draft with CV bullets grouped by theme (tags) and one LinkedIn paragraph, then `writing.check_text` over it; the date
 of the run is stored in `<shared>/career-updated`. `awb career due`: days since the last update, exit 1 when over 90.
 
@@ -947,8 +948,11 @@ Recorded here so that the next builder works against them. Each module keeps `ma
   `write_index`. `where` is a `config.Paths` or a folder. `find`, `briefing`, `expired` and the index leave a
   retired entry out; `get`, `load` and `show` still return it.
 - `ledger`: `Entry`, `LedgerError`, `Refused`, `add(kind, done, *, project, customer, partner, tags, outcome,
-  deliverables, open_items, day, p)`, `load`, `group`, `render`, `report(by, start, end, fmt, p) -> (text,
-  withheld)`, `ensure_checkable(reg)`, `append_line(path, obj)`.
+  deliverables, open_items, day, p)`, `load`, `group`, `render`, `report(by, start, end, fmt, p) -> text`
+  (B-088: the texts as written), `append_line(path, obj)`; `ensure_checkable`, `hit_indexes` and `_detectors` stay for
+  `projectfacts.export_hits` (the texts that leave the host). `ledger.screen`, `screen_fields`, `check_entry` and
+  `withhold` are gone, so are `career.check_entry` and `projectfacts.withhold`; `Refused` is kept for the callers that
+  catch it and no text check raises it.
 - `career`: `Entry`, `Update`, `CareerError`, `Refused`, `add(title, role, stack, outcome, cv_line, *, tags=(),
   day=None, p=None)`, `load`, `draft`, `update(p, since, day) -> Update`, `last_update`, `days_since_update`,
   `due(p, day) -> (days, due)`.

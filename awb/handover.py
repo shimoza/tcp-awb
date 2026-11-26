@@ -409,7 +409,7 @@ def _queue_lines() -> list[str]:
 
     path = workqueue.queue_file()
     legacy = path.with_name("QUEUE.md")
-    # The queue reader also opens a lock and writes its check cache. Refuse redirected or
+    # The queue reader also opens a lock. Refuse redirected or
     # special files before either it or the owner-status reader can touch those paths.
     if any(parent.is_symlink() for parent in path.parents):
         raise HandoverError("the queue folder is a link")
@@ -547,12 +547,7 @@ def write(root: Path | None = None) -> Path:
                 screened += part
         if len(body.encode("utf-8")) > _MAX_TEXT:
             raise HandoverError("the hand-over is too large")
-        # the subjects of this repository's own commits passed the commit gate when they were made; they get the
-        # secret check only, as our own output does (a URL or an IP in an old subject refused the whole file)
-        from awb import check
-
-        if check._secret_classes("\n".join(history)):
-            raise HandoverError("a secret in the git log; previous hand-over kept")
+        # no name, data or secret check inside (DMZ 4); the screen keeps the line format
         devask.screen(p, screened)
         _same_directory(root / "build", folder_fd)
         _replace(target, body, dir_fd=folder_fd)
@@ -561,7 +556,7 @@ def write(root: Path | None = None) -> Path:
 
 def _home_as_tilde(line: str) -> str:
     """A ready command of owner status names the owner's home (an export folder, B-060); the hand-over writes it as
-    ~, since a home path in the file is refused by its secret check (2026-11-14)."""
+    ~ (2026-11-14)."""
     home = str(Path.home())
     return line.replace(home + "/", "~/") if home not in ("", "/") else line
 

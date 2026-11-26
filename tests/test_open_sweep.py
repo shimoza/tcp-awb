@@ -150,31 +150,31 @@ def test_sweep_withholds_names_secrets_and_unsafe_evidence(project, capsys):
         "| ecs-1 | %s | Default taken: keep ecs-1 stopped. |\n" % fixtures.CUSTOMER_FORMS[0])
     assert cli.main(["open", "sweep"]) == 0
     out = capsys.readouterr().out
-    fixtures.assert_no_fixture_name(out)
-    assert secret not in out and out.count("[withheld]") == 4 and "RESOURCES.md:1" in out
+    # DMZ 4: no content check inside, the items and the receipt show as written
+    assert fixtures.PERSON_FORMS[0] in out and secret in out
+    assert "[withheld]" not in out and "RESOURCES.md:1" in out
     assert len(opensweep.parse((project / "OPEN.md").read_text())) == 3
-    # A handle-shaped value still needs the name check before it leaves the file.
-    (project / "RESOURCES.md").write_text(
-        "| %s-1 | deleted | Default taken: keep ecs-1 stopped. |\n" % fixtures.PERSON_FORMS[1].lower())
+    # a control character is still withheld, where a table line needs it
+    (project / "OPEN.md").write_text(text + "- owner: bad\x07text. Default: keep ecs-2 stopped.\n")
     assert cli.main(["open", "sweep"]) == 0
     out = capsys.readouterr().out
-    fixtures.assert_no_fixture_name(out)
-    assert "taken" not in out
+    assert out.count("[withheld]") == 2 and "\x07" not in out
 
 
 def test_sweep_refuses_when_the_name_check_is_unavailable(project, home, monkeypatch, capsys):
     items(project, 1)
     home.register.unlink()
-    assert cli.main(["open", "sweep"]) == 2
+    # DMZ 4: the sweep needs no register and no name check, it runs without them
+    assert cli.main(["open", "sweep"]) == 0
     output = capsys.readouterr()
-    assert output.out == "" and "no register" in output.err
+    assert "decide ecs-1." in output.out and output.err == ""
     from awb import check
     def unavailable(*args, **kwargs):
         raise check.CheckUnavailable("name check unavailable")
     monkeypatch.setattr(check, "register_source", unavailable)
-    assert cli.main(["open", "sweep"]) == 2
+    assert cli.main(["open", "sweep"]) == 0
     output = capsys.readouterr()
-    assert output.out == "" and "unavailable" in output.err
+    assert "decide ecs-1." in output.out and output.err == ""
 
 
 def test_close_refuses_bad_selection_missing_default_and_ledger_failure(project, monkeypatch):
@@ -216,7 +216,7 @@ def test_dependency_errors_never_echo_values(project, monkeypatch, capsys):
     def unavailable(*args, **kwargs):
         raise check.CheckUnavailable(secret)
     monkeypatch.setattr(check, "register_source", unavailable)
-    assert opensweep.main(["sweep"]) == 2
+    assert opensweep.main(["sweep"]) == 0
     assert secret not in capsys.readouterr().err
     def refused(*args, **kwargs):
         raise ledger.Refused(secret)

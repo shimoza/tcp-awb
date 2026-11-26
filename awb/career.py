@@ -5,10 +5,9 @@
     awb career due
 
 `<shared>/career.jsonl` holds one JSON object per line with the fields of `FIELDS`, appended under an exclusive
-lock like the ledger. A career entry names no customer at all: every text is refused when it carries a register
-code (CUST-Q7M4 and every other kind), a project code (tcp-q7m4), a registered name or structured data (the name
-check, `check.check_text` with the register of `config.paths()`), a secret, an identifier or a word of the owner's
-blocklist. Tags come from `rules/tags.txt`; without --tag they are taken from the words of the stack that are tags.
+lock like the ledger. A career entry names no customer at all; the texts are kept as written (no name, data,
+code or secret check inside) and the candidates from the ledger show a register code as "a customer" and a project
+code as "a project". Tags come from `rules/tags.txt`; without --tag they are taken from the words of the stack that are tags.
 
 `awb career update` prints a Markdown draft: CV bullets grouped by theme (each entry goes to the first theme of
 `THEMES` that one of its tags belongs to, else to "Other"), newest first inside a theme, then one LinkedIn
@@ -59,16 +58,11 @@ THEMES: tuple[tuple[str, frozenset[str]], ...] = (
 )
 OTHER = "Other"
 
-_HINT = "; a career entry names no customer, project or person"
 _STACK_SPLIT_RE = re.compile(r"[,;/]|\band\b|\bor\b", re.IGNORECASE)
 
 
 class CareerError(Exception):
     """A usage or data problem. The message never carries a text or a refused value."""
-
-
-class Refused(CareerError):
-    """A text carries a code, a name, structured data, a secret or the old grammar. Exit 1."""
 
 
 @dataclass
@@ -92,7 +86,6 @@ class Update:
     tells: list = field(default_factory=list)
     metrics: dict = field(default_factory=dict)
     note: str | None = None
-    withheld: int = 0
     candidates: str = ""           # ledger work that may be worth a career line, codes masked (T-46)
 
     @property
@@ -141,15 +134,13 @@ def tags_from_stack(stack: str, known: list[str]) -> list[str]:
 def _wrap(fn, *args, **kw):
     try:
         return fn(*args, **kw)
-    except ledger.Refused as err:
-        raise Refused(str(err)) from None
     except ledger.LedgerError as err:
         raise CareerError(str(err)) from None
 
 
 def make_entry(*, title: str, role: str, stack: str, outcome: str, cv_line: str, tags=(), day=None,
                known_tags: list[str] | None = None) -> Entry:
-    """A validated entry. Shapes only: the texts are checked by `check_entry`."""
+    """A validated entry. Shapes only."""
     values = {}
     for name, value in (("title", title), ("role", role), ("stack", stack), ("outcome", outcome),
                         ("cv_line", cv_line)):
@@ -166,24 +157,12 @@ def make_entry(*, title: str, role: str, stack: str, outcome: str, cv_line: str,
     return Entry(date=d.isoformat(), tags=tags, **values)
 
 
-def check_entry(e: Entry, reg: Path | None) -> None:
-    """Refuse a register code, a project code, a name, structured data, a secret, an identifier or a
-    blocklist word in any text of the entry."""
-    if reg is not None:
-        _wrap(ledger.ensure_checkable, reg)
-    fields = [(name.replace("_", "-"), getattr(e, name)) for name in TEXT_FIELDS]
-    # a career entry lists technologies ("Terraform, Ansible"), which the candidate rules of a ledger line take
-    # for "Last, First": its fields keep the register check and the codes
-    _wrap(ledger.screen_fields, fields, reg, codes_too=True, refused=ledger.Refused, hint=_HINT, candidates=False)
-
-
 def add(title: str, role: str, stack: str, outcome: str, cv_line: str, *, tags=(), day=None,
         p: config.Paths | None = None) -> Entry:
-    """Validate, check and append one career entry. Raises CareerError. Raises Refused on a hit."""
+    """Validate and append one career entry. Raises CareerError."""
     p = p or config.paths()
     e = make_entry(title=title, role=role, stack=stack, outcome=outcome, cv_line=cv_line, tags=tags, day=day,
                    known_tags=_wrap(ledger.load_tags))
-    check_entry(e, ledger.register_path(p))
     ledger.append_line(log_file(p), e.as_dict())
     return e
 
@@ -313,22 +292,6 @@ def _tell(t) -> tuple[str, int, bool, str]:
     return str(get("cls", "unknown")), line, bool(get("blocking", False)), str(get("hint", "") or "")
 
 
-def _withhold(entries: list[Entry], reg: Path | None) -> tuple[list[Entry], int]:
-    texts = [getattr(e, name) for e in entries for name in TEXT_FIELDS]
-    hits = _wrap(ledger.hit_indexes, texts, reg)
-    if not hits:
-        return entries, 0
-    out: list[Entry] = []
-    k = 0
-    for e in entries:
-        values = {}
-        for name in TEXT_FIELDS:
-            values[name] = ledger.WITHHELD if k in hits else getattr(e, name)
-            k += 1
-        out.append(Entry(date=e.date, tags=list(e.tags), **values))
-    return out, len(hits)
-
-
 def _write_stamp(p: config.Paths, day: date) -> None:
     target = stamp_file(p)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -353,13 +316,8 @@ def update(p: config.Paths | None = None, since=None, day=None) -> Update:
     run = ledger.parse_date(day) if day is not None else today()
     since_d = ledger.parse_date(since) if since is not None else None
     entries = load(p, since_d)
-    withheld = 0
-    if entries:
-        reg = ledger.register_path(p)
-        _wrap(ledger.ensure_checkable, reg)
-        entries, withheld = _withhold(entries, reg)
     text = draft(entries, run, since_d)
-    result = Update(draft=text, entries=len(entries), withheld=withheld)
+    result = Update(draft=text, entries=len(entries))
     mod = _writing_module()
     if mod is None:
         result.note = "writing check skipped: awb.writing is not built yet"
@@ -386,17 +344,12 @@ def masked(text: str) -> str:
 
 
 def ledger_candidates(p: config.Paths, since: date | None) -> str:
-    """T-46: the ledger entries since `since` that may be worth a career line, every text through the name check
-    of today's register first (a name registered after the entry is withheld), then codes masked. Input for him,
-    not a part of the checked draft."""
+    """T-46: the ledger entries since `since` that may be worth a career line, as written with the codes masked.
+    Input for him, not a part of the checked draft."""
     try:
         entries = [e for e in ledger.load(p, start=since) if e.kind in CANDIDATE_KINDS]
     except ledger.LedgerError:
         return "## From the ledger\n\nThe ledger could not be read.\n"
-    try:
-        entries, _ = ledger.withhold(entries, ledger.register_path(p))
-    except ledger.LedgerError:
-        return "## From the ledger\n\nThe name check cannot run: the ledger entries are withheld.\n"
     head = "## From the ledger%s\n\n" % (" since %s" % since.isoformat() if since else "")
     if not entries:
         return head + "No ledger entry of kind %s.\n" % ", ".join(CANDIDATE_KINDS)
@@ -455,7 +408,7 @@ def _fail(err: Exception) -> int:
         print("awb career: %s (operating system error)" % type(err).__name__, file=sys.stderr)
         return EXIT_ERROR
     print("awb career: %s" % err, file=sys.stderr)
-    return EXIT_FINDINGS if isinstance(err, (Refused, ledger.Refused)) else EXIT_ERROR
+    return EXIT_ERROR
 
 
 def _cmd_add(args, p: config.Paths) -> int:
@@ -469,8 +422,6 @@ def _cmd_update(args, p: config.Paths) -> int:
     sys.stdout.write(res.draft)
     if res.candidates:
         sys.stderr.write("\n" + res.candidates)
-    if res.withheld:
-        print("awb career: %d texts withheld by the name check" % res.withheld, file=sys.stderr)
     if res.note:
         print("awb career: %s" % res.note, file=sys.stderr)
     for t in res.tells:

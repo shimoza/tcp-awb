@@ -26,9 +26,8 @@ The sources, read on the owner's side only:
   an SSH banner), one line each.
 
 Each item is one line: the project code or the label, a few words, where it is done (project session, his terminal,
-steering session) and a ready command block where one exists. Codes only: every text passes the name check as
-`projects.waiting` does; a text with a hit is withheld, and when the check cannot run every text is withheld and the
-mail is not sent.
+steering session) and a ready command block where one exists. Every text is shown as written: no name, data or secret
+check inside (DMZ 4).
 
 `awb owner status` and `awb owner status --record` pass record=True to `collect`: the items go into the wait history
 (awb/ownerwaits.py) and each line ends with "waits N h".
@@ -85,7 +84,7 @@ class Item:
     item: int | None = None  # original projects._owner_items index, before filtering
     has_default: bool = False
     app: str = ""
-    source: str = ""      # full owner item for the name check, never serialized
+    source: str = ""      # the full text of the item: the key of its wait history (awb/ownerwaits.py), never serialized
     waited: float | None = None  # hours since the wait history first saw the item (awb/ownerwaits.py), when recorded
 
 
@@ -170,7 +169,7 @@ def open_items(p: config.Paths) -> tuple[list[Item], int]:
 
 
 def project_app(p: config.Paths, code: str, root: Path) -> str:
-    """UX18's configured work host and project root, checked with the item before export."""
+    """UX18's configured work host and project root."""
     from awb import codes
 
     conf = config.host_conf()
@@ -239,13 +238,13 @@ def _validate_decisions(status: dict) -> None:
 
 def queue_items(path: Path | None = None) -> list[Item]:
     """Owner rows with their next steps. Explicit Markdown paths retain the legacy reader."""
-    from awb import ledger, projects, workqueue
+    from awb import projects, workqueue
 
     path = path or queue_file()
     if path.suffix != ".md":
         try:
             rows = workqueue.load(path)
-        except (workqueue.QueueError, ledger.LedgerError, OSError, UnicodeError):
+        except (workqueue.QueueError, OSError, UnicodeError):
             return [Item("queue", "queue unavailable; run awb queue list", WHERE_TERMINAL)]
         out = []
         for row in rows:
@@ -373,12 +372,12 @@ def _export_code(folder: Path, rows: list[dict[str, str]]) -> str | None:
 
 def export_items(p: config.Paths, queue: Path | None = None) -> list[Item]:
     """Recent, wholly unimported exports. File names and content never enter an item, only folder and count."""
-    from awb import ledger, workqueue
+    from awb import workqueue
 
     queue = queue or queue_file()
     try:
         rows = workqueue.load(queue) if queue.suffix != ".md" else []
-    except (workqueue.QueueError, ledger.LedgerError, OSError, UnicodeError):
+    except (workqueue.QueueError, OSError, UnicodeError):
         rows = []
     cutoff = datetime.datetime.now(datetime.timezone.utc).timestamp() - 30 * 86400
     imported = None
@@ -411,12 +410,8 @@ def export_items(p: config.Paths, queue: Path | None = None) -> list[Item]:
                 continue
         except OSError:
             continue
-        try:
-            unsafe = ledger.screen(folder.name, ledger.register_path(p), candidates=False)
-        except ledger.LedgerError:
-            unsafe = True
-        if unsafe or any(ord(c) < 32 or ord(c) == 127 for c in str(folder)):
-            out.append(Item("?", ledger.WITHHELD, WHERE_TERMINAL, kind="export"))
+        if any(ord(c) < 32 or ord(c) == 127 for c in str(folder)):
+            out.append(Item("?", "[withheld]", WHERE_TERMINAL, kind="export"))
             continue
         code = _export_code(folder, rows)
         directory = shlex.quote(str(folder))
@@ -581,8 +576,7 @@ def doc_host_lines() -> list[str]:
 
 def notes(path: Path | None = None, now: datetime.datetime | None = None, p: config.Paths | None = None
           ) -> list[str]:
-    """The lines that tell him something without waiting on him: the weekly publish of the last 24 hours, after the
-    name check (a line with a hit or a check that cannot run gives nothing), and the documentation hosts added on
+    """The lines that tell him something without waiting on him: the weekly publish of the last 24 hours and the documentation hosts added on
     the host and on a Monday the five lines of the counted frictions of the week before (Q-0024, awb/ux.py)."""
     return _publish_notes(path, now, p) + doc_host_lines() + _ux_lines(now, p)
 
@@ -596,8 +590,6 @@ def _ux_lines(now: datetime.datetime | None, p: config.Paths | None) -> list[str
 
 
 def _publish_notes(path: Path | None, now: datetime.datetime | None, p: config.Paths | None) -> list[str]:
-    from awb import ledger
-
     state = _dataset_state(path)
     if state.get("state") != "published":
         return []
@@ -609,11 +601,6 @@ def _publish_notes(path: Path | None, now: datetime.datetime | None, p: config.P
         return []
     now = now or datetime.datetime.now(datetime.timezone.utc)
     if not datetime.timedelta(0) <= now - at <= datetime.timedelta(hours=NOTE_HOURS):
-        return []
-    try:
-        if ledger.hit_indexes([line], ledger.register_path(p or config.paths())):
-            return []
-    except ledger.LedgerError:
         return []
     return [line]
 
@@ -742,10 +729,10 @@ def decide(items: list[Item], view: str = "decisions", code: str | None = None) 
 def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path | None = None,
             view: str = "decisions", code: str | None = None, record: bool = False,
             now: datetime.datetime | None = None) -> tuple[list[Item], int]:
-    """The items of VIEW (see `decide`) after the name check, and the count of parked projects. With RECORD the
+    """The items of VIEW (see `decide`) and the count of parked projects. With RECORD the
     items of every view go into the wait history (awb/ownerwaits.py) first and each item carries its hours; a history
     that cannot be written leaves the items without hours."""
-    from awb import devask, ledger, projects
+    from awb import devask, projects
 
     p = p or config.paths()
     items, parked = open_items(p)
@@ -768,32 +755,9 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     for it in items:
         if it.kind != "done" and it.text.lower().startswith(_DEV_START):
             it.kind = "dev"
-    texts = []
-    for it in items:
-        texts += [it.text, it.block or "", it.label, it.app, it.source, it.extra, it.where]
-    checked = True
-    try:
-        hidden = ledger.hit_indexes(texts, ledger.register_path(p))
-    except ledger.LedgerError:
-        hidden = set(range(len(texts)))
-        checked = False
-    for n, it in enumerate(items):
-        if {7 * n, 7 * n + 1, 7 * n + 2, 7 * n + 4, 7 * n + 5, 7 * n + 6} & hidden:
-            it.text, it.block = ledger.WITHHELD, None
-            it.has_default = False
-            if it.kind == "kept":
-                it.kind = ""
-            it.extra = ""
-            if 7 * n + 6 in hidden:
-                it.where = ""
-            if 7 * n + 2 in hidden:
-                it.label = "?"
-        if 7 * n + 3 in hidden:
-            it.app = ledger.WITHHELD
     if record:
-        # with no name check every label is "?" and every wait would close and open again: nothing is recorded
         global LAST_RECORD
-        LAST_RECORD = record_waits(p, items, online, now) if checked else "not recorded: the name check cannot run"
+        LAST_RECORD = record_waits(p, items, online, now)
     return decide(items, view, code), parked
 
 
@@ -820,18 +784,6 @@ def record_waits(p: config.Paths, items: list[Item], skip: list[Item] = (),
     open_n = sum(1 for e in entries if e["end"] is None)
     return "%d open, %d closed in %d days; board summary %s" % (
         open_n, len(entries) - open_n, ownerwaits.KEEP_DAYS, "written" if shared else "not written")
-
-
-def check_ran(p: config.Paths | None = None) -> bool:
-    """True when the name check can run now (the mail is sent only then)."""
-    from awb import ledger
-
-    p = p or config.paths()
-    try:
-        ledger.hit_indexes(["probe"], ledger.register_path(p))
-    except ledger.LedgerError:
-        return False
-    return True
 
 
 def count(items: list[Item]) -> int:
@@ -888,25 +840,16 @@ def fit(lines: list[str], limit: int = MAIL_MAX) -> str:
 
 def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, runs: Path | None = None) -> str:
     """The daily mail (the owner's timer, 08:00 Europe/Berlin): the list through the key service's notify, the way
-    `mail_owner_commands` sends. Nothing is sent for an empty list or when the name check cannot run. Returns a word:
+    `mail_owner_commands` sends. Nothing is sent for an empty list. Returns a word:
     "sent", "empty" or "not sent: why"."""
     p = p or config.paths()
-    if not check_ran(p):
-        return "not sent: the name check cannot run"
     items, parked = collect(p, queue, runs)
     note_lines = notes(p=p)
     if not items and not note_lines:
         return "empty"
     if send is None:
         return "not sent: no mail path"      # `awb owner status --mail` (awb/tcp/owner.py) passes the key service's
-    from awb import ledger
-
     body = fit(render(items, parked, note_lines))
-    try:
-        if ledger.hit_indexes([body], ledger.register_path(p)):
-            return "not sent: the mail is withheld"
-    except ledger.LedgerError:
-        return "not sent: the name check cannot run"
     subject = ("Workbench: %d item%s wait on you" % (count(items), "" if count(items) == 1 else "s") if items
                else "Workbench: nothing waits on you, %d note%s" % (len(note_lines), "" if len(note_lines) == 1 else "s"))
     try:

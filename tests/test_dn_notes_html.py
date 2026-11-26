@@ -180,13 +180,15 @@ def test_a_note_lands_in_the_project_and_the_prompt_shows_it_once(home, register
 
 def test_a_note_with_a_secret_or_without_a_title_is_refused(home, register_path, capsys):
     pr = spawn(home, register_path)
-    with pytest.raises(devnote.NoteError, match="secret"):
-        devnote.write(home, pr.code, "keys", "the key is " + "-----BEGIN" + " RSA PRIVATE KEY-----\nabc\n")
+    # B-088: no content check inside, a note with a key block is written as written
+    key = "the key is " + "-----BEGIN" + " RSA PRIVATE KEY-----\nabc\n"
+    note = devnote.write(home, pr.code, "keys", key)
+    assert "RSA PRIVATE KEY" in note.read_text(encoding="utf-8")
     with pytest.raises(devnote.NoteError, match="--title"):
         devnote.write(home, pr.code, "  ", "text")
     with pytest.raises(devnote.NoteError, match="not a registered project"):
         devnote.write(home, "tcp-zzzz", "t", "text")
-    assert not (Path(pr.path) / devnote.FOLDER).exists() or not any((Path(pr.path) / devnote.FOLDER).iterdir())
+    assert [f.name for f in (Path(pr.path) / devnote.FOLDER).iterdir()] == [note.name]
 
 
 # --------------------------------------------------------------------------- the work rules

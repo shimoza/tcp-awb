@@ -82,7 +82,8 @@ def test_waiting_text_is_checked_and_capped(world, monkeypatch):
     for result in answers(world, text * 7):
         waiting = result["waiting"]
         assert waiting["total"] == 7 and len(waiting["items"]) == 5
-        fixtures.assert_no_fixture_name(json.dumps(result))
+        # B-088: the console runs no content check, so the name is shown as written
+        assert fixtures.PERSON_FORMS[0] in json.dumps(result)
 
 
 def test_api_check_and_answers_include_the_new_contract(world):

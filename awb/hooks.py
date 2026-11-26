@@ -1144,7 +1144,7 @@ def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = No
         row = next((r for r in projects.load(p) if r.code == code), None)
         done = "%s: %d commit(s): %s" % (code, len(subjects), "; ".join(reversed(subjects)))
         try:
-            # DMZ 2: the draft is written without the ledger's text screen (that screen goes in B-088)
+            # the ledger keeps no text screen (DMZ 4); the writer is called as ledger.add calls it
             entry = ledger.make_entry(
                 kind="other", done=done[:ledger.MAX_TEXT], project=code,
                 customer=None if row is None or row.customer == projects.NO_CUSTOMER else row.customer,

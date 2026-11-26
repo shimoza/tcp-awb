@@ -60,7 +60,6 @@ _CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _REF_RE = re.compile(r"^(?:(?P<alias>[a-z][a-z0-9-]{1,30})/)?(?P<handle>(?:ecs|evs|eip)-\d{1,6})$")
 _NOTE_RE = re.compile(r"^[A-Za-z0-9 .,:;_/()#+'-]{1,200}$")
-_ID_LIKE_RE = re.compile(r"[0-9a-fA-F]{16,}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-")
 _DISK_RE = re.compile(r"^(\d+(?:\.\d+)?) GB ?(\S*)$")
 _STOPPED = _sweep.IDLE_STATES["ecs"]
 _UNBOUND = _sweep.IDLE_STATES["eip"]
@@ -113,16 +112,6 @@ def check_note(text: str) -> str:
     text = " ".join((text or "").split())
     if not _NOTE_RE.match(text):
         raise CostError("a note is up to 200 letters, digits, blanks and . , : ; _ / ( ) # + ' -")
-    if _ID_LIKE_RE.search(text):
-        raise CostError("a note carries no id: name the item by its handle")
-    from awb import gate
-
-    try:
-        rx = gate.blocklist_re()
-    except gate.GateError as err:
-        raise CostError(str(err)) from None
-    if rx is not None and rx.search(text):
-        raise CostError("the note matches the local blocklist: write codes, not names")
     return text
 
 

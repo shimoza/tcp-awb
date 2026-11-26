@@ -129,10 +129,7 @@ def _read_regular(path, *, dir_fd=None) -> bytes:
 
 
 def goal_of(path: str | os.PathLike) -> str:
-    """The goal of a plain SCOPE.md, empty if unreadable, with secrets withheld before display.
-
-    Callers must still check registered names against their current register.
-    """
+    """The goal of a plain SCOPE.md as written, empty if unreadable. No content check inside (DMZ 4)."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
@@ -143,28 +140,8 @@ def goal_of(path: str | os.PathLike) -> str:
         return ""
     for line in text.splitlines():
         if line.startswith("- goal:"):
-            from awb import ledger
-
-            goal = " ".join(line[len("- goal:"):].split())
-            try:
-                if _goal_shows_secret(goal):
-                    return ledger.WITHHELD
-            except Exception:  # LedgerError or a broken detector: never a clean result
-                return ledger.WITHHELD
-            return goal
+            return " ".join(line[len("- goal:"):].split())
     return ""
-
-
-def _goal_shows_secret(goal: str) -> bool:
-    """A goal is prose. Beyond the gate's pattern findings (a dict of counts, zero when clean), any value under
-    a key that names a secret and any token-prefixed run is withheld, even a low-entropy one the gate lets pass."""
-    from awb import gate, ledger
-
-    if any(ledger._pattern_counts(goal).values()):
-        return True
-    if any(gate._key_is_secret(key) and value.strip() for key, value, _, _ in gate._assignments(goal)):
-        return True
-    return any(rx.search(goal) for rx in gate._TOKEN_PATTERNS)
 
 
 def short_goal(goal: str, width: int = GOAL_WIDTH) -> str:
@@ -325,42 +302,6 @@ _locked = locked
 
 # --- checks on what goes into a project -------------------------------------------------------------------
 
-def _word_checks(text: str, what: str) -> None:
-    """Refuse what the owner's blocklist matches (gate.BLOCKLIST_FILES). `what` names the field, never its value."""
-    from awb import gate
-
-    rx = gate.blocklist_re()
-    if rx is not None and rx.search(text):
-        raise ProjectError("%s refused: it matches the blocklist" % what)
-
-
-def _name_check(check_text, text: str, register_path: Path, what: str) -> None:
-    """Refuse any hit of the name check: a registered name or structured data. Classes and counts only."""
-    try:
-        hits = check_text(text, register_path)
-    except _register.RegisterError:
-        raise ProjectError("%s refused: the register cannot be read" % what) from None
-    if hits:
-        counts: dict[str, int] = {}
-        for h in hits:
-            cls = h.get("cls", "unknown") if isinstance(h, dict) else "unknown"
-            counts[cls] = counts.get(cls, 0) + 1
-        detail = ", ".join("%s %d" % (c, n) for c, n in sorted(counts.items()))
-        raise ProjectError("%s refused by the name check (%s)" % (what, detail))
-
-
-def _candidate_check(text: str, what: str) -> None:
-    """Refuse a text that looks like it carries a name that is not in the register (the strong intake rules
-    only: ordinary capitalised words in a goal are fine). Counts only, never the candidate."""
-    from awb import intake as _intake
-    from awb import normalize as _normalize
-
-    found = _intake.unknown_candidates(_normalize.normalize(text).text, [], rules=_intake.STRONG_RULES)
-    if found:
-        raise ProjectError("%s refused: it looks like it carries %d name(s) that are not in the register; "
-                           "register them in the vault or reword" % (what, len(found)))
-
-
 def _clean_goal(goal) -> str:
     if not isinstance(goal, str):
         raise ProjectError("goal must be text")
@@ -402,24 +343,6 @@ def _readable_here(check_mod, register_path: Path) -> bool:
         return not path.exists() and _register.encrypted_path(path).is_file()
     except OSError:
         return False
-
-
-def _require_name_check(check_mod, register_path: Path) -> None:
-    """Refuse before anything is written when names cannot be checked: no register at all or a register that
-    cannot be read here while the vault daemon does not answer or is locked."""
-    try:
-        source, _ = check_mod.register_source(register_path)
-    except _register.RegisterError:
-        raise ProjectError("the register cannot be read, the name check cannot run, nothing was created") from None
-    if source == check_mod.MISSING:
-        raise ProjectError("the register is missing, the name check cannot run, nothing was created")
-    if source == check_mod.REMOTE:
-        try:
-            check_mod.RemoteCheck(check_mod.remote_socket()).ping()
-        except _register.RegisterError as err:   # check.CheckUnavailable, a value-free reason
-            raise ProjectError("the register is missing or unreadable here and the %s, nothing was created"
-                               % str(err).replace("name check unavailable: ", "name check is unavailable: ")) \
-                from None
 
 
 def _check_customer(customer, register_path: Path, p: _config.Paths | None = None, check_mod=None) -> str:
@@ -859,36 +782,19 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
         raise ProjectError("a tenant alias reads like test-1 and belongs to a project, not a query")
     goal = _clean_goal(goal)
     tags = _clean_tags(tags)
-    _word_checks(goal, "goal")
-    for n, tag in enumerate(tags, start=1):
-        _word_checks(tag, "tag %d" % n)
-    known = known_tags()            # after the word checks: a blocklist hit is refused as that, first
+    known = known_tags()
     for n, tag in enumerate(tags, start=1):
         if tag not in known:
             raise ProjectError("tag %d is not in rules/tags.txt; add it there first" % n)
     try:
         from awb import check as _check_mod
-        check_text = _check_mod.check_text
-    except (ImportError, AttributeError):
-        try:
-            missing = not Path(register_path).is_file()
-        except OSError:          # the work user may not even look into the owner's vault
-            missing = False
-        if missing:
-            raise ProjectError("the register is missing, the name check cannot run, nothing was created") from None
-        raise ProjectError("the name check is not available, nothing was created") from None
-    # a readable register, an encrypted one through the vault daemon or (the work side of the seal) the check
-    # socket of the daemon; no register at all or no answer refuses
-    _require_name_check(_check_mod, register_path)
+    except ImportError:          # no name check is run here: the customer code is looked up in the register alone
+        _check_mod = None
     if new_customer:
         if not (isinstance(customer, str) and customer != NO_CUSTOMER and _is_customer(customer)):
             raise ProjectError("customer must be a top-level CUST code")
     else:
         customer = _check_customer(customer, register_path, p, _check_mod)
-    _name_check(check_text, goal, register_path, "goal")
-    _candidate_check(goal, "goal")
-    for n, tag in enumerate(tags, start=1):
-        _name_check(check_text, tag, register_path, "tag %d" % n)
     if not RULES_FILE.is_file():
         raise ProjectError("the Workbench rules file is missing, nothing was created")
     waiting: list[Path] = []
@@ -924,11 +830,6 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
         }
         if files["CLAUDE.md"].count("\n") > MAX_CLAUDE_LINES:
             raise ProjectError("CLAUDE.md would be longer than %d lines" % MAX_CLAUDE_LINES)
-        # the final check: every generated text passes the same checks as the goal before a byte is written
-        for name, text in files.items():
-            _word_checks(text, name)
-            _name_check(check_text, text, register_path, name)
-
         p.projects_root.mkdir(parents=True, exist_ok=True)
         try:
             folder.mkdir(mode=0o750)
@@ -950,8 +851,8 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
             _git(folder, "config", "user.name", _GIT_NAME)
             _git(folder, "config", "user.email", _GIT_EMAIL)
             # every commit of the project goes through the gate, its self-test first; the hook is there before the
-            # first git add, so a spawn that carries outbox copies commits them through it. The spawn's own texts
-            # passed the checks above and commit without the hook. A project without the gate is not created.
+            # first git add, so a spawn that carries outbox copies commits them through it. A project without the
+            # gate is not created.
             from awb import gate as _gate
             try:
                 _gate.install_hook(folder)
@@ -1161,14 +1062,8 @@ def mail_owner_commands(p: _config.Paths, folder: Path, send=None) -> int:
     sent = 0
     items = _owner_items(text)
     from awb import ledger
-    try:                        # the name check over item and command; a check that cannot run mails nothing
-        hidden = ledger.hit_indexes(items, ledger.register_path(p))
-    except ledger.LedgerError:
-        return 0
-    for i, item in enumerate(items):
+    for item in items:
         cmd = mailable_command(item)
-        if i in hidden:
-            continue
         key = hashlib.sha256(item.encode("utf-8")).hexdigest()[:16]
         if cmd is None or key in done:
             continue
@@ -1291,7 +1186,6 @@ def _clean_reason(reason) -> str:
         raise ProjectError("reason is longer than %d characters" % MAX_REASON)
     if not _REASON_RE.fullmatch(reason):
         raise ProjectError("reason takes letters, digits, spaces and . , ; : ( ) / + - only")
-    _word_checks(reason, "reason")
     return reason
 
 
@@ -1562,9 +1456,8 @@ def _owner_items(text: str) -> list[str]:
 
 def waiting(p: _config.Paths) -> list[dict]:
     """Every active project in register order with the Next: line of STATE.md and the owner items of OPEN.md (P4 of
-    F3), after the name check as `awb projects list` checks the goals: a text with a hit is withheld and so is every text
-    when the check cannot run."""
-    from awb import ledger, status
+    F3), as written."""
+    from awb import status
 
     rows = []
     for r in load(p):
@@ -1581,18 +1474,6 @@ def waiting(p: _config.Paths) -> list[dict]:
             items = []
         rows.append({"code": r.code, "kind": r.kind, "customer": r.customer, "next": nxt,
                      "owner": items[:WAITING_ITEMS], "more": max(0, len(items) - WAITING_ITEMS)})
-    texts = [t for row in rows for t in [row["next"] or ""] + row["owner"]]
-    try:
-        hidden = ledger.hit_indexes(texts, ledger.register_path(p))
-    except ledger.LedgerError:
-        hidden = set(range(len(texts)))
-    n = 0
-    for row in rows:
-        if n in hidden and row["next"]:
-            row["next"] = ledger.WITHHELD
-        n += 1
-        row["owner"] = [ledger.WITHHELD if n + i in hidden else t for i, t in enumerate(row["owner"])]
-        n += len(row["owner"])
     return rows
 
 
@@ -1652,8 +1533,6 @@ def hold_note(p: _config.Paths, code: str, title: str | None, text: str, after: 
     title = _devnote.clean_title(title or "development note")
     if not text.strip() or len(text.encode("utf-8")) > _devnote.MAX_TEXT:
         raise ProjectError("the note must be nonempty and at most %d bytes" % _devnote.MAX_TEXT)
-    _devnote._secret_check(title, "title")
-    _devnote._secret_check(text, "note")
     pr = _devnote._project(p, code)
     root = Path(pr.path)
     folder = root / _devnote.FOLDER

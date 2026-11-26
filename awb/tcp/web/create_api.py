@@ -249,20 +249,14 @@ class ProjectStore:
                 if item < 0 or item >= len(items):
                     return 409, {"error": DEFAULT_REFUSED}, "refused"
                 selected = items[item]
-                reg = ledger.register_path(p)
-                ledger.ensure_checkable(reg)
-                if ledger.screen(selected, reg):
-                    return 409, {"error": DEFAULT_REFUSED}, "refused"
                 receipt = "owner-default sha256 " + hashlib.sha256(selected.encode("utf-8")).hexdigest()
                 previous = next((entry for entry in ledger.load(p)
                                  if entry.project == code and entry.outcome == receipt), None)
                 if previous is not None:
                     return 200, {"code": code, "item": item, "note": previous.deliverables[0],
                                  "taken": False}, "already-taken"
-                # Check the ledger text before creating a note, so a refused check writes nothing.
                 entry = ledger.make_entry(kind="other", done="the owner takes the default of an item",
                                           project=code, outcome=receipt)
-                ledger.check_entry(entry, reg)
                 text = "the owner takes the default of item: " + ownerwait._short(selected)[:110]
                 note = devnote.write(p, code, "owner default", text)
                 handle = devnote.FOLDER + "/" + note.name

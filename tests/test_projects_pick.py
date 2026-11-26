@@ -77,7 +77,8 @@ def test_a_next_line_with_a_registered_name_is_withheld(home, two, capsys):
     state.write_text(state.read_text(encoding="utf-8").replace("Compare the retrieval fees.",
                                                                "Call %s." % fx.CUSTOMER_FORMS[0]), encoding="utf-8")
     rows = projects.waiting(home)
-    assert fx.CUSTOMER_FORMS[0] not in "\n".join(projects.waiting_lines(rows))
+    # B-088: no content check inside, the Next line is listed as written
+    assert fx.CUSTOMER_FORMS[0] in "\n".join(projects.waiting_lines(rows))
 
 
 def test_no_active_project_says_so(home, monkeypatch, capsys):

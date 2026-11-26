@@ -180,7 +180,9 @@ def test_the_waste_groups_and_an_item_with_a_note_is_in_none_of_them(home, tenan
     assert tenants.main(["cost", "note", kept, "kept by the owner: an old-world project to move"]) == 0
     assert tenants.main(["cost", "note", "test-1/" + handle(home, IP), "the address of a demo"]) == 0
     assert tenants.main(["cost", "note", "test-1/ecs-99", "nothing"]) == 1
-    assert tenants.main(["cost", "note", kept, "ask " + fixtures.PERSON_CODE + " id " + "ab" * 16]) == 1
+    # DMZ 4: a note takes a code and an id as written (no content check inside), only its character set is kept
+    assert tenants.main(["cost", "note", handle(home, SID["win"]), "ask " + fixtures.PERSON_CODE + " id " + "ab" * 16]) == 0
+    assert tenants.main(["cost", "note", kept + "x", "a note"]) == 1
     notes = (tenantcost.notes_path(home)).read_text(encoding="utf-8").splitlines()
     assert notes[0] == "handle\tnote\tdate" and notes[1].startswith("test-1/%s\tkept by the owner" % kept)
     cost = tenantcost.estimate(home, fetcher=Prices(), now=NOW)

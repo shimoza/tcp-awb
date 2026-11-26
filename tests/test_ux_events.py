@@ -128,7 +128,9 @@ def test_the_prompt_hook_makes_no_vault_call_for_the_count(world, monkeypatch):
     def refuse(*a, **k):
         raise AssertionError("the count called the name check")
 
-    monkeypatch.setattr(ledger, "screen", refuse)
+    from awb import check
+
+    monkeypatch.setattr(check, "check_text", refuse)
     monkeypatch.setattr(ledger, "hit_indexes", refuse)
     assert ux.hook_event("prompt", {"prompt": "go on", "cwd": str(pr.path)}) == "nudge"
     assert rows(home)[0][4] == "nudge"
@@ -241,10 +243,11 @@ def test_awb_ux_note_refuses_a_registered_name_and_writes_nothing(world, monkeyp
     home, pr = world
     monkeypatch.chdir(pr.path)
     capsys.readouterr()
-    assert cli.main(["ux", "note", "the export for %s waited" % fx.CUSTOMER_FORMS[0]]) == 2
+    # DMZ 4 (B-088): a note is written as written, with a registered name in it
+    assert cli.main(["ux", "note", "the export for %s waited" % fx.CUSTOMER_FORMS[0]]) == 0
     out = capsys.readouterr()
-    fx.assert_no_fixture_name(out.out + out.err)
-    assert rows(home) == []
+    assert out.err == ""
+    assert [r[4] for r in rows(home)] == ["note"] and fx.CUSTOMER_FORMS[0] in rows(home)[0][5]
 
 
 def test_awb_ux_note_refuses_an_empty_note(world, capsys):

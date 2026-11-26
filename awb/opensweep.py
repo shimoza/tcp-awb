@@ -219,8 +219,6 @@ def sweep(root: Path) -> str:
     code = _code(root)
     items = parse(_read_file(root / "OPEN.md"))
     proof = evidence(root)
-    reg = ledger.register_path()
-    ledger.ensure_checkable(reg)
     rows = ["%s: %d open owner items" % (code, len(items)),
             "| N | age | text | default | evidence |", "|---|---|---|---|---|"]
     day = today()
@@ -228,12 +226,9 @@ def sweep(root: Path) -> str:
         age = "%dd" % (day - item.day).days if item.day else "unknown"
         text, default = item.text, item.default
         receipt = proof.get(_key(default), "")
-        # Check again on every display: the register can grow after the item was written.
-        if (any(unicodedata.category(c) in ("Cc", "Cf") and c != "\t" for c in text + default)
-                or ledger.screen(text + "\n" + default, reg)):
+        # shown as written (DMZ 4): only a control character is withheld, where a table line needs it
+        if any(unicodedata.category(c) in ("Cc", "Cf") and c != "\t" for c in text + default):
             text, default, receipt = "[withheld]", "[withheld]", ""
-        elif receipt and ledger.screen(receipt, reg):
-            receipt = ""
         shown = "taken (%s)" % receipt if receipt else ""
         rows.append("| %d | %s | %s | %s | %s |" % (n, age, _cell(text), _cell(default), shown))
     return "\n".join(rows)
@@ -319,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     except OpenError as exc:
         print("awb open: %s" % exc, file=sys.stderr)
     except ledger.LedgerError:
-        print("awb open: ledger operation refused or name check unavailable (possibly no register)", file=sys.stderr)
+        print("awb open: the ledger entry could not be written", file=sys.stderr)
     except (OSError, UnicodeError):
         print("awb open: project data could not be read or written", file=sys.stderr)
     return 2

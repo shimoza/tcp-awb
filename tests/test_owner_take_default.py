@@ -197,9 +197,10 @@ def test_unsafe_item_is_refused_without_repeating_its_text(action):
     _, _, root, _, _, post = action
     (root / "OPEN.md").write_text("## Waiting on the owner\n- owner: " + fx.PERSON_FORMS[0] + "\n")
     status, _, raw = post(0)
-    assert status == 409
-    fx.assert_no_fixture_name(raw.decode())
-    assert artifacts(action) == ([], [])
+    # B-088: the item is taken as written, no content check inside
+    assert status == 200
+    notes, entries = artifacts(action)
+    assert len(notes) == len(entries) == 1
 
 
 def test_concurrent_calls_write_only_one_note_and_ledger_line(action):

@@ -387,12 +387,11 @@ def _session_digest(sid: str) -> str:
 
 
 def _session_id(sid) -> str:
-    """Keep ordinary checked ids, hash unsafe ids without truncation or lossy cleaning."""
-    from awb import side
-
+    """Keep ordinary ids as written (no content check inside, DMZ 4), hash the others without truncation or lossy
+    cleaning."""
     if not isinstance(sid, str) or not sid:
         return ""
-    if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid) and not sid.startswith("sha256-") and side._safe(sid):
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", sid) and not sid.startswith("sha256-"):
         return sid
     return _session_digest(sid)
 

@@ -208,6 +208,7 @@ def test_a_line_left_without_its_end_does_not_swallow_the_next(home):
 @pytest.mark.parametrize("form", [fixtures.CUSTOMER_FORMS[0], fixtures.CUSTOMER_FORMS[1].lower(),
                                   fixtures.PERSON_FORMS[0], fixtures.ORG_FORMS[1]])
 def test_a_fixture_form_in_a_text_is_refused_without_echo(home, capsys, option, what, form):
+    """DMZ 4: no content check inside, a registered name in any text is written as written."""
     args = ["ledger", "add", "--kind", "proof", "--done", "Sized the landing zone", "--date", "2026-09-22"]
     value = "Workshop with %s about the landing zone" % form
     if option == "--done":
@@ -215,10 +216,10 @@ def test_a_fixture_form_in_a_text_is_refused_without_echo(home, capsys, option, 
     else:
         args += [option, value]
     code, out, err = run(args, capsys)
-    assert code == 1
-    assert "%s refused" % what in err and "name 1" in err
-    fixtures.assert_no_fixture_name(out + err, "ledger output")
-    assert all_ledger_lines(home) == []
+    assert code == 0, err
+    assert err == ""
+    [line] = all_ledger_lines(home)
+    assert value in line
 
 
 @pytest.mark.parametrize("text,cls", [
@@ -226,12 +227,12 @@ def test_a_fixture_form_in_a_text_is_refused_without_echo(home, capsys, option, 
     ("used the list of CLI" + "ENT3 from the notes", "blocklist"),
 ])
 def test_structured_data_and_blocked_words_are_refused(home, capsys, text, cls):
+    """DMZ 4: a mail address and a word of the owner's blocklist are written as written."""
     code, out, err = run(["ledger", "add", "--kind", "other", "--done", "Sent the offer", "--outcome", text],
                          capsys)
-    assert code == 1
-    assert "outcome refused" in err and cls in err
-    assert text not in err and "CUSTOMER" not in err
-    assert all_ledger_lines(home) == []
+    assert code == 0, err
+    assert err == ""
+    assert json.loads(all_ledger_lines(home)[0])["outcome"] == text
 
 
 @pytest.mark.parametrize("option,value", [
@@ -283,16 +284,18 @@ def test_a_name_check_that_cannot_run_refuses_the_entry(home, capsys):
         code, out, err = run(["ledger", "add", "--kind", "proof", "--done", "Sized the landing zone"], capsys)
     finally:
         os.chmod(home.register, 0o600)
-    assert code == 2
-    assert "name check unavailable" in err
-    assert all_ledger_lines(home) == []
+    # DMZ 4: the ledger needs no name check, so one that cannot run stops nothing
+    assert code == 0, err
+    assert err == ""
+    assert len(all_ledger_lines(home)) == 1
 
 
 def test_a_vault_folder_without_a_register_refuses(home, capsys):
     home.register.unlink()
     code, out, err = run(["ledger", "add", "--kind", "proof", "--done", "Sized the landing zone"], capsys)
-    assert code == 2 and "names cannot be checked" in err
-    assert all_ledger_lines(home) == []
+    # DMZ 4: no register is needed to write a ledger line
+    assert code == 0 and err == ""
+    assert len(all_ledger_lines(home)) == 1
 
 
 # --------------------------------------------------------------------------- list
@@ -546,9 +549,9 @@ def test_a_text_with_a_name_registered_later_is_withheld(home, capsys):
                  ["ledger", "list"]):
         code, out, err = run(argv, capsys)
         assert code == 0, err
-        assert fixtures.CONTROL_UNREGISTERED not in out + err
-        assert ledger.WITHHELD in out and "Clean outcome" in out
-        assert "1 texts withheld" in err
+        # DMZ 4: shown as written, a name registered later changes nothing
+        assert fixtures.CONTROL_UNREGISTERED in out and "Clean outcome" in out
+        assert ledger.WITHHELD not in out and err == ""
 
 
 def test_report_errors_and_the_empty_report(home, capsys):
@@ -584,22 +587,12 @@ def test_an_entry_in_the_wrong_week_file_is_refused(home):
 
 
 def test_a_ledger_line_with_a_name_shaped_candidate_is_refused_with_a_reword_hint(home, capsys):
-    """TM0 item 11: the planted line `call with <first> <last>` is refused with the class and the reword hint; the
-    same words of the allowed terms pass."""
-    from awb import intake
-
-    with pytest.raises(ledger.Refused) as err:
-        ledger.add("other", "call with %s about the sizing" % fixtures.FIRST_LAST, day="2026-09-22", p=home)
-    text = str(err.value)
-    assert "candidate-person" in text and "reword it" in text and "rules/allowed-terms.txt" in text
-    assert fixtures.FIRST_LAST not in text and not ledger.load(home)
+    """TM0 item 11, then DMZ 4: the line `call with <first> <last>` is written as written, with no candidate rule and
+    no reword hint."""
+    entry = ledger.add("other", "call with %s about the sizing" % fixtures.FIRST_LAST, day="2026-09-22", p=home)
+    assert entry.done == "call with %s about the sizing" % fixtures.FIRST_LAST
     code, _, err_ = run(["ledger", "add", "--kind", "other", "--done", "call with %s" % fixtures.FIRST_LAST], capsys)
-    assert code != 0 and "reword it" in err_ and fixtures.FIRST_LAST not in err_
-    ledger.add("other", "Sizing of the two clusters", day="2026-09-22", p=home)
-    allowed = intake._SHORT_ALLOWED | set(fixtures.FIRST_LAST.casefold().split())
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(intake, "_SHORT_ALLOWED", allowed)
-        ledger.add("other", "call with %s about the sizing" % fixtures.FIRST_LAST, day="2026-09-22", p=home)
+    assert code == 0 and err_ == ""
     assert len(ledger.load(home)) == 2
 
 
@@ -768,10 +761,13 @@ def test_review_check_errors_never_echo_dependency_values(home, monkeypatch, ent
         raise check.CheckUnavailable(private)
 
     monkeypatch.setattr(check, "register_source" if entrypoint == "source" else "check_text", broken)
+    if entrypoint == "screen":
+        # DMZ 4: the ledger has no screen: a failing name check never reaches an add
+        assert not hasattr(ledger, "screen")
+        assert ledger.add("code", "plain", p=home).done == "plain"
+        return
     with pytest.raises(ledger.LedgerError) as exc:
-        if entrypoint == "screen":
-            ledger.screen("plain", home.register)
-        elif entrypoint == "batch":
+        if entrypoint == "batch":
             ledger.hit_indexes(["plain"], home.register)
         else:
             ledger.ensure_checkable(home.register)
@@ -784,8 +780,9 @@ def test_review_check_class_is_not_untrusted_output(home, monkeypatch, capsys):
 
     private = "pass" + "word=fixture-" + "value"
     monkeypatch.setattr(check, "check_text", lambda *args: [{"cls": private}])
+    # DMZ 4: the add calls no name check, so what a check says never reaches its output
     code, out, err = run(["ledger", "add", "--kind", "code", "--done", "plain"], capsys)
-    assert code == 1 and private not in out + err
+    assert code == 0 and private not in out + err
 
 
 @pytest.mark.parametrize("failure", ["missing", "broken"])
@@ -796,10 +793,12 @@ def test_review_detectors_fail_closed(home, monkeypatch, failure):
         raise RuntimeError("private detector detail")
 
     monkeypatch.setattr(gate, "DETECTORS", {} if failure == "missing" else dict(gate.DETECTORS, secret=broken))
-    with pytest.raises(ledger.LedgerError) as exc:
-        ledger.add("code", "plain", p=home)
-    assert "private detector detail" not in str(exc.value)
-    assert all_ledger_lines(home) == []
+    # DMZ 4: the add runs no detector; the detectors of the exit check still fail closed
+    assert ledger.add("code", "plain", p=home).done == "plain"
+    assert len(all_ledger_lines(home)) == 1
+    if failure == "missing":
+        with pytest.raises(ledger.LedgerError, match="pattern checks unavailable"):
+            ledger._detectors()
 
 
 @pytest.mark.parametrize("encoding", ["plain", "entities", "base64"])
@@ -809,9 +808,9 @@ def test_review_secret_views_are_refused_on_add(home, encoding):
     private = "pass" + "word=" + "r7Q9" + "m2L8" + "v4S6" + "z1B3"
     text = {"plain": private, "entities": private.replace("a", "&#97;"),
             "base64": base64.b64encode(private.encode()).decode()}[encoding]
-    with pytest.raises(ledger.Refused):
-        ledger.add("code", text, p=home)
-    assert all_ledger_lines(home) == []
+    # DMZ 4: a secret shaped text is written as written
+    assert ledger.add("code", text, p=home).done == text
+    assert len(all_ledger_lines(home)) == 1
 
 
 @pytest.mark.parametrize("field", ["done", "outcome", "deliverables", "open", "tags"])
@@ -821,8 +820,9 @@ def test_review_stored_private_fields_never_reach_list_or_report(home, capsys, f
     for argv in (["ledger", "list"], ["report", "--by", "tech"], ["report", "--by", "kind", "--format", "html"]):
         code, out, err = run(argv, capsys)
         assert code == 0, err
-        assert private not in out + err
-        assert ledger.WITHHELD in out
+        # DMZ 4: a stored text is shown as written
+        assert private in out and err == ""
+        assert ledger.WITHHELD not in out
 
 
 @pytest.mark.parametrize("bad", ["surrogate", "nested", "duplicate"])
@@ -956,11 +956,7 @@ def test_review_malformed_check_replies_fail_closed(monkeypatch, reply):
 
 
 def test_review_withheld_tags_do_not_duplicate_report_rows(home, monkeypatch):
-    from awb import check
-
-    monkeypatch.setattr(check, "check_text", lambda text, reg: [{"cls": "name"}] if "ecs" in text or "elb" in text else [])
+    """DMZ 4: nothing is withheld, the tags are the groups of the report and each row stays in its own group."""
     entry = ledger.Entry(date="2026-09-22", done="plain", tags=["ecs", "elb"])
-    masked, count = ledger.withhold([entry], home.register)
-    assert count == 2 and entry.tags == ["ecs", "elb"]
-    assert masked[0].tags == [ledger.WITHHELD, ledger.WITHHELD]
-    assert ledger.group(masked, "tech") == {ledger.WITHHELD: masked}
+    assert not hasattr(ledger, "withhold")
+    assert ledger.group([entry], "tech") == {"ecs": [entry], "elb": [entry]}

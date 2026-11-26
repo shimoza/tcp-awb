@@ -3,9 +3,8 @@
     <shared>/english/notes.jsonl   one line per note: {"date", "note", "sha"}
     awb english list [--month YYYY-MM]
 
-The stop hook takes the note from the last reply of the session transcript, runs the name check over it and keeps
-it only when nothing is found: a note quotes his own sentence, which can carry a name he typed. The same note is
-kept once. Once a month the list of that month is read to find the three mistakes that keep coming back, with the
+The stop hook takes the note from the last reply of the session transcript and keeps it as written (no content
+check inside). The same note is kept once. Once a month the list of that month is read to find the three mistakes that keep coming back, with the
 correct form (a session does that with `awb english list --month`).
 """
 from __future__ import annotations
@@ -65,11 +64,8 @@ def note_of(reply: str) -> str | None:
 
 
 def keep(p: config.Paths, note: str, day: datetime.date | None = None) -> bool:
-    """Append `note` unless it is kept already or the name check finds anything in it. True when appended."""
+    """Append `note` unless it is kept already. True when appended."""
     day = day or datetime.date.today()
-    found = ledger.screen(note, ledger.register_path(p))
-    if found:
-        return False
     sha = hashlib.sha256(note.encode("utf-8")).hexdigest()[:16]
     path = notes_file(p)
     if path.exists():
