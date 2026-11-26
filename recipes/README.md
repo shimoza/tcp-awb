@@ -158,10 +158,15 @@ holds the files it read. A create whose answer is lost is still looked up by its
 server. The dry run shows `<user_data of diskreader>`. A value the script is not made from stops the run as a recipe
 error.
 
-`${usertext:diskreader}` is the same script as plain text, for `user_data_text` of a server create: it carries
-`{{secret:obs-ak}}` and `{{secret:obs-sk}}`, which the key service fills with the key of the call (the lab key of the
-tenant) and sends as base64 `user_data`. The two names are no tenant secrets, so the run does not ask for them and they
-are allowed nowhere else. No answer of the run carries the user data of a server: a read shows a note of its length.
+A whole `${script:diskreader}` names the same script for `user_data_script` of a server create: the run sends
+`{"name": "diskreader", "params": {"bucket": ..., "region": ..., "volume": ..., "files": ...}}` from the same values
+(a value the script is not made from stops the run here too), never the text. The key service renders the script
+itself, checks each parameter by its pattern (the bucket one of the project, the region the one of the call), fills
+`{{secret:obs-ak}}` and `{{secret:obs-sk}}` with the key of the call (the lab key of the tenant) and sends it as
+base64 `user_data`. It never fills a text the run wrote: a `user_data_text` takes no reference and a `user_data` that
+carries one of the two names is refused (findings F1 and F2 of the attacker review of 2026-11-26). The two names are
+no tenant secrets, so the run does not ask for them. No answer of the run carries the user data of a server: a read
+shows a note of its length, and no lease of the tenant is given while such a server may still be there.
 
 A step or a teardown entry may carry `"confirm"`: the note that its API shape is not proven by a live call yet. The
 dry run, the list and the evidence show these notes, so the first live run says which shapes held.
@@ -298,8 +303,8 @@ confirm live". It reads the server with a GET on `cloudservers/ID` of the ECS se
 run is refused before its first create), the AZ, the system volume (the first of
 `os-extended-volumes:volumes_attached`, `bootIndex` 0) with its device name and the VPC and the `os-interface` path
 under it for the subnet. It then makes the bucket, a security group without an inbound rule and the reader (`adminPass`
-is `{{random:password}}`, nobody logs in; `user_data_text` is
-`${usertext:diskreader}`), detaches the volume with a DELETE on `detachvolume`, attaches it to the reader with a POST on
+is `{{random:password}}`, nobody logs in; `user_data_script` is
+`${script:diskreader}`), detaches the volume with a DELETE on `detachvolume`, attaches it to the reader with a POST on
 `attachvolume`, waits with a HEAD for `manifest.json` in the bucket, reads it (`result` must be `read`) and gives the
 volume back with the same two calls and `device` in the attach body. The reader writes `files/<path in the volume>` for
 the fixed files (`Windows/INF/setupapi*.log`, `Windows/System32/winevt/Logs/System.evtx` and `Application.evtx`,

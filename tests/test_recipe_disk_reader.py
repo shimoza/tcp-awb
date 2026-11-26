@@ -388,11 +388,15 @@ REFS = ("{{secret:obs-ak}}", "{{secret:obs-sk}}")
 
 
 def script_text(fake) -> str:
-    """The user data the run sent: the plain text of user_data_text, the key service fills the references and makes
-    the base64 user_data of it."""
+    """The user data the run asked for: the run names the script and its parameters (user_data_script), the key
+    service renders the text, fills the references and makes the base64 user_data of it."""
+    from awb.tcp import keys
+
     server = reader_body(fake)
-    assert "user_data" not in server and "agency_name" not in server
-    return server["user_data_text"]
+    assert "user_data" not in server and "user_data_text" not in server and "agency_name" not in server
+    spec = server["user_data_script"]
+    assert spec["name"] == "diskreader" and set(spec["params"]) == set(diskreader.PARAMS)
+    return keys.script_text(spec, PROJECT, "eu-de")
 
 
 def test_the_user_data_carries_no_secret_and_nothing_from_a_public_bucket(cloud, project):
@@ -462,9 +466,12 @@ def load_script(tmp_path, monkeypatch, key=None):
     `key` (ak, sk) the references are filled the way the key service fills them."""
     from awb.tcp import keys
 
-    text = diskreader.render("tcp-ab2c-lab-20261125-abcd", "eu-de", VOLUME, "Windows/Panther/setupact.log")
+    params = {"bucket": "tcp-ab2c-lab-20261125-abcd", "region": "eu-de", "volume": VOLUME,
+              "files": "Windows/Panther/setupact.log"}
+    text = diskreader.from_params(params)
     if key:
-        body, filled = keys.with_user_data({"server": {"user_data_text": text}}, "POST", "ecs",
+        script = {"name": "diskreader", "params": params}
+        body, filled = keys.with_user_data({"server": {"user_data_script": script}}, "POST", "ecs",
                                            "/v1/{project_id}/cloudservers", key)
         assert filled
         text = base64.b64decode(body["server"]["user_data"]).decode("utf-8")

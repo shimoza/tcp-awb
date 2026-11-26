@@ -239,14 +239,14 @@ server that is not stopped or not in its AZ before it makes anything. It makes a
 security group with no inbound rule and a small Linux reader ECS (no EIP) in the subnet and AZ of the server, detaches
 the system volume of the server, attaches it to the reader, which mounts it read-only with ntfs-3g and puts the files
 into the bucket (the script is `awb/tcp/diskreader.py`, the user_data; it fetches nothing from a public bucket and signs its puts with
-the key of the tenant: the run sends it as `user_data_text` with `{{secret:obs-ak}}` and `{{secret:obs-sk}}` and the key
-service fills them, no IAM agency and no extra key), then attaches the
+the key of the tenant: the run names the script and its parameters as `user_data_script` and the key service renders
+it itself and fills `{{secret:obs-ak}}` and `{{secret:obs-sk}}`, no IAM agency and no extra key), then attaches the
 volume back to the server with the same device name and deletes the reader. The teardown always gives the volume back
 first, also after a failed step or a signal (`restore` in the recipe), proves it back with a read and only then deletes
 the reader; a volume that is not proven back keeps the reader alive and the command exits 4 with the line to put it
 back by hand. The bucket stays (a create step with `keep`: its row says kept, its expiry tag ends it) because it holds
 the files. The engine gained a wait on the status of an answer, `keep`, `restore`, a preflight on one object and
-`${userdata:diskreader}` and `${usertext:diskreader}`; `recipes/README.md` describes them.
+`${userdata:diskreader}` and `${script:diskreader}`; `recipes/README.md` describes them.
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 
@@ -1267,13 +1267,21 @@ under the rules of the other types (untagged, expired or not in RESOURCES.md), w
 
 A request body may name a secret only as the whole value of a password field, `{"admin_pass": "{{secret:NAME}}"}`.
 Two names are reserved for every tenant and role, `{{secret:obs-ak}}` and `{{secret:obs-sk}}`: the service fills them with
-the key the call itself uses (the lab key of a test tenant) and only inside `server.user_data_text` of a POST on ECS
-`cloudservers` (v1 and v1.1), the plain text of the script of a helper ECS that uploads to OBS. The service base64-encodes
-the filled text into `server.user_data` and sends it; the log line of that call says "user data with the tenant key".
-Anywhere else the two names are refused and no other reference is allowed in that text. An answer never carries the
-user data of a server (`user_data`, `OS-EXT-SRV-ATTR:user_data`), so a session cannot read the script back with the key
-in it; a lab run (`lab_call`) fills the same two names with the lab key of the tenant (the write key of a customer
-tenant) and shows a note of the length of the data in its place. The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is
+the key the call itself uses (the lab key of a test tenant) and only into a script the service renders itself: a POST
+on ECS `cloudservers` (v1 and v1.1) names it in `server.user_data_script`, `{"name": "diskreader", "params":
+{"bucket": ..., "region": ..., "volume": ..., "files": ...}}` (the reader of `awb/tcp/diskreader.py`, the only script
+so far). Each parameter must match its pattern, the bucket must be one of the project (`<code>-...`) and the region the
+one of the call. The service renders the script, fills the two names, base64-encodes the text into `server.user_data`
+and sends it; the log line of that call says "user data with the tenant key". The service never fills a text the
+caller wrote: `server.user_data_text` (sent as base64 `user_data`) takes no reference, a `user_data` that carries one
+of the two names, plain or in base64, is refused and so are the names anywhere else (findings F1 and F2 of the
+attacker review of 2026-11-26). An answer never carries the user data of a server (`user_data`,
+`OS-EXT-SRV-ATTR:user_data`), so a session cannot read the script back with the key in it; a lab run (`lab_call`)
+fills the same two names with the lab key of the tenant (the write key of a customer tenant) and shows a note of the
+length of the data in its place. A leased key reads servers past the service, so a lease of a tenant (the lease
+operation of the key service, the temporary key of Terraform and `awb cloud lease-check`) is refused while a server
+made this way may still be there: the service notes each such create and asks the platform at the lease whether it is
+gone (404 or `DELETED`). The answer comes back with every key and secret of the tenant taken out, also in base64 and JSON form. Every call is
 logged on the owner's side without its path or body.
 
 `awb tenant snapshot` records what runs on each tenant every day, so that `awb tenant at test-1 2026-09-30` tells

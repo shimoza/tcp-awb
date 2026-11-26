@@ -85,10 +85,12 @@ Things a recipe may do that take, keep or render something (recipe `disk-reader`
   named in `keep` are not deleted, because deleting a server that still holds the volume would delete the volume.
 - `${userdata:NAME}` is the base64 of a script of the Workbench (awb/tcp/diskreader.py) made for the values of the
   run, for the user_data of a server. The script holds no secret.
-- `${usertext:NAME}` is the same script as plain text, for `server.user_data_text` of a server create: it carries
-  `{{secret:obs-ak}}` and `{{secret:obs-sk}}`, which the key service fills with the key of the call (the lab key of the
-  tenant) and sends as base64 user_data. The two names are no tenant secrets: the run does not ask for them. The
-  answers of the run never carry the user data of a server, only a note of its length.
+- A whole `${script:NAME}` is the same script named, for `server.user_data_script` of a server create: the name and
+  the parameters (bucket, region, volume and files, from the values of the run). The key service renders the script
+  itself, fills `{{secret:obs-ak}}` and `{{secret:obs-sk}}` with the key of the call (the lab key of the tenant) and
+  sends it as base64 user_data; it never fills a text the run wrote (findings F1 and F2 of the attacker review of
+  2026-11-26). The two names are no tenant secrets: the run does not ask for them. The answers of the run never carry
+  the user data of a server, only a note of its length.
 - A preflight may read one object: without `list` its `field` is a path in the answer and `equals` the value it must
   hold (the state of a server that must be stopped).
 
@@ -149,6 +151,7 @@ _KIND_RE = re.compile(r"^[a-z]{2,5}$")
 _REF_RE = re.compile(r"\$\{([a-z][a-z0-9_]*(?::[a-z][a-z0-9_]*)?)\}")
 _WHOLE_RE = re.compile(r"^\$\{(tags):(kv|list|dict)\}$")
 _INT_RE = re.compile(r"^\$\{int:([a-z][a-z0-9_]*)\}$")
+_SCRIPT_RE = re.compile(r"^\$\{script:([a-z][a-z0-9_]*)\}\Z")
 _SECRETISH = re.compile(r"(?i)(key|secret|token|passw|credential|auth|private|cert)")
 _SECRET_REF_RE = re.compile(r"\{\{secret:([a-z0-9][a-z0-9_.-]{0,40})\}\}")
 _CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,39}$")
@@ -207,7 +210,7 @@ def load(path: Path) -> dict:
 def _refs(obj) -> set[str]:
     if isinstance(obj, str):
         return {m.group(1).split(":", 1)[-1] if m.group(1).startswith(("base64:", "int:")) else m.group(1)
-                for m in _REF_RE.finditer(obj) if not m.group(1).startswith(("tags:", "userdata:", "usertext:"))}
+                for m in _REF_RE.finditer(obj) if not m.group(1).startswith(("tags:", "userdata:", "script:"))}
     if isinstance(obj, dict):
         return set().union(*(_refs(v) for v in obj.values())) if obj else set()
     if isinstance(obj, list):
@@ -660,7 +663,7 @@ def secrets_of(r: dict, env: dict[str, str]) -> list[str]:
     text = json.dumps([expand(c, dict(env, id="<id>"), loose=True) for c in calls if c])
     from awb.tcp import keys
 
-    return sorted(set(_SECRET_REF_RE.findall(text)) - set(keys.TENANT_KEY_NAMES))    # the key service fills those two
+    return sorted(set(_SECRET_REF_RE.findall(text)) - set(keys.TENANT_KEY_NAMES))    # never asked for, never filled
 
 
 def disks_of(r: dict, env: dict[str, str]) -> list[tuple[str, str]]:
@@ -853,9 +856,10 @@ def userdata_of(name: str, env: dict[str, str], loose: bool) -> str:
         raise Stop("the script %s cannot be made: %s" % (name, exc)) from None
 
 
-def usertext_of(name: str, env: dict[str, str], loose: bool) -> str:
-    """The plain text of the script NAME for the values of `env` (the key references stay in it); the dry run shows
-    the same placeholder as userdata_of."""
+def script_of(name: str, env: dict[str, str], loose: bool):
+    """The `server.user_data_script` of the script NAME for the values of `env`: its name and its parameters, which
+    the key service renders and fills itself; checked here too, so a value the script is not made from stops the run
+    before the call. The dry run shows the same placeholder as userdata_of."""
     if name not in USERDATA:
         raise Stop("no script of that name")
     if loose:
@@ -863,14 +867,16 @@ def usertext_of(name: str, env: dict[str, str], loose: bool) -> str:
     from awb.tcp import diskreader
 
     try:
-        return diskreader.usertext(env)
+        params = diskreader.params_of(env)
+        diskreader.from_params(params)
     except diskreader.ReaderError as exc:
         raise Stop("the script %s cannot be made: %s" % (name, exc)) from None
+    return {"name": name, "params": params}
 
 
 def expand(obj, env: dict[str, str], *, loose: bool = False, depth: int = 0):
-    """Fill ${var}, ${base64:var}, a whole ${int:var} (a number) and a whole ${tags:FORM} value; a value that
-    holds ${...} itself is filled too.
+    """Fill ${var}, ${base64:var}, a whole ${int:var} (a number), a whole ${script:NAME} and a whole ${tags:FORM}
+    value; a value that holds ${...} itself is filled too.
     `loose` (the dry run) shows a value no step has given yet as <var>."""
     if depth > 5:
         raise Stop("a value refers to itself")
@@ -883,6 +889,9 @@ def expand(obj, env: dict[str, str], *, loose: bool = False, depth: int = 0):
     m = _WHOLE_RE.match(obj)
     if m:
         return tags_of(env.get("project", "<project>"), env.get("expiry", "<expiry>"), m.group(2))
+    m = _SCRIPT_RE.match(obj)
+    if m:
+        return script_of(m.group(1), env, loose)
     m = _INT_RE.match(obj)
     if m:
         value = expand("${%s}" % m.group(1), env, loose=loose, depth=depth)
@@ -896,8 +905,8 @@ def expand(obj, env: dict[str, str], *, loose: bool = False, depth: int = 0):
         ref = m.group(1)
         if ref.startswith("userdata:"):
             return userdata_of(ref.split(":", 1)[1], env, loose)
-        if ref.startswith("usertext:"):
-            return usertext_of(ref.split(":", 1)[1], env, loose)
+        if ref.startswith("script:"):
+            raise Stop("${script:NAME} is a whole value")
         var = ref.split(":", 1)[1] if ref.startswith("base64:") else ref
         if var not in env:
             if loose:

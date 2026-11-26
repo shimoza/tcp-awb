@@ -1,7 +1,8 @@
 """The tenant key as a secret in the user data of a helper ECS (tcp-bytg ask 2026-11-25-tcp-bytg-6).
 
 `{{secret:obs-ak}}` and `{{secret:obs-sk}}` are filled by the key service from the key the call itself uses and only
-inside the `user_data_text` of a POST on ECS cloudservers; the service sends the filled text as base64 `user_data`.
+into the script it renders itself for the `user_data_script` of a POST on ECS cloudservers (findings F1 and F2 of the
+attacker review of 2026-11-26); the service sends the filled text as base64 `user_data`.
 No answer carries the user data of a server and no log carries a key. Every key and name here is invented; the
 fakes are those of tests/test_keys.py.
 """
@@ -12,13 +13,17 @@ import json
 
 import pytest
 
-from awb.tcp import keys
+from awb.tcp import diskreader, keys
 from tests.test_keys import (LAB_AK, LAB_SK, PROJECT, STORE, EchoGateway, call, calls_logged_here,  # noqa: F401
                              lab_gateway, load, no_waiting, svc)
 
 SERVERS = "/v1/{project_id}/cloudservers"
-SCRIPT = "#!/bin/sh\nAK={{secret:obs-ak}}\nSK={{secret:obs-sk}}\necho done\n"
-FILLED = SCRIPT.replace("{{secret:obs-ak}}", LAB_AK).replace("{{secret:obs-sk}}", LAB_SK)
+VOLUME = "%08x-aaaa-4bbb-8ccc-%012x" % (0x9f8e7d6c, 0xddddeeeeffff)
+SCRIPT = {"name": "diskreader", "params": {"bucket": PROJECT + "-lab-20261126-abcd", "region": "eu-de",
+                                             "volume": VOLUME, "files": ""}}
+TEXT = "#!/bin/sh\nAK={{secret:obs-ak}}\nSK={{secret:obs-sk}}\necho done\n"
+FILLED = diskreader.from_params(SCRIPT["params"]).replace("{{secret:obs-ak}}", LAB_AK).replace("{{secret:obs-sk}}",
+                                                                                             LAB_SK)
 
 
 class ServerGateway(EchoGateway):
@@ -46,7 +51,10 @@ def gw():
 
 
 def create(svc, server=None, path=SERVERS, service="ecs"):
-    body = {"server": dict({"name": "lab-reader", "user_data_text": SCRIPT}, **(server or {}))}
+    given = {"name": "lab-reader"}
+    if "user_data_text" not in (server or {}):
+        given["user_data_script"] = SCRIPT
+    body = {"server": dict(given, **(server or {}))}
     return call(svc, role="lab", method="POST", service=service, path=path, body=body, project=PROJECT)
 
 
@@ -60,7 +68,7 @@ def test_a_server_create_sends_base64_user_data_that_holds_the_lab_key(svc, gw):
     a = create(svc)
     assert a["ok"] and a["status"] == 200, a
     sent = json.loads(gw.bodies[-1])["server"]
-    assert "user_data_text" not in sent and sent["name"] == "lab-reader"
+    assert "user_data_text" not in sent and "user_data_script" not in sent and sent["name"] == "lab-reader"
     assert base64.b64decode(sent["user_data"]).decode("utf-8") == FILLED
     assert LAB_AK in FILLED and LAB_SK in FILLED and "{{" not in FILLED
 
@@ -145,7 +153,7 @@ def test_the_key_names_are_refused_in_the_body_of_another_service(svc, gw):
              body={"vpc": {"name": "{{secret:obs-ak}}"}})
     assert not a["ok"] and "obs-ak" in a["error"], a
     a = call(svc, role="lab", method="POST", service="vpc", path="/v1/{project_id}/vpcs", project=PROJECT,
-             body={"vpc": {"name": "x", "user_data_text": SCRIPT}})
+             body={"vpc": {"name": "x", "user_data_text": TEXT}})
     assert not a["ok"] and "user_data_text" in a["error"], a
     assert len(gw.calls) == n
 
@@ -157,8 +165,8 @@ def test_user_data_text_is_refused_outside_a_server_create(svc, gw):
     other_path = create(svc, path="/v1/{project_id}/cloudservers/action")
     assert not other_path["ok"] and "user_data_text" in other_path["error"], other_path
     not_in_server = call(svc, role="lab", method="POST", service="ecs", path=SERVERS, project=PROJECT,
-                         body={"user_data_text": SCRIPT, "server": {"name": "x"}})
-    twice = create(svc, {"metadata": {"user_data_text": SCRIPT}})
+                         body={"user_data_text": TEXT, "server": {"name": "x"}})
+    twice = create(svc, {"metadata": {"user_data_text": TEXT}})
     both = create(svc, {"user_data": "QUJD"})
     for a in (not_in_server, twice, both):
         assert not a["ok"] and "user_data_text" in a["error"], a
@@ -179,5 +187,5 @@ def test_the_text_takes_the_two_key_names_and_no_other_reference(svc, gw, text):
 def test_the_read_key_fills_nothing_because_it_writes_nothing(svc, gw):
     load(svc)
     a = call(svc, role="read", method="POST", service="ecs", path=SERVERS, project=PROJECT,
-             body={"server": {"user_data_text": SCRIPT}})
+             body={"server": {"user_data_script": SCRIPT}})
     assert not a["ok"] and "allows" in a["error"], a

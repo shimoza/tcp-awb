@@ -1108,10 +1108,11 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         _keep_check(svc, project, alias, rows, anchored)
     drawn: list[str] = []
     with_key = False
-    # obs-ak and obs-sk of a user_data_text: the write key of a customer tenant, else the lab key of the tenant
+    # obs-ak and obs-sk of the script of a user_data_script, rendered by the key service: the write key of a
+    # customer tenant, else the lab key of the tenant
     pair = login if "ak" in login else (tenant.get("roles") or {}).get("lab")
     if isinstance(body, (dict, list)):
-        body, with_key = keys.with_user_data(body, method, service, path, pair)
+        body, with_key = keys.with_user_data(body, method, service, path, pair, project=project, region=region)
         body = keys.fill(body, tenant.get("secrets", {}), drawn=drawn)
     signer = auth(svc, alias, login, region)
     tagged = None
@@ -1132,9 +1133,14 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         status, rh, raw, expanded = _send(svc, signer, run["id"], method, service, path, query, body, extra, scope,
                                           held_token, held_cred)
     except LabAdminError as err:
+        if with_key:
+            svc.note_keyed(alias, region, body, None)
         svc._log(uid, alias, "admin", method, service, region, "failed", project)
         raise _refused(str(err)) from None
     data, text, cut = _parse(service, status, raw)
+    if with_key:
+        # F2: no lease of the tenant while the server that holds the key in its user data lives
+        svc.note_keyed(alias, region, body, data)
     if tagged and 200 <= status < 300:
         tagged = _tag_after(svc, signer, run["id"], alias, project, service, path, data, tagged, scope)
     tokens, creds = _temporaries(rh, data)

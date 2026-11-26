@@ -15,11 +15,13 @@ Every object goes to `files/<path inside the volume>` of the bucket. The manifes
 failed, with the size and the SHA-256 and for the whole run `result` read or failed with its reason.
 
 The text holds no key, only two references: `{{secret:obs-ak}}` and `{{secret:obs-sk}}` (the owner's word of
-2026-11-25: no IAM agency, no extra lab keys). The recipe sends the text as `server.user_data_text`; the key service
-fills the references with the key of the call (the lab key of the tenant), sends the result as base64 user_data and
-never returns it (tcp-bytg ask 2026-11-25-tcp-bytg-6). The script fetches nothing from a public bucket and signs its
-puts the V2 way of OBS (awb/obs.py) with that key; the key never leaves the reader. Standard library only, on our side
-and on the reader's (python3 of the image).
+2026-11-25: no IAM agency, no extra lab keys). The recipe never sends the text: its server create names the script
+and its parameters (`server.user_data_script`, {"name": "diskreader", "params": {"bucket", "region", "volume",
+"files"}}) and the key service renders the text itself with `from_params`, fills the references with the key of the
+call (the lab key of the tenant), sends the result as base64 user_data and never returns it (tcp-bytg ask
+2026-11-25-tcp-bytg-6, findings F1 and F2 of the attacker review of 2026-11-26). The script fetches nothing from a
+public bucket and signs its puts the V2 way of OBS (awb/obs.py) with that key; the key never leaves the reader.
+Standard library only, on our side and on the reader's (python3 of the image).
 """
 from __future__ import annotations
 
@@ -39,10 +41,13 @@ MANIFEST = "manifest.json"
 MAX_FILES = 20
 WAIT_MINUTES = 20
 
-_VOLUME_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{2,62}$")
-_REGION_RE = re.compile(r"^eu-(de|nl)$")
-_PART_RE = re.compile(r"^[A-Za-z0-9_. -]+$")
+PARAMS = ("bucket", "region", "volume", "files")
+"""The parameters a server create names for the script (`user_data_script` of awb/tcp/keys.py); files is optional."""
+
+_VOLUME_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{2,62}\Z")
+_REGION_RE = re.compile(r"^eu-(de|nl)\Z")
+_PART_RE = re.compile(r"^[A-Za-z0-9_. -]+\Z")
 
 
 class ReaderError(ValueError):
@@ -80,13 +85,32 @@ def config_of(bucket: str, region: str, volume: str, files: str = "", wait_minut
             "prefix": PREFIX, "manifest": MANIFEST, "wait_minutes": int(wait_minutes)}
 
 
-def usertext(env: dict) -> str:
-    """The script as plain text for the values of a lab run (`name` is the bucket, `region`, `sys_volume` the id of
-    the volume the recipe read from the server and `files` the parameter): the text of `server.user_data_text`."""
+def params_of(env: dict) -> dict:
+    """The parameters of the script for the values of a lab run (`name` is the bucket, `region`, `sys_volume` the id
+    of the volume the recipe read from the server and `files` the parameter)."""
     for k in ("name", "region", "sys_volume"):
         if not env.get(k):
             raise ReaderError("no value for %s" % k)
-    return render(env["name"], env["region"], env["sys_volume"], env.get("files", ""))
+    return {"bucket": str(env["name"]), "region": str(env["region"]), "volume": str(env["sys_volume"]),
+            "files": str(env.get("files", ""))}
+
+
+def from_params(params) -> str:
+    """The script as plain text for the parameters of `server.user_data_script`: bucket, region and volume, files
+    optional, each a text that its pattern takes; no other parameter."""
+    if not isinstance(params, dict) or set(params) - set(PARAMS) or not all(isinstance(v, str)
+                                                                             for v in params.values()):
+        raise ReaderError("the parameters are bucket, region, volume and files, each a text")
+    for k in ("bucket", "region", "volume"):
+        if not params.get(k):
+            raise ReaderError("no value for %s" % k)
+    return render(params["bucket"], params["region"], params["volume"], params.get("files", ""))
+
+
+def usertext(env: dict) -> str:
+    """The script as plain text for the values of a lab run (see params_of), the key references unfilled: what the
+    key service renders for the `server.user_data_script` of the run."""
+    return from_params(params_of(env))
 
 
 def render(bucket: str, region: str, volume: str, files: str = "", wait_minutes: int = WAIT_MINUTES) -> str:

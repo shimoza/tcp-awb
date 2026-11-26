@@ -1,8 +1,9 @@
 """The tenant key in the user data of a helper ECS, on the lab_call path of a lab run (tcp-bytg ask
 2026-11-25-tcp-bytg-6, part 2; part 1 is tests/test_keys_userdata_secret.py).
 
-`{{secret:obs-ak}}` and `{{secret:obs-sk}}` in `server.user_data_text` of a server create are filled with the lab key
-of the tenant; no answer of the run carries the user data of a server, only a note of its length, and nothing the
+`{{secret:obs-ak}}` and `{{secret:obs-sk}}` are filled with the lab key of the tenant only into the script that the key
+service renders itself for the `server.user_data_script` of a server create (findings F1 and F2 of the attacker review
+of 2026-11-26); no answer of the run carries the user data of a server, only a note of its length, and nothing the
 service writes holds the key. The platform is a stand-in `_send` that keeps what it got. Every key here is invented.
 """
 from __future__ import annotations
@@ -13,7 +14,7 @@ import json
 import pytest
 
 from awb import labclient
-from awb.tcp import keys, labadmin
+from awb.tcp import diskreader, keys, labadmin
 from tests.test_keys import calls_logged_here, no_waiting  # noqa: F401
 from tests.test_lr_lab_runs import (ADMIN_STORE, LAB, P_DE, SETTINGS, TENANT_STORE, _everything, fake,  # noqa: F401
                                     lab_call, run_op, session, svc)
@@ -21,8 +22,12 @@ from tests.test_lr_lab_runs import (ADMIN_STORE, LAB, P_DE, SETTINGS, TENANT_STO
 LAB_AK, LAB_SK = "AKLABRUNFAKE", "sk-lab-run-fake-secret"
 STORE = dict(TENANT_STORE, **{"%s/lab/ak" % LAB: LAB_AK, "%s/lab/sk" % LAB: LAB_SK})
 SERVERS = "/v1/{project_id}/cloudservers"
-SCRIPT = "#!/bin/sh\nAK={{secret:obs-ak}}\nSK={{secret:obs-sk}}\necho done\n"
-FILLED = SCRIPT.replace("{{secret:obs-ak}}", LAB_AK).replace("{{secret:obs-sk}}", LAB_SK)
+VOLUME = "%08x-aaaa-4bbb-8ccc-%012x" % (0x9f8e7d6c, 0xddddeeeeffff)
+SCRIPT = {"name": "diskreader", "params": {"bucket": "tcp-ab2c-lab-20261126-abcd", "region": "eu-de",
+                                             "volume": VOLUME, "files": ""}}
+TEXT = "#!/bin/sh\nAK={{secret:obs-ak}}\nSK={{secret:obs-sk}}\necho done\n"
+FILLED = diskreader.from_params(SCRIPT["params"]).replace("{{secret:obs-ak}}", LAB_AK).replace("{{secret:obs-sk}}",
+                                                                                             LAB_SK)
 
 
 class Platform:
@@ -66,7 +71,10 @@ def run(session, fake, tmp_path):
 
 def create(run, server=None, path=SERVERS, service="ecs"):
     svc, uid, run_id, _ = run
-    body = {"server": dict({"name": "lab-reader", "user_data_text": SCRIPT}, **(server or {}))}
+    given = {"name": "lab-reader"}
+    if "user_data_text" not in (server or {}):
+        given["user_data_script"] = SCRIPT
+    body = {"server": dict(given, **(server or {}))}
     return lab_call(svc, uid, "POST", service, path, run_id, body=body)
 
 
@@ -74,7 +82,7 @@ def test_a_server_create_of_a_run_sends_base64_user_data_with_the_lab_key(run, p
     a = create(run)
     assert a["ok"] and a["status"] == 200, a
     sent = platform.seen[-1][3]["server"]
-    assert "user_data_text" not in sent and sent["name"] == "lab-reader"
+    assert "user_data_text" not in sent and "user_data_script" not in sent and sent["name"] == "lab-reader"
     assert base64.b64decode(sent["user_data"]).decode("utf-8") == FILLED
     text = json.dumps(a)
     assert LAB_AK not in text and LAB_SK not in text and sent["user_data"] not in text
@@ -132,7 +140,7 @@ def test_the_key_names_are_refused_in_any_other_field_of_a_run(run, platform, se
 def test_the_text_is_refused_in_another_service_and_for_another_reference(run, platform):
     svc, uid, run_id, _ = run
     a = lab_call(svc, uid, "POST", "vpc", "/v1/{project_id}/vpcs", run_id,
-                 body={"vpc": {"name": "x", "user_data_text": SCRIPT}})
+                 body={"vpc": {"name": "x", "user_data_text": TEXT}})
     assert not a["ok"] and "user_data_text" in a["error"], a
     a = create(run, {"user_data_text": "x {{secret:ecs-admin}}"})
     assert not a["ok"] and "obs-ak" in a["error"], a
@@ -143,7 +151,7 @@ def test_a_tenant_without_a_lab_key_fills_nothing(session, fake, platform):
     svc, uid = session
     started = run_op(svc, uid, "start")
     assert started["ok"], started
-    body = {"server": {"name": "x", "user_data_text": SCRIPT}}
+    body = {"server": {"name": "x", "user_data_script": SCRIPT}}
     a = lab_call(svc, uid, "POST", "ecs", SERVERS, started["run"], body=body)
     assert not a["ok"] and "key of the call" in a["error"], a
     assert platform.seen == []
