@@ -1062,6 +1062,12 @@ close the open asks a released commit names (the deploy runs it as the work user
 - `HANDLE...`: an ask file name without .md
 - `--release COMMIT`: the full commit id of the live release
 
+### `awb dev reopen HANDLE --error TEXT`
+
+take a closed ask of the current project back to open
+- `HANDLE`: an ask file name without .md
+- `--error TEXT`: what failed after the release
+
 ### `awb desk ask TEXT [--blocks]`
 
 write a checked request for desk work from the current project

@@ -1884,7 +1884,14 @@ A commit closes an ask by itself when its message names the ask's handle, the fi
 (`Q-0042: docs filter (2026-11-19-tcp-xxxx-5)`). The deploy plan lists the open asks a commit of the target names.
 A deploy that ends well runs `awb dev close --release COMMIT HANDLE...` as the work user: each asking project gets
 the note "live in release X" and the ask gets `"state": "closed"` with the `release`. An ask that is closed already
-is passed over. A failed close is one line of the deploy's output and never fails the deploy.
+is passed over. A failed close is one line of the deploy's output and never fails the deploy. When the ask carries a
+command recorded with `--command`, the note adds `Run the command you recorded again: COMMAND`.
+
+When the release did not fix it, run `awb dev reopen HANDLE --error "TEXT"` in the asking project: the closed ask goes
+back to open (it shows in `awb dev status` and `awb owner status --dev` again) with `reopened` counting the takes back,
+`reopened_at` and `reopened_release`, the release it failed on. The ask file gets a `## Reopened N` section with the
+error and the ask starts again in the events file, so the thread and the release stay. An open ask and an ask of
+another project are refused in one line. `awb dev status` shows `reopened N` after such an ask.
 
 ### The owner's word and the live release
 

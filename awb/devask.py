@@ -337,6 +337,8 @@ def status_lines(asks: list[tuple[str, dict]]) -> list[str]:
     for handle, d in asks:
         state = d["state"] + (" blocks" if d.get("blocks") and d["state"] == "open" else "")
         line = "%-28s %-12s %s" % (handle, state, d["title"])
+        if isinstance(d.get("reopened"), int) and d["reopened"] > 0:
+            line += "  reopened %d" % d["reopened"]
         if d["state"] == "closed":
             line += "  (answer %s%s)" % (d.get("answer", "-"),
                                          ", release %s" % str(d["release"])[:7] if d.get("release") else "")
@@ -359,10 +361,19 @@ def answer(p: config.Paths, code: str, file: str, title: str, text: str) -> Path
     return _close(p, path, title, text, code=code)[0]
 
 
+def command_of(content: str) -> str | None:
+    """The command recorded with `--command` in the body of an ask, on one line; None when none was supplied."""
+    _, found, rest = content.partition("\n\n## Command\n\n")
+    if not found:
+        return None
+    command = " ".join(rest.partition("\n\n## Error\n\n")[0].split())[:MAX_VALUE]
+    return None if command in ("", "not supplied") else command
+
+
 def _close(p: config.Paths, path: Path, title, text, *, code: str | None = None,
            extra: dict | None = None, sub: str = "dev") -> tuple[Path, dict]:
     """Write the note into the asking project, then mark the ask closed with the note (and `extra`). `title` and
-    `text` may be functions of the ask's header. Returns the note and the header. `sub` dev or desk (UXR9): only a
+    `text` may be functions of the ask's header with the recorded `command` added (None without one). Returns the note and the header. `sub` dev or desk (UXR9): only a
     dev ask has a line in the events file."""
     from awb import devnote
 
@@ -374,8 +385,9 @@ def _close(p: config.Paths, path: Path, title, text, *, code: str | None = None,
             data = read(path, text=content)
             if (code is not None and data["project"] != code) or data["state"] != "open":
                 raise AskClosed("the ask is closed or belongs to another project")
-            title = title(data) if callable(title) else title
-            text = text(data) if callable(text) else text
+            view = dict(data, command=command_of(content))
+            title = title(view) if callable(title) else title
+            text = text(view) if callable(text) else text
             screen(p, content + "\n" + json.dumps(data, ensure_ascii=False))
             screen(p, title + "\n" + text)
             body = content.partition("\n")[2]
@@ -389,6 +401,46 @@ def _close(p: config.Paths, path: Path, title, text, *, code: str | None = None,
     if sub == "dev":
         events.end("ask", path.name[:-3], "ok", project=data["project"], board=p.shared / "build")
     return note, data
+
+
+def reopen(p: config.Paths, handle: str, error: str) -> Path:
+    """Take a closed ask of the project of the working folder back to open (B-101): `reopened` counts the takes back,
+    `reopened_at` and `reopened_release` (the release it failed on) say when and where, "## Reopened N" with the
+    error is appended to the text and the ask starts again in the events file. An open ask and another project's ask
+    are refused."""
+    pr = _here(p, "reopen")
+    if not HANDLE_RE.fullmatch(handle):
+        raise AskError("give a development ask handle")
+    if not error.strip():
+        raise AskError("give the error text")
+    path = folder(p) / (handle + ".md")
+    try:
+        with _notices_directory(p) as directory:
+            fcntl.flock(directory, fcntl.LOCK_EX)
+            content = _bytes(Path(path.name), dir_fd=directory)
+            data = read(path, text=content)
+            if data["project"] != pr.code:
+                raise AskError("the ask belongs to another project")
+            if data["state"] != "closed":
+                raise AskError("the ask is open: nothing to reopen")
+            count = (data["reopened"] if isinstance(data.get("reopened"), int) else 0) + 1
+            release = data.get("release")
+            now = datetime.now(timezone.utc)
+            section = "\n## Reopened %d\n\n%s%s\n" % (
+                count, "Failed in release %s.\n\n" % str(release)[:7] if release else "", error)
+            screen(p, content + "\n" + section + "\n" + json.dumps(data, ensure_ascii=False))
+            body = content.partition("\n")[2].rstrip("\n") + "\n" + section
+            if len(body.encode("utf-8")) > MAX_BYTES:
+                raise AskError("the ask is too large")
+            for key in ("answer", "answered", "release"):
+                data.pop(key, None)
+            data.update(state="open", reopened=count, reopened_at=now.isoformat(), reopened_release=release)
+            with _staged(directory, "<!-- %s -->\n%s" % (json.dumps(data), body)) as temp:
+                os.replace(temp, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+    except (OSError, UnicodeError, ValueError):
+        raise AskError("the development ask cannot be reopened") from None
+    events.start("ask", handle, project=pr.code, board=p.shared / "build", now=now)
+    return path
 
 
 def handles_in(text: str) -> set[str]:
@@ -435,7 +487,9 @@ def released(p: config.Paths, handles, release: str) -> tuple[list[str], bool]:
             note, data = _close(
                 p, path, "live in release %s" % short,
                 lambda d: "Your development ask %s/%s (%s) is live in release %s. Check it in this project and "
-                          "close the item." % (FOLDER, path.name, d["title"], short),
+                          "close the item.%s" % (FOLDER, path.name, d["title"], short,
+                                                 " Run the command you recorded again: %s" % d["command"]
+                                                 if d["command"] else ""),
                 extra=dict(release=release))
         except AskClosed:
             continue
@@ -522,7 +576,18 @@ def main(argv: list[str] | None = None) -> int:
                                          "work user)")
     close.add_argument("--release", required=True, metavar="COMMIT", help="the full commit id of the live release")
     close.add_argument("handles", nargs="+", metavar="HANDLE", help="an ask file name without .md")
+    again = sub.add_parser("reopen", help="take a closed ask of the current project back to open")
+    again.add_argument("handle", metavar="HANDLE", help="an ask file name without .md")
+    again.add_argument("--error", required=True, metavar="TEXT", help="what failed after the release")
     args = ap.parse_args(argv)
+    if args.cmd == "reopen":
+        try:
+            path = reopen(config.paths(), args.handle, args.error)
+        except (AskError, projects.ProjectError, OSError) as exc:
+            print("awb dev reopen: %s" % (exc if isinstance(exc, AskError) else type(exc).__name__), file=sys.stderr)
+            return 2
+        print("%s/%s reopened; development will see it again" % (FOLDER, path.name))
+        return 0
     if args.cmd == "status":
         p = config.paths()
         try:
