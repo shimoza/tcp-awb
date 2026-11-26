@@ -36,6 +36,9 @@ WHOLE_CLASSES = ("bare-yes",)
 STRIP = " \t\r\n.!,?;:"
 NOTE_CLASS = "note"
 HOOK_CLASSES = ("held-draft", "held-note", "compaction")
+HELD_CLASSES = ("held-draft", "held-note")
+# the fixed tokens of the messages that hold a stop (B-108); a line of text joins them with "+"
+HELD_TOKENS = ("ledger", "harvest", "contrib", "lessons", "late", "drafts", "open", "next-step")
 CLASS_RE = re.compile(r"[a-z][a-z-]{0,39}")
 NOTE_CHARS = 300
 MAX_READ = 8 * 1024 * 1024
@@ -199,9 +202,23 @@ def append(row: str, p: config.Paths | None = None) -> Path:
     return path
 
 
-def hook_event(hook: str, data: dict, cls: str | None = None) -> str | None:
-    """The line of one hook event: the prompt by its phrase class, the stop by `cls` (held-draft or held-note), the
-    pre-compact as compaction. Returns the class written, None when nothing was. Never a word of the prompt."""
+def held_text(tokens) -> str:
+    """The text of a held stop: the tokens of HELD_TOKENS joined by "+", "-" for none; a token outside the list is
+    refused."""
+    if isinstance(tokens, str):
+        tokens = [] if tokens == "-" else tokens.split("+")
+    tokens = list(tokens or ())
+    bad = [t for t in tokens if t not in HELD_TOKENS]
+    if bad:
+        raise UxError("%r is no source of a held stop (%s)" % (bad[0], ", ".join(HELD_TOKENS)))
+    return "+".join(tokens) or "-"
+
+
+def hook_event(hook: str, data: dict, cls: str | None = None, text=None) -> str | None:
+    """The line of one hook event: the prompt by its phrase class, the stop by `cls` (held-draft or held-note) with
+    `text`, the tokens of the messages that held it (a list or one "+" joined string), the pre-compact as
+    compaction. Returns the class written, None when nothing was. Never a word of the prompt; only the stop line
+    carries a text."""
     if not isinstance(data, dict):
         return None
     if hook == "prompt":
@@ -212,10 +229,14 @@ def hook_event(hook: str, data: dict, cls: str | None = None) -> str | None:
         return None
     if not cls:
         return None
+    if hook == "stop":
+        text = held_text(text)
+    else:
+        text = "-"
     folder = data.get("cwd") if isinstance(data.get("cwd"), str) and data.get("cwd") else (
         os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     session, code = session_kind(folder)
-    append(line(cls, session, code, user_kind()))
+    append(line(cls, session, code, user_kind(), text))
     return cls
 
 
@@ -296,6 +317,16 @@ def _weeks(since: dt.date, until: dt.date) -> list[str]:
     return out
 
 
+def held_counts(events: list[dict]) -> dict[str, int]:
+    """How many held stops each token of HELD_TOKENS names; a line without a text ("-") names none."""
+    out: dict[str, int] = {}
+    for e in events:
+        if e["cls"] in HELD_CLASSES:
+            for token in set(e["text"].split("+")) & set(HELD_TOKENS):
+                out[token] = out.get(token, 0) + 1
+    return out
+
+
 def _signed(n: int) -> str:
     return "+%d" % n if n > 0 else "%d" % n if n < 0 else "0"
 
@@ -320,6 +351,9 @@ def report(events: list[dict], since: dt.date | None = None, today: dt.date | No
                                + [_signed(change).rjust(len("change"))]))
     if len(weeks) > 1:
         lines.append("change: %s against %s; %s runs until Sunday" % (weeks[-1], weeks[-2], weeks[-1]))
+    for token, n in sorted(held_counts([e for e in events if e["at"].date() >= since]).items(),
+                           key=lambda kv: (-kv[1], kv[0])):
+        lines.append("held by %s: %d" % (token, n))
     notes = [e for e in events if e["cls"] == NOTE_CLASS and e["at"].date() >= since]
     for e in notes[-20:]:
         lines.append("note %s %s %s: %s" % (e["at"].strftime("%Y-%m-%d"), e["session"], e["project"], e["text"]))

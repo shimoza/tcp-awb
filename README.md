@@ -1971,7 +1971,11 @@ awb ux report --since 2026-11-02
 `note` writes one line of class `note` with the text as written (a control character refuses, as a dev ask
 does) and the project code of the folder it runs in. `report` prints one row per class with its count in each ISO
 week from `--since` (default: the last four weeks) and the change of the current week against the week before, then
-the notes of the period. On a Monday `awb owner status` and its mail end with five lines on the week that ended
+the counts of the held stops by source and then the notes of the period. A held stop (`held-draft` or `held-note`)
+carries as its text the fixed tokens of the messages that held it, joined by "+" (`ledger`, `harvest`, `contrib`,
+`lessons`, `late`, `drafts`, `open`, `next-step`; a stop held by the late status and the open sweep writes
+`late+open`); the report prints one row "held by TOKEN: N" per token under the table. A token outside the list is
+refused, and a prompt or compaction line keeps "-". On a Monday `awb owner status` and its mail end with five lines on the week that ended
 against the week before. The folder `ux` is 2775 and the file 664, so both sides append to it; each line is one
 append under a lock. The phrase list `rules/ux-phrases.tsv` is a protected path.
 

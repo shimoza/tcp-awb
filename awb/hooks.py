@@ -1190,12 +1190,12 @@ def _quietly(fn, *args) -> None:
         pass
 
 
-def _ux_event(hook: str, data, cls: str | None = None) -> None:
+def _ux_event(hook: str, data, cls: str | None = None, text=None) -> None:
     """Q-0024: one counted line in <shared>/ux/events.tsv (awb/ux.py), never a word of the prompt, no vault call;
     never fails the hook."""
     try:
         from awb import ux
-        ux.hook_event(hook, data, cls)
+        ux.hook_event(hook, data, cls, text)
     except Exception:
         pass
 
@@ -1530,7 +1530,7 @@ def _dev_next_step(data: dict) -> int:
             return OK
     except Exception:
         return OK
-    _ux_event("stop", data, "held-note")
+    _ux_event("stop", data, "held-note", ["next-step"])
     print(NEXT_STEP_LINE, file=sys.stderr)
     return BLOCK
 
@@ -1615,17 +1615,20 @@ def hook_stop(data: dict) -> int:
         pass
     # task GT: the stop hook never asks for a review, a tier or a request check
     said: list[str] = []
+    sources: list[str] = []
     shaped = False
-    for msg, note in ((draft_msg, True), (harvest_msg, True), (contrib_msg, True), (lessons_msg, True),
-                      (late_msg, True), (drafts_msg, False), (open_msg, True)):
+    for token, msg, note in (("ledger", draft_msg, True), ("harvest", harvest_msg, True),
+                             ("contrib", contrib_msg, True), ("lessons", lessons_msg, True),
+                             ("late", late_msg, True), ("drafts", drafts_msg, False), ("open", open_msg, True)):
         if not msg:
             continue
+        sources.append(token)
         if note and not shaped:
             # Q-0005: the first note carries the footer shape; a draft gate line keeps its own text
             msg, shaped = STOP_FOOTER + msg, True
         said.append(msg)
     if said:
-        _ux_event("stop", data, "held-draft" if drafts_msg else "held-note")
+        _ux_event("stop", data, "held-draft" if drafts_msg else "held-note", sources)
         print("\n".join(said), file=sys.stderr)
         return BLOCK
     return OK
