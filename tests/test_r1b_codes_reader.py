@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from awb import ledger, ownerwait, projectfacts, reportcodes
+from awb import ownerwait, projectfacts, reportcodes
 from tests import fixtures
 from tests.conftest import AS_ROOT
 from tests.test_r1_report_codes import HEADER, NAME, lines_of, own, planted, run, svc  # noqa: F401
@@ -123,9 +123,9 @@ def test_r1b_the_owner_side_checks_the_texts_again_and_takes_the_customer_from_t
     assert code == 0, err
     rows = lines_of(out)[1:]
     assert [r.split('","')[0].strip('"') for r in rows] == ["tcp-b3np", "tcp-c4rt", "tcp-kx2a", "tcp-q7m4"]
-    assert rows[0].split('","')[2] == ledger.WITHHELD and "1 text withheld" in stdout
+    # DMZ 5 (B-089): the codes file is inside, the text is kept as written and nothing is withheld
+    assert rows[0].split('","')[2] == "move for " + NAME + " to TCP" and "1 text withheld" not in stdout
     assert rows[1] == ROWS[1]
-    fixtures.assert_no_fixture_name(out.read_text(encoding="utf-8") + stdout + err, "the codes file")
 
 
 @pytest.mark.parametrize("change, words", [

@@ -169,7 +169,9 @@ def test_an_entry_written_past_kb_add_with_a_mail_address_is_withheld_where_show
     assert any(h.get("cls") != "name" for h in check.check_text(entry.statement, register_path)), \
         "setup: the planted address is no structured hit"
     shown, withheld = kb.screen([entry], register_path)
-    assert not shown and withheld == 1, "a planted structured hit passed kb.screen"
+    # DMZ 5 (B-089): the knowledge base is inside, kb.screen shows the entry as written and withholds nothing
+    assert [x.id for x in shown] == [e.id] and withheld == 0
+    assert planted in shown[0].statement
 
 
 @pytest.mark.parametrize("planted", [fx.CUSTOMER_CODE, "tcp-q7m4", "/home/" + "xqarv/notes.txt"])
@@ -184,8 +186,13 @@ def test_an_entry_written_past_kb_add_with_a_code_or_a_home_path_is_withheld(hom
                register_path=register_path)
     text = e.path.read_text(encoding="utf-8")
     e.path.write_text(text.rstrip("\n") + " Seen with %s.\n" % planted, encoding="utf-8")
-    shown, withheld = kb.screen([kb.get(clean.id, home), kb.get(e.id, home)], register_path)
-    assert [x.id for x in shown] == [clean.id] and withheld == 1
+    entries = [kb.get(clean.id, home), kb.get(e.id, home)]
+    shown, withheld = kb.screen(entries, register_path)
+    # DMZ 5 (B-089): inside, both entries are shown as written; the code or home path is left out at the exit only
+    assert [x.id for x in shown] == [clean.id, e.id] and withheld == 0
+    assert planted in shown[1].statement
+    left, out = kb.exit_screen(entries, register_path)
+    assert [x.id for x in left] == [clean.id] and out == 1
 
 
 # --------------------------------------------------------------------------- finding 18: free text in the put mail

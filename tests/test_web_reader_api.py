@@ -68,7 +68,8 @@ def test_kb_withholds_a_form_registered_after_the_add_and_without_the_check_show
     assert fixtures.CONTROL_UNREGISTERED in get(served, "/api/kb?q=cluster+site")[2]
     register.add(home.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
     status, data, raw = get(served, "/api/kb?q=cluster+site")
-    assert status == 200 and fixtures.CONTROL_UNREGISTERED not in raw and data["withheld"] == 1
+    # DMZ 5 (B-089): the knowledge base is inside, a form registered after the add is shown as written
+    assert status == 200 and fixtures.CONTROL_UNREGISTERED in raw and data["withheld"] == 0
 
     def broken(*a, **k):
         raise kb.KBError("name check unavailable")

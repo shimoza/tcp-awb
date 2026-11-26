@@ -330,18 +330,20 @@ def test_a_file_that_changes_while_it_is_checked_gets_no_record(project, tmp_pat
     clean = "The landing zone of %s is ready.\n" % fixtures.CUSTOMER_CODE
     d = reviewed(project, clean, tmp_path)
     d.write_text(dirty, encoding="utf-8")
-    real_ensure, real_lens = review._ensure_checkable, review.lens_summary
+    # DMZ 5 (B-089): review runs no name check and _ensure_checkable is gone; the race is now driven around l0, the
+    # step that reads and hashes the file: it reads one text and the file holds another when the pass ends
+    real_l0, real_lens = review.l0, review.lens_summary
 
-    def ensure_checkable(reg):
+    def l0(*args, **kw):
         d.write_text(clean, encoding="utf-8")        # the checks read a clean file
-        return real_ensure(reg)
+        return real_l0(*args, **kw)
 
     def lens_summary(*args, **kw):
         d.write_text(dirty, encoding="utf-8")        # and it is dirty again when the pass ends
         return real_lens(*args, **kw)
 
     with monkeypatch.context() as m:     # not monkeypatch.undo(): that drops the test's own environment too
-        m.setattr(review, "_ensure_checkable", ensure_checkable)
+        m.setattr(review, "l0", l0)                   # DMZ 5 (B-089): in place of _ensure_checkable
         m.setattr(review, "lens_summary", lens_summary)
         res = review.run_pass(d)
         assert not res.passed and "the deliverable changed while the pass ran" in res.problems

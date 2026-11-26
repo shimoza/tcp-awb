@@ -993,13 +993,13 @@ def test_missing_and_unreadable_inputs_have_value_free_errors(tmp_path, monkeypa
 def test_private_spec_fields_never_reach_outputs(folder, api, home, capsys):
     for text in (("pass" + "word=InventedValue42"), "pass" + "word=InventedValue42"):
         spec = spec_file(folder, HEAD + WEB % "1" + "assumption.en: " + text + "\n")
-        assert run(["build", spec]) == 2
-        output = capsys.readouterr()
-        assert text not in output.out + output.err
-        assert not (folder / "est.xlsx").exists()
-        assert not (folder / "est.md").exists()
-        assert not (folder / "calc").exists()
-    assert api.calls == []
+        # DMZ 5 (B-089): no content check inside, the spec is priced and its assumption is written as it stands
+        assert run(["build", spec]) == 0
+        capsys.readouterr()
+        assert (folder / "est.xlsx").exists()
+        assert text in (folder / "est.md").read_text(encoding="utf-8")
+        assert (folder / "calc").exists()
+    assert api.calls != []
 
 
 def test_invalid_spec_errors_withhold_private_keys_and_labels(folder, home, capsys):
@@ -1017,7 +1017,8 @@ def test_private_filename_default_title_is_refused(folder, api, home, capsys):
     assert pricebook.load_spec(spec).title == ("pass" + "word=InventedValue42")
     assert pricebook.main(["build", str(spec), "--out", str(folder / "safe.xlsx")]) == 0
     assert (folder / "safe.xlsx").exists()
-    assert not (folder / "safe.xlsx").exists()
+    # DMZ 5 (B-089): the default output beside the spec is not written when --out names another file
+    assert not spec.with_suffix(".xlsx").exists()
 
 
 def test_api_metadata_is_screened_before_recording(folder, api, home):
@@ -1026,10 +1027,10 @@ def test_api_metadata_is_screened_before_recording(folder, api, home):
         if row["id"] == "TEST_S3_LARGE_2_LNX":
             row["osUnit"] = "Open Linux " + private
     spec = spec_file(folder, HEAD + WEB % "1")
-    with pytest.raises(pricebook.PricebookError):
-        pricebook.build(spec)
-    assert not (folder / "est.xlsx").exists()
-    assert not (folder / "calc").exists()
+    # DMZ 5 (B-089): no content check inside, the API metadata is recorded as the API gave it
+    pricebook.build(spec)
+    assert (folder / "est.xlsx").exists()
+    assert (folder / "calc").exists()
 
 
 
@@ -1207,8 +1208,9 @@ def test_workbook_nonfinite_and_extreme_numbers_are_refused(tmp_path):
 def test_workbook_private_cells_are_refused(tmp_path, home):
     path = tmp_path / "bad.xlsx"
     _boundary_workbook(path, "assumption", ("pass" + "word=InventedValue42"))
-    with pytest.raises(pricebook.PricebookError):
-        pricebook.book_of_workbook(path)
+    # DMZ 5 (B-089): no content check inside, the cell is read as written
+    book = pricebook.book_of_workbook(path)
+    assert book.lines["a"][1]["assumption"] == ("pass" + "word=InventedValue42")
 
 
 def test_pool_settings_are_compared_without_prices():
@@ -1418,7 +1420,8 @@ def test_api_unknown_reason_is_screened_at_the_library_boundary(home):
     fetch = price.Fetch(jobs.Listing.unknown(private), "unused", "2026-11-17 12:00 UTC")
     with pytest.raises(pricebook.PricebookError) as error:
         pricebook.price_spec(spec, lambda region: fetch)
-    assert private not in str(error.value)
+    # DMZ 5 (B-089): no content check inside, the reason of the API is told as it stands
+    assert str(error.value) == "the price API could not be read for eu-de: " + private
 
 
 
@@ -1502,7 +1505,11 @@ def test_pricing_errors_are_controlled_and_private_reasons_are_screened(monkeypa
         monkeypatch.setattr(pricebook, "price_line", fail)
         priced, problems = pricebook.price_spec(spec, lambda region: fetch)
         assert priced == [] and set(problems) == {"web servers"}
-        assert private not in problems["web servers"]
+        # DMZ 5 (B-089): a line problem is told as it stands, any other error keeps its controlled text
+        if error is pricebook.LineProblem:
+            assert problems["web servers"] == private
+        else:
+            assert problems["web servers"] == "the line cannot be priced"
 
 
 def test_pool_dates_use_the_canonical_format():
@@ -1743,10 +1750,12 @@ def test_cli_build_diagnostics_and_notes_are_screened(folder, monkeypatch, capsy
         monkeypatch.setattr(pricebook, 'build', fail)
         assert pricebook.main(['build', str(spec)]) in (1, 2)
         output = capsys.readouterr()
-        assert private not in output.out + output.err
+        # DMZ 5 (B-089): no content check inside, the diagnostic is printed as it stands
+        assert private in output.out + output.err
     result = SimpleNamespace(lines=1, monthly=Decimal(1), yearly=Decimal(12), xlsx=Path(private),
                              summary=Path(private), calc_ids=[], comparison=None, notes=[private])
     monkeypatch.setattr(pricebook, 'build', lambda *args, **kwargs: result)
     assert pricebook.main(['build', str(spec)]) == 0
     output = capsys.readouterr()
-    assert private not in output.out + output.err
+    # DMZ 5 (B-089): the notes and paths are printed as they stand
+    assert private in output.out + output.err
