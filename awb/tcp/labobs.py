@@ -70,6 +70,12 @@ bucket that the open run of the calling project made and still records (live, ke
 exchange or owner bucket and never on a customer tenant. The secret key stays in the service. The URL goes to the
 session once in the answer; the call log and the run record keep the bucket, the first 16 hex digits of the key's
 SHA-256, the minutes and the expiry, never the URL.
+
+A link is an exit (B-094, F6 of the attacker review of 2026-11-26): before it signs, the service runs the exit check
+of a public push on the object (`_exit_check`: a registered name, a secret, a private key or a token; an id is no
+finding, EXIT_FREE of B-087) and refuses with LINK_EXIT_LINE, which names the class and never the text. An object over
+gate.TEXT_LIMIT is not read. An object of the run's own disk reader (`_run_wrote`: under files/ or manifest.json, with
+no put of the session recorded in the run) is signed as before.
 """
 from __future__ import annotations
 
@@ -135,6 +141,8 @@ LINK_KEEP = 200
 LINK_BUCKET_LINE = ("refused: a link reads only an object of a bucket that the open run %s made: obs://%s is not one "
                     "(awb lab run status lists what the run made)")
 LINK_CUSTOMER_LINE = "refused: a link is signed on the lab tenants %s only, never on a customer tenant"
+LINK_EXIT_LINE = ("refused: obs://%s/%s fails the exit check (%s): a link is an exit and signs only an object "
+                  "without a registered name or a secret")
 LINK_MINUTES_LINE = "refused: --minutes is a whole number from 1 to %d (12 hours)" % LINK_MAX
 READONLY_LINE = ("aborted: the owner switched %s back to read-only; after awb tenant mode %s write a new put or get "
                  "starts it again")
@@ -1454,6 +1462,44 @@ def _minutes(value) -> int:
     return value
 
 
+def _run_wrote(run: dict, bucket: str, key: str) -> bool:
+    """True for an object the run's own reader wrote (the disk-reader result under files/ and its manifest) and the
+    session did not put: a put of the session through the service is recorded as an `obs object` of the run."""
+    from awb.tcp import diskreader
+
+    if not (key == diskreader.MANIFEST or key.startswith(diskreader.PREFIX)):
+        return False
+    path = "/%s/%s" % (bucket, key)
+    return not any(c.get("label") == "obs object" and (c.get("delete") or {}).get("path") == path
+                   for c in run.get("created", []))
+
+
+def _exit_check(svc, o, bucket: str, key: str, head: dict) -> list[str]:
+    """The classes the exit check finds in an object (a registered name, a secret, a private key, a token): the
+    gate's scan of a push with the identifier class left out (EXIT_FREE, B-087). An object over TEXT_LIMIT (an image
+    for a reader) is not read: the gate cannot scan it either. `head` is the answer of the HEAD of the object.
+    Raises _refused when the size is not known or the name check cannot run."""
+    from awb import gate, labsecrets, register
+
+    size = next((v for k, v in head.items() if str(k).lower() == "content-length"), None)
+    if not _size_header(size):
+        raise _refused("refused: obs://%s/%s names no size, so the exit check cannot read it" % (bucket, key))
+    if int(size) > gate.TEXT_LIMIT:
+        return []
+    status, _rh, raw = o.small("GET", "/%s/%s" % (bucket, key))
+    if status != 200:
+        raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
+    try:
+        matcher = gate._load_matcher(svc.paths_fn().vault / "register.tsv")
+        found = gate._scan_decoded("obs://%s/%s" % (bucket, key), raw, matcher,
+                                   classes=frozenset(labsecrets.GATE_CLASSES))
+    except (register.RegisterError, gate.GateError) as err:
+        raise _refused("refused: the exit check cannot run: %s" % err) from None
+    except Exception:
+        raise _refused("refused: the exit check cannot run") from None
+    return sorted({f.cls for f in found} - gate.EXIT_FREE)
+
+
 def _link(svc, req: dict, uid: int, project: str) -> dict:
     """A signed GET link to one object of a bucket the open run made (the action link)."""
     from awb.tcp import labadmin
@@ -1477,11 +1523,16 @@ def _link(svc, req: dict, uid: int, project: str) -> dict:
         raise _refused("the region is not one of the tenant's")
     o = _Obs(svc, {"tenant": alias, "project": project, "region": region})
     try:
-        status, _rh, _raw = o.small("HEAD", "/%s/%s" % (bucket, key))
+        status, head, _raw = o.small("HEAD", "/%s/%s" % (bucket, key))
         if status == 404:
             raise _refused("refused: obs://%s/%s is not there" % (bucket, key))
         if status != 200:
             raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
+        found = [] if _run_wrote(run, bucket, key) else _exit_check(svc, o, bucket, key, head)
+        if found:
+            svc._log(uid, alias, "admin", "GET", "obs-link", region, "refused %s %s" % (bucket, key_hash(key)),
+                     project)
+            raise _refused(LINK_EXIT_LINE % (bucket, key, " and ".join(found)))
         seconds = minutes * 60
         ak, sk, token = labadmin.auth(svc, alias, login, region).link_credential(seconds)
     except labadmin.LabAdminError as err:

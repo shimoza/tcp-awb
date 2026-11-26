@@ -29,7 +29,9 @@ run without a register unless --no-register is given.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib
+import io
 import re
 import sys
 from collections import Counter
@@ -411,6 +413,25 @@ def _exchange_leftovers(code: str, folder: Path | None) -> str | None:
             "them, mark them kept in RESOURCES.md or close with --force" % (code, n))
 
 
+def _kept_buckets(code: str, p: config.Paths) -> list[str]:
+    """The names of the buckets `awb lab run end --keep` left for the project (B-094). The owner reads the kept list
+    of the vault; the work user cannot and asks the key service."""
+    from awb import labruns
+
+    names = [r.get("name") for r in labruns.load_kept(p, code)]
+    if not names and config.is_work_user():
+        # `awb lab run status` prints "kept  TENANT  REGION  KIND  NAME  RUN  DATE" for each (the kind has a space)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            done = _delegate("lab", ["run", "status", "--project", code])
+        if done != EXIT_OK:
+            print("awb close: the kept buckets could not be checked (key service); see awb lab run status",
+                  file=sys.stderr)
+        names = [f[4] for f in (re.split(r"  +", line.strip()) for line in out.getvalue().splitlines())
+                 if f[0] == "kept" and len(f) == 7]
+    return sorted({n for n in names if isinstance(n, str) and re.fullmatch(r"[a-z0-9][a-z0-9.-]{2,62}", n)})
+
+
 def _cmd_close(args, p: config.Paths) -> int:
     from awb import intake, ledger, projects
 
@@ -422,6 +443,13 @@ def _cmd_close(args, p: config.Paths) -> int:
         why = _exchange_leftovers(args.code, Path(before.path))
         if why:
             return _err(why)
+        kept = _kept_buckets(args.code, p)
+        if kept:
+            print("awb: %s keeps %d bucket(s) of a lab run on a test tenant; drop them or close with --force:"
+                  % (args.code, len(kept)), file=sys.stderr)
+            for name in kept:
+                print("awb lab kept drop %s" % name, file=sys.stderr)
+            return EXIT_ERROR
     items = projects.open_items(before.path) if before else 0
     live = projects.live_resources(before.path) if before else 0
     try:

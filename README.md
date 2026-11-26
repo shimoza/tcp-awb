@@ -217,7 +217,8 @@ CODE holds no key token` until the owner runs `awb projects kind CODE project` o
 projects share the work user, so the token is kept from them by the place guard, as the rest of the folder is.
 
 Every resource a project creates carries the project code as a tag and a row in the project's `RESOURCES.md`. A
-daily snapshot tells what ran on which tenant on which day. `awb close` refuses while something is still running.
+daily snapshot tells what ran on which tenant on which day. `awb close` refuses while something is still running and while the project keeps a bucket (`awb lab kept drop NAME`
+for each; `--force` closes anyway).
 What a session learned live on the platform goes into the knowledge base with the grade `live`.
 
 The most frequent live check (raise a few resources, check one thing, tear down) is a lab recipe: `awb lab run
@@ -336,7 +337,10 @@ stops the run's jobs and aborts the open multipart uploads of its buckets before
 bucket. A reader without a key, such as an ECS of the run, gets a link instead of a public ACL, which the key
 service refuses (the owner's decision of 2026-11-24): `awb lab obs link` prints a GET URL of one object, signed in its
 query string with a temporary credential made for that link, valid 60 minutes by default and 12 hours at most, for a
-bucket the open run made only and never on a customer tenant. The secret key stays in the service; the URL is
+bucket the open run made only and never on a customer tenant. A link is an exit (B-094): before it signs, the service
+runs the exit check on the object (a registered name or a secret; an id is no finding) and refuses with one line when
+it finds one; an object over 8 MiB (an image) is not read, and what the run's own disk reader wrote under `files/` and
+`manifest.json` is signed as before. The secret key stays in the service; the URL is
 printed once and the logs keep only the bucket, the key's hash and the minutes. The module doc is in
 `awb/tcp/labobs.py`.
 
@@ -1004,7 +1008,7 @@ files are `hooks.client_settings`. After a change to a parser, a help text, the 
 | switch | `awb projects kind tcp-xxxx project` (a customer project: `--customer CUST-XXXX`, the code you type from `awb register`) | a query that needs a live test becomes a project (or back). The grant records the customer and is written only when you confirm it with `--customer`; without it the command prints `grant not written`, shows the row as information and asks you to type the code yourself (no ready command), another code is refused |
 | see the projects | `awb projects list` | every project with its goal and the session that holds it |
 | park a project | `awb projects park tcp-xxxx --reason "waits on the customer"`, later `awb projects unpark tcp-xxxx` | the board counts it apart and leaves its open items out; nothing else changes, material still comes in |
-| finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items and live resources and lists them with their commands when it refuses, then writes the fingerprint of the deliverables to the shared side and pins its hash in the vault; a session that leaves you an item with an allowed `awb` command in OPEN.md gets you one mail, sent by the 15 minute timer of `awb build nudge`; delete removes the folder and keeps the code |
+| finish a project | `awb close tcp-xxxx`, then `awb projects delete tcp-xxxx` | close waits for open items, live resources and kept lab buckets (one `awb lab kept drop NAME` line each) and lists them with their commands when it refuses, then writes the fingerprint of the deliverables to the shared side and pins its hash in the vault; a session that leaves you an item with an allowed `awb` command in OPEN.md gets you one mail, sent by the 15 minute timer of `awb build nudge`; delete removes the folder and keeps the code |
 | take a file | `awb inbox take the pdf` | the file you described, from either inbox, into the project |
 | look up a fact | `awb kb find "ecs flavor eu-nl"`, `awb kb show KB-XXXX` | the first 20 ranked facts (`--top N`, `--all`) with grade, source and check date; `show` also prints how the fact is checked again (its check block) |
 | act on an expired or duplicate fact | `awb kb expired [--days N]`, `awb kb renew KB-XXXX --source URL`, `awb kb retire KB-XXXX --why "..."`, `awb kb merge KEEP DROP` | renew when it still holds where you read it, retire when it no longer does, merge two entries that say the same; each runs the checks of `amend` |
