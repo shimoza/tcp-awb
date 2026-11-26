@@ -384,6 +384,8 @@ only writer. `AWB_UI_QUEUE` gives another queue folder and `AWB_UI_STATE` anothe
 
 The main session never writes in `.side/NAME` and the side session never writes outside it, so two writers never touch the same files.
 
+`awb lessons distill CODE` (L4), as the work user in the folder of the project: reads the transcripts of that project's own sessions of the work user only (never another project, the owner or the desk), from where the last distill stopped and writes `notes/lessons-digest.md`: each step that failed and then worked with its first error line, each reverted step and each new decision line of STATE.md, with what the session said next, every word that is not plain English or a TCP term written [x] (no name, project code, identifier, home path, secret or price; every line passes the screens of `kb add`). Then it starts `awb side start lessons` with the digest as its brief on haiku at effort low, which turns it into lesson cards; a side session `lessons` that still runs is left alone, a finished one is dropped first. Nothing new starts nothing. `awb close` runs it once more before it closes a live project. The stop hook asks for lesson cards once per batch after a step that failed and then worked, a reverted step or a new decision (L2) and the first prompt after a compaction asks once (L3).
+
 ## Codex for bounded non-UI work (CX)
 
 | command | what it does |

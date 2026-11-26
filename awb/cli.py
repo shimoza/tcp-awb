@@ -12,7 +12,7 @@ awb bucket, awb files, awb clean, awb import, awb words, awb reveal, awb price, 
 awb dataset, awb english, awb ask, awb inbox, awb xchg, awb howto, awb start, awb fetch, awb paste, awb material, awb keys,
 awb migrate, awb lab, awb tenant, awb api, awb service, awb board, awb web, awb owner, awb ui, awb build, awb pr,
 awb deploy, awb doc, awb pdf, awb docx, awb winlab, awb platform-status, awb codex, awb exit, awb queue,
-awb open, awb side, awb dev, awb desk, awb version, awb handover, awb cost, awb solutions, awb ux, awb state.
+awb open, awb side, awb lessons, awb dev, awb desk, awb version, awb handover, awb cost, awb solutions, awb ux, awb state.
 
 Exit codes: 0 ok, 1 findings or a file withheld, 2 usage or error.
 
@@ -452,6 +452,11 @@ def _cmd_close(args, p: config.Paths) -> int:
             return EXIT_ERROR
     items = projects.open_items(before.path) if before else 0
     live = projects.live_resources(before.path) if before else 0
+    if before is not None and before.state in projects.LIVE_STATES and (args.force or not (items or live)):
+        # L4: the lessons of the project's own transcripts once more before the close; never stops it
+        from awb import lessons
+        for line in lessons.before_close(p, args.code, Path(before.path)):
+            print(line)
     try:
         pr = projects.close(p, args.code, force=args.force)
     except projects.ProjectError:
@@ -997,6 +1002,7 @@ DELEGATED = {
     "ux": ("ux", "counted frictions of the sessions: note TEXT, report [--since DATE]"),
     "handover": ("handover", "write a source-only owner hand-over before compaction"),
     "ui": ("tcp.ui", "the UI queue: submit a task, list the runs, a result note when a run ends (owner side)"),
+    "lessons": ("lessons", "lesson cards from the project's own transcripts: distill CODE (the work user, in the project; awb close runs it too)"),
     "side": ("side", "side sessions of a project: start NAME --brief FILE [--model] [--effort], status, take, stop, drop"),
     "codex": ("tcp.codex", "Codex for bounded non-UI work: usage (the quota), run TASKFILE (a worktree, never a commit), status"),
     "build": ("build", "the self-build: the task queue (add, draft, list, status, show, answer, retry, widen, stop), "

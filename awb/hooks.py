@@ -4,7 +4,8 @@ Each hook reads the hook JSON of the client from standard input and answers the 
 
     prompt          UserPromptSubmit   once per change: the notice that the rules the session loaded changed
                                        (awb/rulesync.py), as additional context of a clean prompt; once per
-                                       task the closest facts of the knowledge base (awb/kbfirst.py, KF).
+                                       task the closest facts of the knowledge base (awb/kbfirst.py, KF);
+                                       once after a compaction the question for lesson cards (awb/lessons.py, L3).
                                        DMZ 2: no name check and no structured-data check on typed text, a paste,
                                        the result of a background agent or a CI event. Exit 2 for one thing only:
                                        a private key block (BEGIN ... PRIVATE KEY) or an access key pair (a key
@@ -60,7 +61,9 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        that, silently: a ledger entry drafted from the new commits of the project
                                        (T-41, at most every DRAFT_HOURS) and the "English note:" of the last reply
                                        kept in the list of notes (T-48), the questions count and the refused
-                                       tool calls of the project and the day (awb/questions.py)
+                                       tool calls of the project and the day (awb/questions.py). Once per batch
+                                       of work with a step that failed and then worked, a reverted step or a new
+                                       decision in STATE.md it asks for lesson cards (awb/lessons.py, L2)
     session-start   SessionStart       JSON with `additionalContext`: SCOPE.md, the first 60 lines of STATE.md,
                                        OPEN.md, the count of expired knowledge entries and the days since the last
                                        career update when that is over 90. The files, the folder name and the
@@ -84,7 +87,8 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        summary: the Status: and Next: lines and the `## Pinned` block of
                                        STATE.md (reply language, standing limits, deliverables with their
                                        bucket paths, running chains; awb/status.py), as written (Q-0006,
-                                       DMZ 2).
+                                       DMZ 2). It leaves the mark that makes the next prompt ask for lesson
+                                       cards (L3).
                                        Never blocks a compaction; silent for the owner and outside a project.
                                        `pre-compact` is the owner's hand-over (awb/handover.py)
 
@@ -644,7 +648,7 @@ def _rules_notice(data: dict, extra: str | None = None) -> None:
             _emit(EVENTS["prompt"], extra)
         return
     said = "\n".join(t for t in (extra, _rules_text(data), _kb_text(data), _dev_requests(data),
-                               _desk_requests(data), _handover_notice(data)) if t)
+                               _desk_requests(data), _handover_notice(data), _lessons_notice(data)) if t)
     if said:
         _emit(EVENTS["prompt"], said)
 
@@ -1529,6 +1533,14 @@ def hook_stop(data: dict) -> int:
         draft_lines = ["the draft check of the stop hook failed (%s): run awb write check on every draft you show"
                        % type(exc).__name__]
     drafts_msg = "\n".join(draft_lines) if draft_lines else None
+    lessons_msg = None
+    try:
+        from awb import lessons
+        # L2: a step that failed and then worked, a reverted step or a new decision asks for lesson cards, once
+        lessons_msg = None if notified or sidetree or ask else lessons.due(
+            config.paths(), data.get("transcript_path"), data.get("session_id"), root)
+    except Exception:
+        lessons_msg = None
     open_msg = None
     try:
         from awb import opensweep
@@ -1538,8 +1550,8 @@ def hook_stop(data: dict) -> int:
     # task GT: the stop hook never asks for a review, a tier or a request check
     said: list[str] = []
     shaped = False
-    for msg, note in ((draft_msg, True), (harvest_msg, True), (contrib_msg, True), (late_msg, True),
-                      (drafts_msg, False), (open_msg, True)):
+    for msg, note in ((draft_msg, True), (harvest_msg, True), (contrib_msg, True), (lessons_msg, True),
+                      (late_msg, True), (drafts_msg, False), (open_msg, True)):
         if not msg:
             continue
         if note and not shaped:
@@ -1717,10 +1729,32 @@ def hook_compact(data: dict) -> int:
     root = project_root(_session_folder(data))
     if root is None:
         return OK
+    _quietly(_lessons_mark, data, root)
     section = _pinned_section(root)
     if section:
         print("%s\n\n%s" % (COMPACT_LEAD, section.rstrip()))
     return OK
+
+
+def _lessons_mark(data: dict, root: Path) -> None:
+    """L3: a compaction of a project session leaves the mark that makes its next prompt ask for lesson cards."""
+    from awb import lessons, side
+
+    if not side.is_side_worktree(root) and not _ask_project(root):
+        lessons.mark_compaction(config.paths(), data.get("session_id"))
+
+
+def _lessons_notice(data: dict) -> str:
+    """L3: the question for lesson cards, once, at the first prompt after a compaction of a project session."""
+    try:
+        root = project_root(_session_folder(data))
+        if root is None:
+            return ""
+        from awb import lessons
+
+        return lessons.after_compaction(config.paths(), data.get("session_id")) or ""
+    except Exception:
+        return ""
 
 
 def _project_notes(p: config.Paths, root: Path, sid, shown: str | None = None) -> list[str]:
