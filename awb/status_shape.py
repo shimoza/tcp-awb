@@ -139,7 +139,7 @@ def validate_lists(status: dict) -> None:
 # --------------------------------------------------------------------------- what runs now (Q-0014)
 
 RUNNING_KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login",
-                 "budget")  # events.KINDS
+                 "budget", "transfer")  # events.KINDS
 RUNNING_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$")                               # awb.events.ID_RE
 RUNNING_KEYS = {"kind", "id", "project", "since", "eta", "overdue"}
 RUNNING_FIELDS = ("running", "ended")

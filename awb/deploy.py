@@ -1,7 +1,7 @@
 """`sudo awb deploy`: one command that brings a commit of the repository live (T1, INTERFACES.md "The deploy").
 
     sudo awb deploy [--dry-run] [--all] [--only UNIT...] [--restart] [--to COMMIT | --rollback | --task ID]
-                    [--mirrors DIR...] [--wait-build]
+                    [--mirrors DIR...] [--wait-build] [--force]
     sudo awb deploy --task ID       the green commit of a build task: fetch main.git, fast-forward the owner's main,
                                     deploy that commit (self-build SB4)
     awb deploy --dry-run            the plan without root, as the owner
@@ -51,6 +51,14 @@ without a task or the runner's next start (its unit runs `setup.sh --update --pe
 removes the file; `awb deploy status` names it. `--wait-build` waits up to WAIT_BUILD_TOTAL for the task units to
 end before anything changes; when they outlast it the deploy goes on as without it and exits 1.
 
+A winlab transfer holds a deploy back (B-105): `awb winlab get` and `put` write a start (events kind `transfer`, id
+MACHINE@PID) and an end. A deploy replaces the installed tree under a transfer it does not wait for (it killed a
+7.86 GB get on 2026-11-25). Before the plan, root reads the events file of the board: a transfer of the last
+TRANSFER_HOURS hours with no end and a live pid refuses the deploy in one line, exit 2, nothing changed, "a winlab
+transfer runs for tcp-xxxx since HH:MM; deploy after it ends or with --force". `--force` goes on and says so. A start
+whose pid is gone (the transfer was killed) is stale: the line says so and the deploy goes on. A host without a board
+folder (a plain host) has no check, the dry run none.
+
 Two refusals hold for every deploy (SB4), because the build runner moves `main` in <build_root>/main.git and a copy
 that is behind would revert its work and restart both daemons: a deployed commit (the release `src` points at, read
 with the journal) that is no commit of the repository, and a target that does not descend from it unless `--to` or
@@ -82,6 +90,7 @@ Exit codes: 0 done and nothing pending, 1 a step failed or a unit is pending, 2 
 from __future__ import annotations
 
 import ast
+import datetime as dt
 import fcntl
 import json
 import os
@@ -118,6 +127,7 @@ RUNNER_GRACE = 120.0                # an idle runner on an older release past th
 BUILD_PENDING = "BUILD-PENDING"     # in the install root: the build side a deploy left out (seal/setup.sh reads it)
 WAIT_BUILD_TOTAL = 3600.0           # --wait-build waits this long at most for the task units to end
 WAIT_BUILD_POLL = 10.0
+TRANSFER_HOURS = 6                  # a winlab transfer that started this long ago or less and has no end holds a deploy
 RUNNING_STATES = ("active", "activating", "reloading")
 SINCE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
 ALIAS_RE = re.compile(r"^[\w.-]{1,40}\Z")
@@ -324,6 +334,8 @@ class Host:
     #                                      a stand-in)
     web_root: Path | None = None         # the folder of the live page, None: publish.SRV (tests give a temp folder)
     chown: Callable = os.chown
+    pid_alive: Callable | None = None    # a process id lives: None is pid_alive() (tests give a stand-in)
+    wall: Callable | None = None         # the wall clock as an aware datetime, None: now in UTC (tests give a time)
 
     @property
     def units_dir(self) -> Path:
@@ -1077,6 +1089,7 @@ class Options:
     mirrors: list[str] = field(default_factory=list)
     task: str | None = None
     wait_build: bool = False
+    force: bool = False
 
 
 # --------------------------------------------------------------------------- the deploy by task (self-build SB4)
@@ -2852,6 +2865,8 @@ def _parser():
     ap.add_argument("--mirrors", nargs="+", metavar="DIR", default=[], help="passed to setup.sh --update")
     ap.add_argument("--wait-build", action="store_true",
                     help="wait (at most 60 minutes) until no build task unit runs, so the build side comes along")
+    ap.add_argument("--force", action="store_true",
+                    help="deploy although a winlab transfer runs (it is cut off)")
     return ap
 
 
@@ -2859,7 +2874,7 @@ def _parse_plan_args(argv: list[str]) -> Options:
     ap = _parser()
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    return Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task, a.wait_build)
+    return Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task, a.wait_build, a.force)
 
 
 def _plan_argv(opts: Options) -> list[str]:
@@ -2889,10 +2904,61 @@ def deploy_board(caller: Caller) -> Path | None:
     return Path(shared) / "build" if shared else None
 
 
+def pid_alive(pid: int) -> bool:
+    """True when a process with this id exists (a process of another user answers EPERM and counts)."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def open_transfers(board: Path, host: Host) -> list[tuple[str, str | None, str, bool]]:
+    """The winlab transfers of the last TRANSFER_HOURS hours that have no end (events kind `transfer`, id
+    MACHINE@PID, awb/winlabsession.py): (id, project, HH:MM local start, its pid lives), oldest first. An id of
+    another shape has no pid to ask: it counts as dead."""
+    now = host.wall() if host.wall else dt.datetime.now(dt.timezone.utc)
+    alive = host.pid_alive or pid_alive
+    out = []
+    for item in events.running_now(events.read(board), now):
+        if item["kind"] != "transfer":
+            continue
+        began = events._parse(item["since"])
+        if now - began > dt.timedelta(hours=TRANSFER_HOURS):
+            continue
+        pid = item["id"].rpartition("@")[2]
+        lives = pid.isdigit() and alive(int(pid))
+        out.append((item["id"], item["project"], began.astimezone().strftime("%H:%M"), lives))
+    return out
+
+
+def transfer_hold(board: Path | None, host: Host, force: bool) -> None:
+    """B-105: a deploy restarts the units and replaces the installed tree under a running `awb winlab get` or `put`
+    (a deploy killed a 7.86 GB get on 2026-11-25). It refuses while a transfer of the last TRANSFER_HOURS hours has
+    no end and its process lives; `--force` goes on and says so. A transfer whose process is gone is stale (it died
+    without its end): the deploy goes on and says so. Nothing is written."""
+    if board is None:
+        return
+    for eid, project, hm, lives in open_transfers(board, host):
+        who = project or eid.partition("@")[0]
+        if not lives:
+            say("# the winlab transfer for %s since %s is stale (its process is gone): the deploy goes on" % (who, hm))
+        elif force:
+            say("# a winlab transfer runs for %s since %s: --force deploys anyway, the transfer is cut off" % (who, hm))
+        else:
+            raise Refused("a winlab transfer runs for %s since %s; deploy after it ends or with --force" % (who, hm))
+
+
 def root_deploy(opts: Options, host: Host) -> int:
     caller = entry_checks(host)
     lock = take_lock(host.run_dir)
     try:
+        if not opts.dry_run:
+            transfer_hold(deploy_board(caller), host, opts.force)
         res = as_user(host.runner, [host.bin, "deploy", *_plan_argv(opts)], caller.owner, host.environ, caller.repo,
                       host.getgrouplist, capture_output=True, text=True)
         if res.returncode != 0:
@@ -2982,7 +3048,7 @@ def main(argv: list[str] | None = None, *, root: Path = OPT, etc: Path = Path("/
         a = _parser().parse_args(argv)
     except SystemExit as exc:
         return 0 if exc.code in (0, None) else 2
-    opts = Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task, a.wait_build)
+    opts = Options(a.dry_run, a.all, a.only, a.restart, a.to, a.rollback, a.mirrors, a.task, a.wait_build, a.force)
     if sum(bool(x) for x in (opts.rollback, opts.to, opts.task)) > 1:
         print("awb deploy: --rollback, --to and --task exclude each other", file=sys.stderr)
         return 2

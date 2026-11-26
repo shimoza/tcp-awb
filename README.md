@@ -502,7 +502,7 @@ projects gets no strip. The owner page also lists the open dev asks (project cod
 open rows of `awb queue` (id, who, what and next step, age, a stale mark after 24 hours without a new next step),
 both from the status file of `awb owner status --write`, rebuilt at most every five minutes, every text through the
 name check and withheld with its class on a finding. They are read only for now. `awb owner status` opens with
-"Running now" (each build task, check, deploy, lab window, dev ask, lab run and timer job that started and has not
+"Running now" (each build task, check, deploy, lab window, winlab transfer, dev ask, lab run and timer job that started and has not
 ended, with its start and ETA, overdue when the ETA passed, and the vault or the key service while locked and the
 Claude login of the build user while lapsed) and "Ended in the last 24 h" (red, stopped and needs-you in capitals),
 both from the events file `<shared>/build/events.jsonl` that the runner, `sudo awb deploy`, `awb winlab`, the dev
@@ -554,6 +554,12 @@ target and refuses on a finding, naming the commit and the class only; the dry r
 The deploy runs no content check (DMZ 3): a name, a secret, a path or an id passes, and no register is needed. A
 message that names an assistant as co-author and a text file over 8 MiB still refuse. The names and secrets are
 checked where the commits leave, at the push.
+A running `awb winlab get` or `put` holds the deploy back: a deploy replaces the installed tree under it (one killed a
+7.86 GB get on 2026-11-25). Both write a start and an end to the events file (see "Winlab") and `sudo awb deploy`
+refuses in one line, exit 2 and nothing changed, "a winlab transfer runs for tcp-xxxx since HH:MM; deploy after it ends
+or with --force" while a transfer of the last 6 hours has no end and its process lives. `--force` deploys anyway and
+cuts the transfer off (the same get again resumes it). A start whose process is gone, a transfer that was killed, is
+stale: the deploy says so and goes on. The dry run and a host without a shared side are not held.
 The deploy installs the commit as a release of its own and restarts only what the change touched, plus every running
 service that still runs an older release (started before the last deploy switched the release, the console gateway
 for one): the plan and the dry run show it as `runs an older release`. The running services of the web side (those
@@ -1420,7 +1426,10 @@ names; the next get or `awb winlab get WINPATH FILE --recheck` gives it its part
 with the one the get recorded and publishes it, without a transfer and without an open window; a part changed since
 the get is deleted. A machine that gave no SHA-256 keeps the part for the same get again, without a transfer.
 A large image is published right after the SHA-256 compare: no request goes to a check and no progress line is
-printed.
+printed. A get or put writes a start (events kind `transfer`, id `MACHINE@PID`) when it begins and an end with its
+outcome (`ok`, `red` or `stopped`): "Running now" of `awb owner status` shows it and `sudo awb deploy` refuses while
+it runs (see "Deploy"). A transfer that is killed outright leaves its start; once its process is gone the deploy calls
+it stale and goes on.
 
 Part 4 is the lab broker (`awb winlab serve`, `awb/tcp/winbroker.py`), the same pattern as the key service: a
 project session never holds a key. Root runs it under its unit (the seal part of the steering session: the system

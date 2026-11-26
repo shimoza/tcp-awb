@@ -7261,7 +7261,7 @@ components:
       properties:
         kind:
           type: string
-          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down), login (a lapsed Claude login) or budget (the build on the API key after a subscription limit or the weekly key cap reached).
+          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down), login (a lapsed Claude login), budget (the build on the API key after a subscription limit or the weekly key cap reached) or transfer (a winlab get or put).
           enum:
             - task
             - check
@@ -7274,9 +7274,10 @@ components:
             - keys
             - login
             - budget
+            - transfer
         id:
           type: string
-          description: The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys, build-user, key-fallback or key-cap.
+          description: "The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys, build-user, key-fallback, key-cap or the lab machine and process id of a transfer (lab-1@4242)."
           pattern: "^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"
         project:
           type:
@@ -7308,7 +7309,7 @@ components:
       properties:
         kind:
           type: string
-          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down), login (a lapsed Claude login) or budget (the build on the API key after a subscription limit or the weekly key cap reached).
+          description: task, check, deploy, lab (a lab window), ask (a dev ask), labrun (awb lab run), job (a run of an awb timer unit), vault or keys (the daemon locked or down), login (a lapsed Claude login), budget (the build on the API key after a subscription limit or the weekly key cap reached) or transfer (a winlab get or put).
           enum:
             - task
             - check
@@ -7321,9 +7322,10 @@ components:
             - keys
             - login
             - budget
+            - transfer
         id:
           type: string
-          description: The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys, build-user, key-fallback or key-cap.
+          description: "The task or check id, the short commit of a deploy, the lab machine, the dev ask handle, the lab run, the timer unit without .service, vault, keys, build-user, key-fallback, key-cap or the lab machine and process id of a transfer (lab-1@4242)."
           pattern: "^[A-Za-z0-9][A-Za-z0-9._@/-]{0,79}$"
         project:
           type:

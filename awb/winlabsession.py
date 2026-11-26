@@ -43,6 +43,8 @@ At the end the SHA-256 of both sides is compared; a mismatch deletes the part an
 stopped after the transfer keeps the received file under a private name: `awb winlab get --recheck` compares its
 SHA-256 and publishes it without the machine. Neither overwrites a file on the other side. Built for 12 GB: nothing
 is held whole in memory, three breaks in a row are taken again after a pause before the command gives up.
+A get or put writes a start `transfer MACHINE@PID` to the events file and an end with its outcome (B-105): a killed one
+leaves the start, which `sudo awb deploy` reads (it refuses while the pid lives, `--force` goes on).
 
 Standard library only. Nothing here prints a secret.
 """
@@ -50,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import datetime
 import fcntl
 import functools
@@ -68,7 +71,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from awb import codes, winlab
+from awb import codes, events, winlab
 from awb.winlab import WinlabError
 
 LOG_FOLDER = Path("notes") / "winlab"
@@ -1168,6 +1171,31 @@ def _pick(root: Path, machine: str | None) -> str:
     return names[0]
 
 
+@contextlib.contextmanager
+def _transfer(root: Path, name: str):
+    """The events of a get or put (B-105): a start `transfer MACHINE@PID` when it begins, an end with its outcome (ok,
+    red for a refusal or a break, stopped for a signal). A kill leaves the start: `running_now` shows it and `sudo awb
+    deploy` waits for it while the pid lives. The pid is in the id so two transfers of one machine never share an
+    item and the deploy needs no second file. A board that is not there or not writable writes nothing."""
+    eid = "%s@%d" % (name, os.getpid())
+    try:
+        project = _code(root)
+    except Exception:
+        project = None
+    if project is not None and not events.PROJECT_RE.fullmatch(project):
+        project = None
+    events.start("transfer", eid, project=project, create=False)
+    outcome = "red"
+    try:
+        yield
+        outcome = "ok"
+    except (Stopped, KeyboardInterrupt):
+        outcome = "stopped"
+        raise
+    finally:
+        events.end("transfer", eid, outcome, project=project, create=False)
+
+
 @_serial
 def put(file: str, winpath: str, machine: str | None = None, root: Path | None = None,
         overwrite: bool = False) -> dict:
@@ -1184,7 +1212,8 @@ def put(file: str, winpath: str, machine: str | None = None, root: Path | None =
         _refused(root, machine or NO_WINDOW, "put to %s" % (machine or "a lab machine"), err)
         raise
     try:
-        return _put(root, found["name"], found, src, winpath, overwrite)
+        with _transfer(root, found["name"]):
+            return _put(root, found["name"], found, src, winpath, overwrite)
     except WinlabError as err:
         log(root, machine, "put to %s" % machine, ["to %s" % winpath, "failed: %s" % err])
         raise
@@ -1330,7 +1359,8 @@ def get(winpath: str, file: str, machine: str | None = None, root: Path | None =
         _refused(root, machine or NO_WINDOW, "get from %s" % (machine or "a lab machine"), err)
         raise
     try:
-        return _get(root, found["name"], found, winpath, dst, overwrite)
+        with _transfer(root, found["name"]):
+            return _get(root, found["name"], found, winpath, dst, overwrite)
     except WinlabError as err:
         log(root, machine, "get from %s" % machine, ["from %s" % winpath, "failed: %s" % err])
         raise

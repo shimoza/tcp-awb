@@ -22,6 +22,10 @@ last durations of its kind), `sudo awb deploy` (start and end, on a sealed host 
 end is the ETA and the window ends by itself then) and `awb winlab close`, a dev ask written (`awb dev ask`) and
 closed (`awb dev answer`, `awb dev close`). A start with the key (kind, id) of an item still open renews its ETA.
 
+A winlab transfer (`awb winlab get` and `put`, kind `transfer`, B-105) starts as `MACHINE@PID` with the process id of
+the command and ends with its outcome. One that dies leaves its start: `running_now` shows it and `sudo awb deploy`
+reads it (a start of the last 6 hours whose pid lives holds the deploy back, `deploy.transfer_hold`).
+
 The readers: `running_now` (open items with their ETA, overdue when the ETA passed) and `ended_since` (ended items
 since a time, with the start when it is known); `awb owner status` prints both first, the owner status file carries
 `running`.
@@ -53,7 +57,8 @@ from pathlib import Path
 from awb import codes
 
 FILE = "events.jsonl"
-KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login", "budget")
+KINDS = ("task", "check", "deploy", "lab", "ask", "labrun", "job", "vault", "keys", "login", "budget",
+         "transfer")
 STATE_KINDS = ("vault", "keys", "login")
 """An open item of these kinds is a state that waits on the owner (locked, lapsed), its end the state gone."""
 LOGIN_IDS = ("build-user",)
@@ -72,7 +77,7 @@ HISTORY = 10
 RUNNING_MAX = 200
 KIND_SHOWN = {"task": "build task", "check": "check", "deploy": "deploy", "lab": "lab window", "ask": "dev ask",
               "labrun": "lab run", "job": "timer job", "vault": "vault", "keys": "key service", "login": "login",
-              "budget": "build budget"}
+              "budget": "build budget", "transfer": "winlab transfer"}
 STATE_SHOWN = {"vault": ("the vault locked", "the vault unlocked"),
                "keys": ("the key service locked", "the key service unlocked"),
                "login": ("the Claude login of the %s lapsed", "the Claude login of the %s back")}

@@ -1259,7 +1259,10 @@ could not be listed); while it is not empty root runs `setup.sh --update --no-bu
 journal's `build` (`pending` or `done`) and restart-wanted; a full update removes the file. `build_pending_line(root)`
 is the status line. `Options.wait_build` (`--wait-build`): `Run.wait_build()` lists the task units every
 `WAIT_BUILD_POLL` seconds, at most `WAIT_BUILD_TOTAL`, before the journal; a timeout adds `--wait-build` to the
-failures. `seal/setup.sh --update --pending-build` (the `ExecStartPre` of `awb-buildd.service`) runs the build side
+failures. `Options.force` (`--force`): `transfer_hold(board, host, force)` runs before the plan of a real deploy (B-105): it
+reads the events file (`open_transfers`: kind `transfer`, id `MACHINE@PID`, started within `TRANSFER_HOURS`, no end,
+`Host.pid_alive` for the pid) and raises `Refused` for a live one unless forced; a dead pid is said to be stale.
+`seal/setup.sh --update --pending-build` (the `ExecStartPre` of `awb-buildd.service`) runs the build side
 alone while the file is there and no task unit is active.
 The deploy by task (SB4): `Options.task` (`--task ID`, excludes `--to` and `--rollback`; the plan child gets
 `--task ID` and, on a dry run, `--dry-run`); `owner_task(opts, repo, host) -> (target, note)` (fetch of
