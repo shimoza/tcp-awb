@@ -2015,7 +2015,7 @@ hollow-test check never judge it against an old baseline. `CHANGELOG.md` and `bu
 `awb pr take` (lines of one week and section on both sides, rows by id); the driver is a copy of the runner's own
 `awb/mergedriver.py`, never the branch's. A rebase that conflicts in any other file is `red: rebase conflict` and the
 check line names the files. The
-checks: the unit ended by itself, the client ended well, the last line is `DONE:`, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate
+checks: the unit ended by itself, the client ended well, the first or the last line of the report is `DONE:`, no line is `BLOCKED:` and the report does not end with a question, one to five commits as you on `task/<ID>` and nothing else, no changed blob and no commit above 16 MB (sized with `git cat-file --batch-check` before any read), the gate
 (no content check: only a co-author line that names an assistant and a text over 8 MiB are red), the paths, the CHANGELOG and `build/tests.json`, then the whole suite, every test that passed before
 still passing and the block's `check` on a `git archive` export, as `awb-build` on loopback only. When the whole
 suite has failures, the failed nodes alone run once more in the same suite unit; when they pass the check passes

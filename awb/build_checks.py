@@ -184,8 +184,9 @@ def check_answer(ctx: Ctx, obj: dict) -> None:
     from awb import questions
 
     text = obj.get("result") if isinstance(obj.get("result"), str) else ""
-    last = text.rstrip().splitlines()[-1].strip() if text.strip() else ""
-    if not last.startswith("DONE:") or questions.ends_with_question(text):
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    done = bool(lines) and (lines[0].startswith("DONE:") or lines[-1].startswith("DONE:"))
+    if not done or any(line.startswith("BLOCKED:") for line in lines) or questions.ends_with_question(text):
         raise _fail(ctx, 3, "asked")
     _ok(ctx, 3)
 
