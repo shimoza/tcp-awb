@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -432,3 +433,193 @@ def _write_summary(folder: str, parent: int, full: int, name: str) -> None:
             os.unlink(temp, dir_fd=parent)
         except FileNotFoundError:
             pass
+
+
+# --------------------------------------------------------------------------- one call of a run log (B-100)
+
+RUN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+MAX_ENTRY = 1 << 20
+"""The most bytes of one call entry that `read_call` keeps; a larger entry is cut after that."""
+MAX_BODY_KEYS = 60
+_HEAD_RE = re.compile(r"^## \S+ (" + "|".join(sorted(m.decode() for m in _METHODS)) + r") (\S+)(?: (.*))?$")
+_ENTRY_END_RE = re.compile(r"^(?:## " + _STAMP + r" |# lab run )")
+_ANSWER_LINE_RE = re.compile(r"^answer: (\d{3})\b")
+_BLOCK_END_RE = re.compile(r"^(?:[A-Za-z]|## |# )")
+_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_PLACEHOLDER_RE = re.compile(r"\{[^{}/]*\}")
+ERROR_KEYS = ("error_code", "error_msg", "code", "message")
+"""The keys of an answer body that `read_call` reports."""
+
+
+class CallError(Exception):
+    """One plain line: the run or the call cannot be read."""
+
+
+def mask_ids(path: str) -> str:
+    """`path` without its query and with every id written as {id}: a placeholder such as {project_id}, a UUID, a hex
+    run of 8 or more characters, a number of 3 or more digits and a word of 12 or more characters with a digit."""
+    out = []
+    for seg in path.partition("?")[0].split("/"):
+        seg = _PLACEHOLDER_RE.sub("{id}", seg)
+        if (_UUID_RE.fullmatch(seg) or re.fullmatch(r"[0-9a-fA-F]{8,}", seg) or re.fullmatch(r"[0-9]{3,}", seg)
+                or (len(seg) >= 12 and re.fullmatch(r"[A-Za-z0-9_-]+", seg) and re.search(r"[0-9]", seg))):
+            seg = "{id}"
+        out.append(seg)
+    return "/".join(out)
+
+
+def _block(lines: list[str], start: str) -> list[str]:
+    """The lines of the block after the line `start` (JSON written with indent 1): up to the next line that starts
+    with a letter, `## ` or `# `."""
+    if start not in lines:
+        return []
+    out = []
+    for line in lines[lines.index(start) + 1:]:
+        if _BLOCK_END_RE.match(line):
+            break
+        out.append(line)
+    return out
+
+
+def _json_of(lines: list[str]):
+    try:
+        return json.loads("\n".join(lines))
+    except (ValueError, RecursionError):
+        return None
+
+
+def _key_paths(value, prefix: str = "", out: list[str] | None = None, depth: int = 0) -> list[str]:
+    """The keys of a JSON object as paths (`a.b`, a list as `a[]`), never a value."""
+    out = [] if out is None else out
+    if depth > 6 or len(out) >= MAX_BODY_KEYS:
+        return out
+    if isinstance(value, dict):
+        for key in sorted(value):
+            path = "%s.%s" % (prefix, key) if prefix else str(key)
+            child = value[key]
+            if isinstance(child, (dict, list)) and child:
+                before = len(out)
+                _key_paths(child, path, out, depth + 1)
+                if len(out) == before:
+                    out.append(path)
+            else:
+                out.append(path)
+    elif isinstance(value, list):
+        for item in value[:3]:
+            _key_paths(item, prefix + "[]", out, depth + 1)
+    return out
+
+
+def _find(value, key: str, depth: int = 0):
+    """The first string or number under `key` in a JSON value, the keys of an object before its children."""
+    if depth > 6:
+        return None
+    if isinstance(value, dict):
+        got = value.get(key)
+        if isinstance(got, (str, int)) and not isinstance(got, bool):
+            return got
+        for child in value.values():
+            found = _find(child, key, depth + 1)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for child in value[:10]:
+            found = _find(child, key, depth + 1)
+            if found is not None:
+                return found
+    return None
+
+
+def _entry_facts(lines: list[str]) -> dict:
+    m = _HEAD_RE.match(lines[0])
+    facts = {"method": m.group(1), "service": m.group(2), "path": mask_ids((m.group(3) or "").strip()),
+             "status": None, "refused": None, "body_keys": None, "answer": {}}
+    for line in lines[1:]:
+        a = _ANSWER_LINE_RE.match(line)
+        if a and facts["status"] is None:
+            facts["status"] = int(a.group(1))
+        elif line.startswith("refused: ") and facts["refused"] is None:
+            facts["refused"] = line[len("refused: "):]
+    body = _json_of(_block(lines, "request body:"))
+    if isinstance(body, (dict, list)):
+        facts["body_keys"] = _key_paths(body)
+    answer = _json_of(_block(lines, "answer body:"))
+    if answer is not None:
+        for key in ERROR_KEYS:
+            found = _find(answer, key)
+            if found is not None:
+                facts["answer"][key] = str(found)
+    return facts
+
+
+def read_call(root: Path, run: str, code: str, number: int | None = None) -> dict:
+    """The facts of call `number` (1 is the first call; None: the last call that answered with a status of 400 or
+    more) of the run log `notes/lab-runs/<run>.log` of the project `code` in the folder `root` (also where it left
+    git): method, service, the path with every id as {id}, the keys of the request body (never a value), the status
+    and the `ERROR_KEYS` of the answer. Only the entry of that call stays in memory, so a log of any size is read.
+    Raises CallError with one plain line."""
+    if not RUN_NAME_RE.match(run):
+        raise CallError("%s is no run name" % run[:40])
+    if number is not None and number < 1:
+        raise CallError("calls count from 1")
+    other = CallError("%s is not a lab run of this project" % run)
+    name = run + ".log"
+    try:
+        with _directory(Path(root) / "notes" / "lab-runs") as parent:
+            full = _subdir(parent)
+            try:
+                if full is not None and _exists(full, name):
+                    fd = _open(full, name, os.O_RDONLY)
+                else:
+                    fd = _open(parent, name, os.O_RDONLY)
+            finally:
+                if full is not None:
+                    os.close(full)
+    except OSError:
+        raise other from None
+    count = 0
+    picked: tuple[int, list[str]] | None = None
+    current: list[str] | None = None
+    size = 0
+
+    def finish() -> None:
+        nonlocal picked
+        if current is None:
+            return
+        if number is not None:
+            if count == number:
+                picked = (count, current)
+            return
+        for line in current[1:]:
+            a = _ANSWER_LINE_RE.match(line)
+            if a:
+                if int(a.group(1)) >= 400:
+                    picked = (count, current)
+                break
+
+    with os.fdopen(fd, "rb") as fh:
+        for n, raw in enumerate(fh):
+            line = raw.rstrip(b"\r\n").decode("utf-8", "replace")
+            if n == 0:
+                opened = re.match(r"^# lab run (\S+) of (\S+) on ", line)
+                if opened and (opened.group(1), opened.group(2)) != (run, code):
+                    raise other
+            if _ENTRY_END_RE.match(line):
+                finish()
+                current = None
+                if _HEAD_RE.match(line):
+                    count += 1
+                    current = [line]
+                    size = len(raw)
+            elif current is not None:
+                size += len(raw)
+                if size <= MAX_ENTRY:
+                    current.append(line)
+    finish()
+    if picked is None:
+        if number is not None:
+            raise CallError("%s has no call %d (it has %d)" % (run, number, count))
+        raise CallError("%s has no call with a status of 400 or more" % run)
+    facts = _entry_facts(picked[1])
+    facts.update(number=picked[0], calls=count, run=run)
+    return facts

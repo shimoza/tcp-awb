@@ -196,17 +196,82 @@ def _here(p: config.Paths, verb: str):
     return pr
 
 
+MAX_VALUE = 300
+"""The most characters of an answer message that the ask carries."""
+
+
+def call_section(p: config.Paths, pr, run: str, number: int | None = None) -> str:
+    """The "## Call" section of an ask: call `number` of the run log of the project (the last call with a status of
+    400 or more without a number), read by lablog.read_call. It holds the method, the service, the path with every id
+    as {id}, the keys of the request body (no value) and the status, error code and message of the answer. Every
+    value passes `screen` as the text does; a value that fails is dropped with its key named."""
+    from awb import lablog
+
+    try:
+        facts = lablog.read_call(Path(pr.path), run, pr.code, number)
+    except lablog.CallError as exc:
+        raise AskError(str(exc)) from None
+    except OSError:
+        raise AskError("the run log cannot be read") from None
+    dropped: list[str] = []
+
+    def keep(key: str, value) -> str | None:
+        value = str(value)
+        try:
+            screen(p, value)
+        except AskError:
+            dropped.append(key)
+            return None
+        return " ".join(value.split())[:MAX_VALUE]
+
+    answer = facts["answer"]
+    lines = ["Run: %s, call %d of %d" % (facts["run"], facts["number"], facts["calls"])]
+    request = [keep(k, facts[k]) for k in ("method", "service", "path")]
+    if None not in request:
+        lines.append("Request: %s" % " ".join(request))
+    if facts["body_keys"] is not None:
+        names = [k for k in (keep("body key", name) for name in facts["body_keys"]) if k is not None]
+        lines.append("Body keys: %s" % (", ".join(names) if names else "none"))
+    else:
+        lines.append("Body keys: none (no JSON request body)")
+    if facts["status"] is not None:
+        status = keep("status", facts["status"])
+        error = keep("error_code", answer["error_code"]) if "error_code" in answer else \
+            keep("code", answer["code"]) if "code" in answer else None
+        if status is not None:
+            lines.append("Answer: %s" % " ".join(x for x in (status, error) if x))
+    elif facts["refused"] is not None:
+        shown = keep("refused", facts["refused"])
+        if shown is not None:
+            lines.append("Answer: refused by the key service: %s" % shown)
+    for key in lablog.ERROR_KEYS:
+        if key in answer and key not in dropped:
+            shown = keep(key, answer[key])
+            if shown is not None:
+                lines.append("%s: %s" % (key, shown))
+    if dropped:
+        lines.append("Dropped, it failed the screen: %s" % ", ".join(dropped))
+    section = "\n".join(lines)
+    screen(p, section)
+    return section
+
+
 def write(p: config.Paths, text: str, blocks: bool = False, command: str = "not supplied",
-          error: str = "not supplied") -> Path:
+          error: str = "not supplied", run: str | None = None, call: int | None = None) -> Path:
     pr = _here(p, "ask")
     if not text.strip():
         raise AskError("give the ask some text")
+    if call is not None and run is None:
+        raise AskError("--call needs --run")
     screen(p, "\n".join((pr.code, text, command, error)))
+    section = call_section(p, pr, run, call) if run is not None else None
     title = " ".join(text.splitlines()[0].split())[:120] or "development request"
     now = datetime.now(timezone.utc)
     data = dict(project=pr.code, title=title, created=now.isoformat(), blocks=blocks, state="open")
     body = ("<!-- %s -->\n# %s\n\nProject: %s\nBlocks: %s\n\n## Text\n\n%s\n\n## Command\n\n%s\n\n"
             "## Error\n\n%s\n") % (json.dumps(data), title, pr.code, "yes" if blocks else "no", text, command, error)
+    if section is not None:
+        body += "\n## Call\n\n%s\n" % section
     if len(body.encode("utf-8")) > MAX_BYTES:
         raise AskError("the ask is too large")
     target = folder(p)
@@ -447,6 +512,10 @@ def main(argv: list[str] | None = None) -> int:
     ask.add_argument("--blocks", action="store_true", help="mark the request as blocking the project task")
     ask.add_argument("--command", default="not supplied", help="the command that failed, recorded without running it")
     ask.add_argument("--error", default="not supplied", help="the error text of that command")
+    ask.add_argument("--run", metavar="RUN", help="attach a call of this lab run of the project (its log in "
+                                                  "notes/lab-runs): method, service, path with {id}, body keys, answer")
+    ask.add_argument("--call", type=int, metavar="N", help="with --run: call N of the log (default: the last call "
+                                                            "with a status of 400 or more)")
     st = sub.add_parser("status", help="the open asks of the current project (--all: the answered ones too)")
     st.add_argument("--all", action="store_true", help="also the closed asks with their answer note")
     close = sub.add_parser("close", help="close the open asks a released commit names (the deploy runs it as the "
@@ -477,7 +546,7 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
         return 0 if ok else 2
     try:
-        path = write(config.paths(), args.text, args.blocks, args.command, args.error)
+        path = write(config.paths(), args.text, args.blocks, args.command, args.error, args.run, args.call)
     except (AskError, projects.ProjectError, OSError) as exc:
         reason = str(exc) if isinstance(exc, AskError) else type(exc).__name__
         print("awb dev ask: %s" % reason, file=sys.stderr)

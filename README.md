@@ -1832,6 +1832,12 @@ From a project session, run `awb dev ask "TEXT" [--blocks]`; in a side session (
 `<shared>/notices/dev/<YYYY-MM-DD>-<code>-<n>.md` with the project code, UTC creation time,
 text, command and error. Supply failure details with `--command "COMMAND" --error "ERROR"`;
 without those options the fields say `not supplied`. The command is recorded without being run.
+A failing lab call goes in with `--run RUN [--call N]`: `awb dev ask TEXT --run RUN` reads call N of the run log
+`notes/lab-runs/<run>.log` of the project (default: the last call with a status of 400 or more; a log that left git
+is read from `full/`) and adds a `## Call` section with the method, the service, the path with every id written as
+`{id}`, the keys of the request body (never a value) and the status, `error_code`, `error_msg`, `code` and `message`
+of the answer. The section passes the same line check as the text; a value that fails it is dropped and its key is
+named. A run that is not of this project or a call that is not in the log refuses the ask in one line.
 `--blocks` marks a blocked project task. The first line of TEXT becomes the title (at most 120 characters).
 The text is written as it is (DMZ 4: no name, data or secret check inside); a control character refuses the ask.
 
