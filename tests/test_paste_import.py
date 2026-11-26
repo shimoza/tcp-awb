@@ -557,8 +557,8 @@ def test_from_a_terminal_the_text_is_read_to_ctrl_d_without_an_echo(capsys):
 
 
 def test_the_prompt_hook_points_a_blocked_paste_at_the_door(home, project, monkeypatch, capsys):
-    """A prompt with a pasted block that the hook stops tells where a pasted mail or transcript goes in; a typed
-    prompt that is stopped does not (nothing was pasted)."""
+    """DMZ 2: the prompt hook stops a pasted private key block or key pair only; a pasted mail with a name passes
+    and a stopped paste carries no pointer to the door of customer material (a key is no material)."""
     import json
 
     from awb import hooks
@@ -571,10 +571,11 @@ def test_the_prompt_hook_points_a_blocked_paste_at_the_door(home, project, monke
     door = "A pasted mail or transcript goes in through `awb import %s --paste` in your own terminal." % project.code
     body = "%s\n\nBest regards,\n%s\n" % (TECHNICAL, fx.CUSTOMER_FORMS[0])
     code, err = prompt('what does this say?\n<pasted_content id="p7k2">\n%s</pasted_content id="p7k2">' % body)
-    assert code == 2 and "the prompt carries a registered name (1 hits)" in err and door in err
-    fx.assert_no_fixture_name(err, "the message of the prompt hook")
-    code, err = prompt("size the app clusters of %s" % fx.CUSTOMER_FORMS[0])
-    assert code == 2 and "registered name" in err and "--paste" not in err
+    assert (code, err) == (0, "")
+    key = "-----BEGIN " + "OPENSSH PRI" + "VATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n"
+    code, err = prompt('what does this say?\n<pasted_content id="p7k2">\n%s</pasted_content id="p7k2">' % key)
+    assert code == 2 and "private-key" in err and door not in err and "b3BlbnNzaC1" not in err
+    assert prompt("size the app clusters of %s" % fx.CUSTOMER_FORMS[0]) == (0, "")
 
 
 def test_the_rows_of_this_file_are_in_the_test_list():

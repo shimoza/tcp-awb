@@ -26,6 +26,8 @@ GOAL = "short questions on how tcp behaves"
 SECRET_VALUE = "t7Kq2Zp9" + "Lw4Rx8Vn3Bm6Yc"
 SECRET_LINE = "db_pass" + "word = " + SECRET_VALUE
 NAME_TEXT = "how does ecs behave for %s in eu-de" % fixtures.CUSTOMER_FORMS[0]
+KEY_PAIR = ("access key: " + "AKIA" + "Q7M4X2P9" + "B6L3C8D1" + "\nsecret key: " + "wJalrXUt" + "nFEMI/K7M" + "DENG/bPxR"
+            + "fiCYQ7m4Z2pK9x" + "\n")
 
 
 def spawn(home, kind="ask") -> Path:
@@ -129,7 +131,7 @@ def test_the_kind_is_not_switchable_from_inside_the_project(home, monkeypatch, c
     assert "- kind: ask" in (folder / "SCOPE.md").read_text(encoding="utf-8")
     assert not askkind.is_ask(folder, home)
     code, _, err = run_hook("prompt", {"prompt": NAME_TEXT, "cwd": str(folder)}, monkeypatch, capsys)
-    assert code == 2 and "registered name" in err
+    assert code == 0 and err == ""              # DMZ 2: no project runs a name check on a prompt
     # an ask grant with another token than the folder's lifts nothing either
     grants.grant(home, folder.name, "ask")
     grants.record_token(home, folder.name, "0" * 64)
@@ -188,42 +190,49 @@ def test_bucket_pull_and_fetch_refuse_an_ask_project(home, monkeypatch):
 
 
 def test_the_prompt_hook_lets_a_name_pass_and_refuses_a_secret_in_an_ask_project(home, monkeypatch, capsys):
+    """DMZ 2: the one refusal of a prompt is a key pair or a private key block, in an ask project as in every other."""
     folder = granted(home)
     code, _, err = run_hook("prompt", {"prompt": NAME_TEXT, "cwd": str(folder)}, monkeypatch, capsys)
     assert code == 0 and err == ""
     code, _, err = run_hook("prompt", {"prompt": "use %s for the test" % SECRET_LINE, "cwd": str(folder)},
                             monkeypatch, capsys)
-    assert code == 2 and "secret" in err and SECRET_VALUE not in err
+    assert code == 0 and err == ""
+    code, _, err = run_hook("prompt", {"prompt": "use\n%s\nfor the test" % KEY_PAIR, "cwd": str(folder)},
+                            monkeypatch, capsys)
+    assert code == 2 and "access-key" in err and "wJalrXUt" not in err
 
 
 def test_the_prompt_hook_still_refuses_the_name_in_a_project(home, monkeypatch, capsys):
     folder = granted(home, "project")
     code, _, err = run_hook("prompt", {"prompt": NAME_TEXT, "cwd": str(folder)}, monkeypatch, capsys)
-    assert code == 2 and "registered name" in err
+    assert code == 0 and err == ""              # DMZ 2: no name check in the prompt hook
+    code, _, err = run_hook("prompt", {"prompt": "use\n%s\nfor the test" % KEY_PAIR, "cwd": str(folder)},
+                            monkeypatch, capsys)
+    assert code == 2 and "access-key" in err
 
 
 def test_the_write_hook_checks_secrets_only_in_an_ask_project(home, monkeypatch, capsys):
+    """DMZ 2: a file written inside a project, ask or not, is written as it is."""
     folder = granted(home)
     notes = folder / "evidence" / "notes.md"
     notes.parent.mkdir(exist_ok=True)
     notes.write_text("# Notes\n\n%s\n" % NAME_TEXT, encoding="utf-8")
     payload = {"tool_name": "Write", "tool_input": {"file_path": str(notes)}, "cwd": str(folder)}
     assert run_hook("post-write", payload, monkeypatch, capsys)[0] == 0
-    # a secret in a project file is shortened in place (task GT), in an ask project as in every other
     notes.write_text("# Notes\n\n%s\n" % SECRET_LINE, encoding="utf-8")
     assert run_hook("post-write", payload, monkeypatch, capsys)[0] == 0
-    assert SECRET_VALUE not in notes.read_text(encoding="utf-8")
+    assert SECRET_VALUE in notes.read_text(encoding="utf-8")
 
     other = granted(home, "project")
     notes = other / "evidence" / "notes.md"
     notes.parent.mkdir(exist_ok=True)
     notes.write_text("# Notes\n\n%s\n" % NAME_TEXT, encoding="utf-8")
     payload = {"tool_name": "Write", "tool_input": {"file_path": str(notes)}, "cwd": str(other)}
-    code, _, err = run_hook("post-write", payload, monkeypatch, capsys)
-    assert code == 2 and "name check" in err
+    assert run_hook("post-write", payload, monkeypatch, capsys)[0] == 0
 
 
 def test_the_start_withholds_nothing_but_a_secret_in_an_ask_project(home, monkeypatch, capsys):
+    """DMZ 2: the start shows the files of a project as written, a secret included."""
     folder = granted(home)
     (folder / "STATE.md").write_text("# State\n\nStatus: %s\nNext: more\n" % NAME_TEXT, encoding="utf-8")
     (folder / "OPEN.md").write_text("# Open\n\n%s\n" % SECRET_LINE, encoding="utf-8")
@@ -231,12 +240,12 @@ def test_the_start_withholds_nothing_but_a_secret_in_an_ask_project(home, monkey
     context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
     assert code == 0 and "ask project" in context
     assert NAME_TEXT in context
-    assert SECRET_VALUE not in context and "withheld: it carries a secret" in context
+    assert SECRET_VALUE in context and "withheld" not in context
 
     other = granted(home, "project")
     (other / "STATE.md").write_text("# State\n\nStatus: %s\nNext: more\n" % NAME_TEXT, encoding="utf-8")
     code, out, _ = run_hook("session-start", {"cwd": str(other), "session_id": "s-2"}, monkeypatch, capsys)
-    assert NAME_TEXT not in json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert NAME_TEXT in json.loads(out)["hookSpecificOutput"]["additionalContext"]
 
 
 def test_the_tool_guard_lets_an_unreadable_path_pass_but_no_refused_place(home, tmp_path):

@@ -122,9 +122,9 @@ def test_a_block_with_a_name_is_withheld_from_the_compaction(project, monkeypatc
     named = STATE.replace("the nightly import", "the call with %s" % fixtures.PERSON_FORMS[0])
     (project / "STATE.md").write_text(named, encoding="utf-8")
     code, out, err = run_hook("compact", payload(project), monkeypatch, capsys)
-    assert code == 0 and "withheld" in out and "awb check STATE.md" in out
-    assert "- Language:" not in out
-    assert_clean(out + err, "compaction text")
+    assert code == 0 and err == ""
+    assert "withheld" not in out and "the call with %s" % fixtures.PERSON_FORMS[0] in out    # DMZ 2: as written
+    assert "- Language:" in out
 
 
 def test_a_block_is_withheld_when_the_name_check_cannot_run(project, monkeypatch, capsys):  # noqa: F811
@@ -135,7 +135,7 @@ def test_a_block_is_withheld_when_the_name_check_cannot_run(project, monkeypatch
 
     monkeypatch.setattr(hooks, "name_hits", down)
     code, out, _ = run_hook("compact", payload(project), monkeypatch, capsys)
-    assert code == 0 and "the name check did not run" in out and "- Language:" not in out
+    assert code == 0 and "the name check did not run" not in out and "- Language:" in out    # DMZ 2: no check runs
 
 
 def test_a_bidi_override_withholds_the_block(project, monkeypatch, capsys):  # noqa: F811
@@ -199,8 +199,8 @@ def test_the_start_after_a_compaction_withholds_a_block_with_a_name(project, mon
     (project / "STATE.md").write_text(STATE.replace("never change inside", "ask %s first" %
                                                     fixtures.PERSON_FORMS[0]), encoding="utf-8")
     text = _context(project, "compact", monkeypatch, capsys)
-    assert text.startswith(hooks.PIN_TITLE) and "withheld" in text.split("Workbench project")[0]
-    assert_clean(text, "start context")
+    assert text.startswith(hooks.PIN_TITLE) and "withheld" not in text
+    assert "ask %s first" % fixtures.PERSON_FORMS[0] in text.split("Workbench project")[0]    # DMZ 2: as written
 
 
 def test_the_start_asks_for_a_block_when_state_has_none(project, monkeypatch, capsys):  # noqa: F811

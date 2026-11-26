@@ -115,8 +115,8 @@ def test_a_prompt_that_matches_no_phrase_writes_nothing(world, monkeypatch):
 def test_a_blocked_prompt_writes_nothing(world, monkeypatch, capsys):
     home, pr = world
     _passing_prompt(monkeypatch)
-    monkeypatch.setattr(hooks, "name_hits", lambda text, p=None: [{"cls": "name", "start": 0, "end": 2}])
-    assert hooks.hook_prompt({"prompt": "go on", "cwd": str(pr.path)}) == hooks.BLOCK
+    armour = "-----BEGIN " + "OPENSSH PRI" + "VATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n"
+    assert hooks.hook_prompt({"prompt": "go on " + armour, "cwd": str(pr.path)}) == hooks.BLOCK
     capsys.readouterr()
     assert rows(home) == []
 

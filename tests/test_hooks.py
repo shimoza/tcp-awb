@@ -98,22 +98,17 @@ def missing_module(monkeypatch, name: str) -> None:
 @pytest.mark.parametrize("form", [fixtures.CUSTOMER_FORMS[0], fixtures.PERSON_FORMS[0], fixtures.ORG_FORMS[0],
                                   fixtures.CUSTOMER_FORMS[1].upper()])
 def test_prompt_with_a_registered_form_is_blocked_without_echo(home, monkeypatch, capsys, form):
+    """DMZ 2: the prompt hook checks no name; only a key block or a key pair is refused (tests/test_dmz_hooks.py)."""
     prompt = "size the app clusters of %s for the next phase" % form
     code, out, err = run_hook("prompt", {"hook_event_name": "UserPromptSubmit", "prompt": prompt},
                               monkeypatch, capsys)
-    assert code == 2
-    assert "the prompt carries a registered name (1 hits)" in err
-    assert "awb register" in err
-    assert out == ""
-    assert_clean(err + out, "prompt hook output")
+    assert (code, out, err) == (0, "", "")
 
 
 def test_prompt_counts_every_hit(home, monkeypatch, capsys):
     prompt = "call %s about %s" % (fixtures.PERSON_FORMS[0], fixtures.LAWFIRM_FORMS[0])
     code, out, err = run_hook("prompt", {"prompt": prompt}, monkeypatch, capsys)
-    assert code == 2
-    assert "(2 hits)" in err
-    assert_clean(err, "prompt hook output")
+    assert (code, out, err) == (0, "", "")
 
 
 def test_clean_prompt_passes_quietly(home, monkeypatch, capsys):
@@ -201,52 +196,38 @@ def assert_locked_hint(err: str, since: str, reason: str) -> None:
 
 
 def test_a_locked_vault_blocks_the_prompt_with_the_hint(home, monkeypatch, capsys):
-    """Planted failure: the hook of 2026-09-22 (exit 0 with a warning); a hint that repeats a value of the prompt."""
+    """DMZ 2: a locked vault changes nothing for a prompt; the hook does not ask the name check."""
     def locked(text, register_path):
         raise check.CheckUnavailable("name check unavailable: vault locked")
 
     monkeypatch.setattr(check, "check_text", locked)
-    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
-    assert (code, out) == (2, "")
-    assert_locked_hint(err, "unknown", "vault locked")
-    assert_clean(out + err, "prompt hook output")
+    assert run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys) == (0, "", "")
 
 
 def test_no_daemon_blocks_the_prompt(home, monkeypatch, capsys):
-    """Planted failure: a hook that treats "no vault daemon" as a warning."""
+    """DMZ 2: no vault daemon and no vault folder change nothing for a prompt."""
     shutil.rmtree(home.vault)
-    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
-    assert (code, out) == (2, "")
-    assert_locked_hint(err, "unknown", "no vault daemon")
-    assert_clean(out + err, "prompt hook output")
+    assert run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys) == (0, "", "")
 
 
 @pytest.mark.parametrize("broken", ["missing", "no-check-text", "raises"])
 def test_a_broken_check_module_blocks_the_prompt(home, monkeypatch, capsys, broken):
-    """Planted failure: a check module without check_text, or one that raises another exception, lets the prompt
-    through."""
+    """DMZ 2: a check that cannot run never refuses a prompt."""
     if broken == "missing":
         missing_module(monkeypatch, "check")
-        reason = "the name check is not installed"
     elif broken == "no-check-text":
         fake_module(monkeypatch, "check", CheckUnavailable=check.CheckUnavailable)
-        reason = "the name check is not installed"
     else:
         def fails(text, register_path):
             raise ZeroDivisionError(fixtures.PERSON_FORMS[0])
 
         monkeypatch.setattr(check, "check_text", fails)
-        reason = "ZeroDivisionError in the name check"
-    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
-    assert (code, out) == (2, "")
-    assert_locked_hint(err, "unknown", reason)
-    assert_clean(out + err, "prompt hook output")
+    assert run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys) == (0, "", "")
 
 
 @pytest.mark.parametrize("planted", [False, True])
 def test_the_rate_limit_still_says_busy(home, monkeypatch, capsys, planted):
-    """Planted failure: a hook that blocks the rate limit with the locked hint or lets it through. The planted run
-    takes the rate branch away and must fail the same asserts."""
+    """DMZ 2: the rate limit of the vault daemon is no refusal of a prompt either way."""
     def busy(text, register_path):
         raise check.CheckRateLimited("name check unavailable: rate limit of the vault daemon, try again in a minute")
 
@@ -254,29 +235,23 @@ def test_the_rate_limit_still_says_busy(home, monkeypatch, capsys, planted):
     monkeypatch.setattr(hooks, "HOOK_RATE_WAIT", 0.0)
     if planted:
         monkeypatch.setattr(hooks, "_is_rate", lambda mod, exc: False)
-    code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
-    ok = code == 2 and out == "" and "busy" in err and "again in a minute" in err and "locked" not in err
-    assert ok is not planted
-    assert_clean(out + err, "prompt hook output")
+    assert run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys) == (0, "", "")
 
 
 def test_a_healthy_daemon_passes_quietly(home, tmp_path, monkeypatch, capsys):
-    """Planted failure: a hook that blocks everything."""
+    """DMZ 2: the prompt passes and the daemon is not asked."""
     with stand_in({"check": {"ok": True, "hits": []}}) as (sock, asked):
         remote_side(home, tmp_path, monkeypatch, sock)
         assert run_hook("prompt", {"prompt": "size two app clusters"}, monkeypatch, capsys) == (0, "", "")
-    assert asked == ["check"]
+    assert asked == []
 
 
 def test_a_locked_prompt_names_the_time(home, tmp_path, monkeypatch, capsys):
-    """The time comes with the locked answer of the check: one request, no ping (the rate budget)."""
+    """DMZ 2: a locked daemon is no refusal and no request is made."""
     with stand_in(locked_answers(SINCE)) as (sock, asked):
         remote_side(home, tmp_path, monkeypatch, sock)
-        code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
-    assert (code, out) == (2, "")
-    assert_locked_hint(err, SINCE, "vault locked")
-    assert asked == ["check"]
-    assert_clean(err, "prompt hook output")
+        assert run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys) == (0, "", "")
+    assert asked == []
 
 
 @pytest.mark.parametrize("since", [fixtures.CUSTOMER_FORMS[0], "2026-10-07T12:00:00+00:00", "2026-10-07 12:00:00Z",
@@ -295,8 +270,7 @@ def test_since_is_a_timestamp_or_nothing(home, tmp_path, monkeypatch, capsys, si
         assert vault.ping_state(sock) == {"state": "locked", "since": None}
         code, out, hook_err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
         line = board.locked(config.paths())
-    assert code == 2
-    assert_locked_hint(hook_err, "unknown", "vault locked")
+    assert (code, out, hook_err) == (0, "", "")
     assert line == "locked since unknown"
     assert_clean(out + hook_err + line, "hook output and board line")
 
@@ -317,16 +291,11 @@ def test_a_real_locked_daemon_blocks_end_to_end(home, tmp_path, monkeypatch, cap
         with serving(home, admin_sock=d / "a.sock", check_sock=d / "c.sock") as daemon:
             assert daemon.state() == "locked"
             remote_side(home, tmp_path, monkeypatch, d / "c.sock")
-            code, out, err = run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys)
-    assert (code, out) == (2, "")
-    since = err.split("locked since ", 1)[1].split(" ", 1)[0]
-    assert SINCE_RE.fullmatch(since), err
-    assert_locked_hint(err, since, "vault locked")
-    assert_clean(err, "prompt hook output")
+            assert run_hook("prompt", {"prompt": LOCKED_PROMPT}, monkeypatch, capsys) == (0, "", "")
 
 
 def test_unreadable_register_goes_through_the_check_module(home, monkeypatch, capsys):
-    """When the register cannot be read here the hook still asks check.check_text (which asks the daemon)."""
+    """DMZ 2: the prompt hook asks no check module, whatever the register is."""
     os.chmod(home.register, 0)
     if os.access(home.register, os.R_OK):
         pytest.skip("the file mode does not bind this user")
@@ -338,9 +307,8 @@ def test_unreadable_register_goes_through_the_check_module(home, monkeypatch, ca
         return [{"start": 4, "length": 6, "cls": "name"}]
 
     monkeypatch.setattr(check, "check_text", remote)
-    code, _, err = run_hook("prompt", {"prompt": "for someone"}, monkeypatch, capsys)
-    assert code == 2 and seen == [home.register]
-    assert "(1 hits)" in err
+    assert run_hook("prompt", {"prompt": "for someone"}, monkeypatch, capsys) == (0, "", "")
+    assert seen == []
 
 
 def test_input_that_is_not_json_is_a_non_blocking_error(home, monkeypatch, capsys):
@@ -362,9 +330,8 @@ def test_the_command_line_runs_the_prompt_hook(home):
     payload = json.dumps({"prompt": "size the app clusters of %s" % fixtures.CUSTOMER_FORMS[0]})
     res = subprocess.run([sys.executable, "-m", "awb", "hook", "prompt"], input=payload, capture_output=True,
                          text=True, timeout=60)
-    assert res.returncode == 2
-    assert "registered name" in res.stderr
-    assert_clean(res.stdout + res.stderr, "hook output")
+    assert res.returncode == 0                  # DMZ 2: no name check in the prompt hook
+    assert res.stdout == "" and res.stderr == ""
 
 
 # --------------------------------------------------------------------------- post-write
@@ -390,13 +357,12 @@ def no_writing(monkeypatch):
 
 
 def test_post_write_blocks_a_file_with_a_name_by_class_and_line(project, monkeypatch, capsys, no_writing):
+    """DMZ 2: a file written inside a project is not name checked."""
     f = project / "evidence-notes.md"
-    f.write_text("# Notes\n\nfirst line\nthe offer for %s is late\n" % fixtures.CUSTOMER_FORMS[1], encoding="utf-8")
-    code, out, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert code == 2
-    assert "name on line 4" in err
-    assert "1 hits of the name check" in err
-    assert_clean(out + err, "post-write output")
+    text = "# Notes\n\nfirst line\nthe offer for %s is late\n" % fixtures.CUSTOMER_FORMS[1]
+    f.write_text(text, encoding="utf-8")
+    assert run_hook("post-write", write_payload(f), monkeypatch, capsys) == (0, "", "")
+    assert f.read_text(encoding="utf-8") == text
     assert no_writing == []
 
 
@@ -437,14 +403,14 @@ def test_post_write_on_a_deliverable_with_soft_tells_only_passes(project, monkey
 
 
 def test_post_write_reports_name_and_writing_findings_together(project, monkeypatch, capsys):
+    """DMZ 2: the writing check of a deliverable stays; the name check inside a project is gone."""
     fake_module(monkeypatch, "writing",
                 check_file=lambda path, mode="doc", scope="tcp": ([Tell(2, "comma-and-or", True, "")], {}))
     f = project / "deliverables" / (CODE + "-mail.md")
     f.write_text("# Mail\nsizes and zones for %s\n" % fixtures.PERSON_FORMS[0], encoding="utf-8")
     code, _, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
     assert code == 2
-    assert "name on line 2" in err and "comma-and-or line 2" in err
-    assert_clean(err, "post-write output")
+    assert "comma-and-or line 2" in err and "name on line" not in err and "name check" not in err
 
 
 def test_post_write_without_the_writing_module_warns_and_passes(project, monkeypatch, capsys):
@@ -458,24 +424,22 @@ def test_post_write_without_the_writing_module_warns_and_passes(project, monkeyp
 
 
 def test_post_write_resolves_a_relative_path_against_the_session_folder(project, monkeypatch, capsys, no_writing):
-    (project / "note.md").write_text("to %s\n" % fixtures.ORG_FORMS[0], encoding="utf-8")
+    (project / "note.md").write_text("to \u202e %s\n" % fixtures.ORG_FORMS[0], encoding="utf-8")
     payload = write_payload(Path("note.md"), cwd=project)
     code, _, err = run_hook("post-write", payload, monkeypatch, capsys)
-    assert code == 2 and "name on line 1" in err
+    assert code == 2 and "bidi override" in err     # DMZ 2: the name inside a project is no finding
 
 
 def test_post_write_finds_a_name_in_the_file_name(project, monkeypatch, capsys, no_writing):
     f = project / ("notes-%s.md" % fixtures.CUSTOMER_FORMS[1].lower())
     f.write_text("nothing here\n", encoding="utf-8")
-    code, _, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert code == 2 and "path (whole file)" in err
-    assert_clean(err, "post-write output")
+    assert run_hook("post-write", write_payload(f), monkeypatch, capsys) == (0, "", "")
 
 
 def test_post_write_with_a_locked_vault_tells_the_session_the_file_is_unchecked(project, monkeypatch, capsys,
                                                                                 no_writing):
-    """Review of release 2: a file written while the name check cannot run is not passed as if it was checked.
-    The tool ran already (PostToolUse), so exit 2 puts the message in front of the session as an error."""
+    """DMZ 2: inside a project the name check does not run, so a locked vault leaves the file unchecked and
+    unflagged."""
     monkeypatch.setattr(check, "CheckUnavailable", type("CheckUnavailable", (Exception,), {}), raising=False)
 
     def locked(*args):
@@ -485,23 +449,17 @@ def test_post_write_with_a_locked_vault_tells_the_session_the_file_is_unchecked(
     monkeypatch.setattr(check, "check_file", locked)
     f = project / "note.md"
     f.write_text("to %s\n" % fixtures.ORG_FORMS[0], encoding="utf-8")
-    code, out, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert code == 2 and out == ""
-    assert "the written file is not checked" in err and "vault locked" in err
-    assert_clean(out + err, "post-write output")
+    assert run_hook("post-write", write_payload(f), monkeypatch, capsys) == (0, "", "")
 
 
 def test_post_write_while_locked_names_the_unlock(project, home, tmp_path, monkeypatch, capsys, no_writing):
-    """T3. Planted failure: a message without the hint or the time."""
+    """DMZ 2: a locked daemon is not asked about a file inside a project."""
     f = project / "note.md"
     f.write_text("to %s\n" % fixtures.ORG_FORMS[0], encoding="utf-8")
     with stand_in(locked_answers(SINCE)) as (sock, asked):
         remote_side(home, tmp_path, monkeypatch, sock)
-        code, out, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert (code, out) == (2, "")
-    assert "the written file is not checked: the Workbench is locked since %s (vault locked): as the owner run awb " \
-           "vault unlock (and awb keys unlock), then run `awb check` on it" % SINCE in err
-    assert_clean(err, "post-write output")
+        assert run_hook("post-write", write_payload(f), monkeypatch, capsys) == (0, "", "")
+    assert asked == []
 
 
 def test_post_write_with_an_unreadable_register_asks_the_check_module(project, home, monkeypatch, capsys,
@@ -519,9 +477,8 @@ def test_post_write_with_an_unreadable_register_asks_the_check_module(project, h
     monkeypatch.setattr(check, "check_file", remote)
     f = project / "note.md"
     f.write_text("to someone\n", encoding="utf-8")
-    code, _, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert code == 2 and "name on line 1" in err
-    assert seen == [("note.md", home.register)]
+    assert run_hook("post-write", write_payload(f), monkeypatch, capsys) == (0, "", "")
+    assert seen == []                           # DMZ 2: inside a project the check module is not asked
 
 
 def test_post_write_ignores_input_without_a_file(project, monkeypatch, capsys):
@@ -545,12 +502,17 @@ def fake_review(monkeypatch, rows):
 
 
 def test_a_refused_ledger_draft_moves_no_marker_and_is_said_once(project, home, monkeypatch, capsys):
-    """TM0 item 5: a commit subject the ledger refuses leaves the marker where it was, the stop hook says so once,
-    and the next commit is drafted again."""
+    """TM0 item 5: a draft the ledger refuses leaves the marker where it was, the stop hook says so once, and the
+    next commit is drafted again. DMZ 2: the draft has no text screen of its own, so the refusal is planted in the
+    ledger's writer."""
     import subprocess
 
     from awb import ledger
 
+    def refuse(path, obj, mode=0o640):
+        raise ledger.Refused("done refused (planted 1)")
+
+    monkeypatch.setattr(ledger, "append_line", refuse)
     fake_review(monkeypatch, [])
     monkeypatch.setattr(hooks, "DRAFT_HOURS", 0)
     git = ["git", "-C", str(project), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
@@ -561,7 +523,6 @@ def test_a_refused_ledger_draft_moves_no_marker_and_is_said_once(project, home, 
     marker = home.ledger / ".drafts" / (CODE + ".json")
     code, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
     assert code == 2 and "the ledger refused the draft" in err and "awb ledger add" in err
-    assert_clean(err, "the stop message")
     assert not marker.exists() and not ledger.load(home)
     _, _, err = run_hook("stop", {"cwd": str(project)}, monkeypatch, capsys)
     assert "refused" not in err
@@ -658,6 +619,7 @@ def test_session_start_asks_the_career_module_first(project, monkeypatch, capsys
 
 
 def test_session_start_withholds_a_file_with_a_name(project, monkeypatch, capsys):
+    """DMZ 2: a file of the project is shown as written."""
     missing_module(monkeypatch, "kb")
     missing_module(monkeypatch, "career")
     (project / "STATE.md").write_text("# State\n\ncall %s on friday\n" % fixtures.PERSON_FORMS[0],
@@ -665,13 +627,14 @@ def test_session_start_withholds_a_file_with_a_name(project, monkeypatch, capsys
     code, out, err = run_hook("session-start", {"cwd": str(project)}, monkeypatch, capsys)
     assert code == 0
     text = context_of(out, "SessionStart")["hookSpecificOutput"]["additionalContext"]
-    assert "withheld" in text and "- goal: %s" % GOAL in text
-    assert_clean(text + err, "session-start context")
+    assert "withheld" not in text and "- goal: %s" % GOAL in text
+    assert "call %s on friday" % fixtures.PERSON_FORMS[0] in text
 
 
 def test_session_start_while_locked_gives_one_line_and_no_file_content(project, home, tmp_path, monkeypatch,
                                                                        capsys):
-    """T3. Planted failure: any text of a file in the context or more than one section. The claim still runs."""
+    """DMZ 2: a locked vault changes nothing at the start: the files are shown, the daemon is not asked. The claim
+    still runs."""
     from awb import sessions
 
     missing_module(monkeypatch, "kb")
@@ -684,11 +647,9 @@ def test_session_start_while_locked_gives_one_line_and_no_file_content(project, 
                                   monkeypatch, capsys)
     assert (code, err) == (0, "")
     text = context_of(out, "SessionStart")["hookSpecificOutput"]["additionalContext"]
-    assert text == hooks.LOCKED_START % SINCE and len(text.splitlines()) == 1
-    assert "is locked since %s. Every prompt is refused" % SINCE in text and "files were not loaded" in text
-    assert asked == ["check"]
+    assert "locked" not in text and "- goal: size the clusters of %s" % fixtures.CUSTOMER_FORMS[0] in text
+    assert asked == []
     assert sessions.owner(home, CODE)["session"] == "a-session-of-3"
-    assert_clean(out, "session-start context")
 
 
 def test_session_start_outside_a_project_still_prints_json(home, tmp_path, monkeypatch, capsys):
@@ -725,14 +686,10 @@ def test_command_prefix_keeps_home_paths_out(tmp_path, monkeypatch):
 
 
 def test_a_vault_folder_without_a_register_blocks_the_prompt(home, monkeypatch, capsys):
-    """The check treats a readable vault folder without a register as an empty register; the hooks must not call a
-    name clean on that ground. T3 replaced the warning of Release 2 with the block (build/DECISIONS.md, D-T3)."""
+    """DMZ 2: the prompt hook reads no register, so a vault folder without one is no reason to refuse."""
     home.register.unlink()
     prompt = "size the app clusters of %s" % fixtures.CUSTOMER_FORMS[0]
-    code, out, err = run_hook("prompt", {"prompt": prompt}, monkeypatch, capsys)
-    assert (code, out) == (2, "")
-    assert_locked_hint(err, "unknown", "no register found")
-    assert_clean(out + err, "prompt hook output")
+    assert run_hook("prompt", {"prompt": prompt}, monkeypatch, capsys) == (0, "", "")
 
 
 def test_post_write_runs_the_real_writing_check_on_a_deliverable(project, monkeypatch, capsys):
@@ -815,54 +772,49 @@ def notification(result: str, task_id: str = "a3f9c21") -> str:
 
 
 def test_t8_a_pasted_block_with_three_urls_passes_with_a_context_line(home, monkeypatch, capsys):
-    code, out, err = run_hook("prompt", {"prompt": pasted(THREE_URLS)}, monkeypatch, capsys)
-    assert (code, err) == (0, "")
-    line = context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
-    assert line == "The paste carries 3 data items (url 3); never repeat them, refer to them by line."
-    assert "qrtvb" not in out
-    # a typed address next to a clean paste blocks too: only the pasted block is softened
-    code, _, err = run_hook("prompt", {"prompt": pasted(THREE_URLS, "and call 198.51.100.23 now")},
-                            monkeypatch, capsys)
-    assert code == 2 and "structured data" in err
+    """DMZ 2: no data check and no context line; a typed address next to a paste passes as well."""
+    assert run_hook("prompt", {"prompt": pasted(THREE_URLS)}, monkeypatch, capsys) == (0, "", "")
+    assert run_hook("prompt", {"prompt": pasted(THREE_URLS, "and call 198.51.100.23 now")}, monkeypatch,
+                    capsys) == (0, "", "")
 
 
 @pytest.mark.parametrize("form", [fixtures.CUSTOMER_FORMS[0], fixtures.PERSON_FORMS[0]])
 def test_t8_a_pasted_block_with_a_registered_form_blocks(home, monkeypatch, capsys, form):
     body = "From: the project lead\nDear team, the offer for %s is late.\n%s" % (form, THREE_URLS)
-    code, out, err = run_hook("prompt", {"prompt": pasted(body)}, monkeypatch, capsys)
-    assert code == 2 and "registered name" in err and out == ""
-    assert_clean(out + err, "prompt hook output")
+    assert run_hook("prompt", {"prompt": pasted(body)}, monkeypatch, capsys) == (0, "", "")
 
 
 def test_t8_a_pasted_block_with_a_secret_or_a_mail_blocks(home, monkeypatch, capsys):
+    """DMZ 2: a password and a mail pass; a private key block in the paste is the one refusal."""
     word = "".join(["K7mQ2v", "X9pL4n", "R8sT"])
-    code, out, err = run_hook("prompt", {"prompt": pasted(THREE_URLS + "password=%s\n" % word)}, monkeypatch, capsys)
-    assert code == 2 and "carries a secret" in err and word[:6] not in err + out
-    code, _, err = run_hook("prompt", {"prompt": pasted(THREE_URLS + "ops@qrtvb.net\n")}, monkeypatch, capsys)
-    assert code == 2 and "mail 1" in err
+    assert run_hook("prompt", {"prompt": pasted(THREE_URLS + "password=%s\n" % word)}, monkeypatch,
+                    capsys) == (0, "", "")
+    assert run_hook("prompt", {"prompt": pasted(THREE_URLS + "ops@qrtvb.net\n")}, monkeypatch,
+                    capsys) == (0, "", "")
+    armour = "-----BEGIN " + "OPENSSH PRI" + "VATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n"
+    code, out, err = run_hook("prompt", {"prompt": pasted(THREE_URLS + armour)}, monkeypatch, capsys)
+    assert code == 2 and "private-key" in err and "b3BlbnNzaC1" not in err + out
 
 
 def test_t8_a_task_notification_with_addresses_reaches_the_session(home, monkeypatch, capsys):
     result = "checked 198.51.100.23, 198.51.100.24 and https://build.qrtvb.io/run/42: all three answer"
-    code, out, err = run_hook("prompt", {"prompt": notification(result)}, monkeypatch, capsys)
-    assert (code, err) == (0, "")
-    line = context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
-    assert line == "The agent result carries 3 data items (ip 2, url 1); never repeat them, refer to them by line."
+    assert run_hook("prompt", {"prompt": notification(result)}, monkeypatch, capsys) == (0, "", "")
     # the client may wrap it in a reminder; a CI event is treated the same way
     wrapped = "<system-reminder>\nA background task finished.\n%s\n</system-reminder>" % notification(result)
-    assert run_hook("prompt", {"prompt": wrapped}, monkeypatch, capsys)[0] == 0
+    assert run_hook("prompt", {"prompt": wrapped}, monkeypatch, capsys) == (0, "", "")
     ci = "<ci-monitor-event>\ncheck build failed on 198.51.100.23\n</ci-monitor-event>"
-    code, out, _ = run_hook("prompt", {"prompt": ci}, monkeypatch, capsys)
-    assert code == 0 and "The CI event carries 1 data items (ip 1)" in out
+    assert run_hook("prompt", {"prompt": ci}, monkeypatch, capsys) == (0, "", "")
 
 
 def test_t8_a_task_notification_with_a_registered_form_blocks_with_the_agent_named(home, monkeypatch, capsys):
+    """DMZ 2: a registered form passes; a private key block in the result is refused with the agent named."""
     result = "the draft for %s is in deliverables/, see 198.51.100.23" % fixtures.CUSTOMER_FORMS[0]
+    assert run_hook("prompt", {"prompt": notification(result, "a3f9c21")}, monkeypatch, capsys) == (0, "", "")
+    result = "the key is\n-----BEGIN " + "OPENSSH PRI" + "VATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n"
     code, out, err = run_hook("prompt", {"prompt": notification(result, "a3f9c21")}, monkeypatch, capsys)
     assert code == 2 and out == ""
-    assert err.startswith("the result of background agent a3f9c21 was not delivered: it carries registered name 1.")
-    assert "codes only" in err
-    assert_clean(out + err, "prompt hook output")
+    assert err.startswith("the result of background agent a3f9c21 was not delivered: it carries a key (private-key).")
+    assert "b3BlbnNzaC1" not in err
     # an id of another shape is not repeated
     code, _, err = run_hook("prompt", {"prompt": notification(result, fixtures.PERSON_FORMS[1])}, monkeypatch, capsys)
     assert code == 2 and "the result of a background agent was not delivered" in err

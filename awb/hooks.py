@@ -5,22 +5,12 @@ Each hook reads the hook JSON of the client from standard input and answers the 
     prompt          UserPromptSubmit   once per change: the notice that the rules the session loaded changed
                                        (awb/rulesync.py), as additional context of a clean prompt; once per
                                        task the closest facts of the knowledge base (awb/kbfirst.py, KF).
-                                       Exit 2 when the prompt carries a registered name, structured data or a
-                                       secret of the gate's classes (the client drops the prompt and shows the
-                                       message to him). Exit 2 as well when the name check cannot run (a locked
-                                       vault, no vault daemon, no register, no check module or any other failure
-                                       of the check): the Workbench is locked, nothing reaches the model, and the
-                                       message says since when and that the owner unlocks it (T3). The rate
-                                       limit of the vault daemon is not a locked vault: the hook waits up to
-                                       HOOK_RATE_WAIT seconds and then blocks with "send it again in a minute".
-                                       The check reads what hides behind a base64 or hex block and under a bidi
-                                       override as well. Structured data of SOFT_CLASSES (url, phone, ip, mac)
-                                       inside a pasted block (`<pasted_content>`) passes when the typed text has
-                                       none, and in a background agent's result or a CI event (the whole prompt
-                                       is the client's `<task-notification>` or `<ci-monitor-event>`): the model
-                                       gets a context line with the counts instead (D-T8). A registered name, a
-                                       secret and the other classes still block; an event is refused with the
-                                       agent id and the classes
+                                       DMZ 2: no name check and no structured-data check on typed text, a paste,
+                                       the result of a background agent or a CI event. Exit 2 for one thing only:
+                                       a private key block (BEGIN ... PRIVATE KEY) or an access key pair (a key
+                                       id next to its secret), typed or pasted, because it would leave the host
+                                       for the model (an event is refused with its agent id). A check that cannot
+                                       run never refuses
     pre-write       PreToolUse         exit 2 when Write, Edit, MultiEdit or NotebookEdit targets a file inside
                                        the knowledge base, also through a link or a hard link to one of its
                                        files: facts go in through `awb kb add`, `amend` and `retire` only. A path
@@ -45,16 +35,15 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        workflows/review.js, request-check.js and final-check.js by their
                                        scriptPath (PD3, FX). The work user's settings deny the tools of
                                        DENIED_TOOLS
-    post-write      PostToolUse        exit 2 when the written file carries a hit of the name check, a secret, a
-                                       bidi override or (under a deliverables folder at any depth) a blocking
-                                       tell of the writing check: class and line only; also when a folder on its
-                                       path carries a registered name. Also exit 2 when the name check cannot
-                                       run (with the time of the lock and the unlock) or the file is over
+    post-write      PostToolUse        a file written inside a project (SCOPE.md in its folder or above) is
+                                       checked for a bidi override, the size and (under a deliverables folder at
+                                       any depth) the blocking tells of the writing check, class and line only;
+                                       no name check, no secret check and no mask inside a project (DMZ 2). A
+                                       file outside a project folder keeps the name check, the secret refusal and
+                                       the bidi override: exit 2 on a hit, or when the name check cannot run
+                                       (with the time of the lock and the unlock), or when the file is over
                                        MAX_WRITE_BYTES (MAX_DELIVERABLE_BYTES under deliverables): the file is
-                                       written (the tool ran) and the session is told that it is unchecked.
-                                       In a project (task GT) ids and structured data pass, only a registered
-                                       name blocks and the secrets are shortened in place (awb/labsecrets.py)
-                                       with a context line instead of a block
+                                       written (the tool ran) and the session is told that it is unchecked
     selftest        (none)             plants refused cases and a pass in a throw-away home; exit 1 when a
                                        planted refusal passes
     stop            Stop               exit 2 while STATE.md lags behind the project's commits or
@@ -74,11 +63,11 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        tool calls of the project and the day (awb/questions.py)
     session-start   SessionStart       JSON with `additionalContext`: SCOPE.md, the first 60 lines of STATE.md,
                                        OPEN.md, the count of expired knowledge entries and the days since the last
-                                       career update when that is over 90. A section is withheld when it carries
-                                       any hit of the name check. When the name check cannot run at all the
-                                       whole context is one line, that the Workbench is locked, and no file is
-                                       loaded. It also claims the project for the session (T-62) and says when
-                                       another live session holds it, when the project is idle (close it) and
+                                       career update when that is over 90. The files, the folder name and the
+                                       reason a project is parked are shown as written (DMZ 2); only a bidi
+                                       override withholds a section. It also claims the project for the
+                                       session (T-62) and says when another live session holds it, when the
+                                       project is idle (close it) and
                                        when STATE.md is over its size (move older layers to history/).
                                        On a sealed host it first takes the receipt: the hooks of the managed
                                        settings run the installed command, the project's repository carries
@@ -94,15 +83,14 @@ Each hook reads the hook JSON of the client from standard input and answers the 
     compact         PreCompact         plain text on stdout, which the client adds to the instructions of the
                                        summary: the Status: and Next: lines and the `## Pinned` block of
                                        STATE.md (reply language, standing limits, deliverables with their
-                                       bucket paths, running chains; awb/status.py), checked like STATE.md
-                                       and withheld when the check finds anything or cannot run (Q-0006).
+                                       bucket paths, running chains; awb/status.py), as written (Q-0006,
+                                       DMZ 2).
                                        Never blocks a compaction; silent for the owner and outside a project.
                                        `pre-compact` is the owner's hand-over (awb/handover.py)
 
-In an ask project (awb/askkind.py: the owner granted the kind ask for the key token of the folder) the name check
-steps back: the prompt, the written file and the start's files are checked for secrets only, the stop hook holds no
-draft and gives no state reminder, and the tool guard lets a shell path it cannot read pass. The kind is read from the
-owner's grant or the key service, never from SCOPE.md or projects.tsv; any doubt runs every check.
+In an ask project (awb/askkind.py: the owner granted the kind ask for the key token of the folder) the stop hook holds
+no draft and gives no state reminder, and the tool guard lets a shell path it cannot read pass. The kind is read from
+the owner's grant or the key service, never from SCOPE.md or projects.tsv; any doubt runs every check.
 
 The platform of a project (tcp or hcs, which decides whether vendor names block in a deliverable) comes from
 the prefix of its project code, the name of its folder. A line in SCOPE.md cannot change it.
@@ -117,14 +105,16 @@ and the bidi override; the name check is the runner's, with the register, on mai
 The name check is `check.check_text` (it goes to the vault daemon when the register cannot be read here). The
 writing check, the review status, the knowledge base and the career log live in their own modules. Each is
 imported only when a hook needs it; a module that is missing or fails makes its part of the hook step back with
-a warning and never crashes a hook. The name check is the exception: without it the prompt and the written file
-are refused and the start loads no file.
+a warning and never crashes a hook. Since DMZ 2 (the owner's decision of 2026-11-25) the checks stay at the entry
+of customer material and at the exit of the public repositories; the session hooks read no content inside, except
+for a key block or key pair in a prompt and, outside a project folder, a written file (the name check there is the
+one that goes to the vault daemon).
 
 Hook notes (Q-0005): the session start carries FOOTER_RULE, that every note of the hooks goes into one footer
 line under the answer ("Notes: " and the notes joined with "; "), never a paragraph and never above the answer;
 the first note of a held stop starts with STOP_FOOTER (a draft gate line keeps its own text). A prompt that is an
 interim notification (is_notification: it starts with "<task-notification" or "[SYSTEM NOTIFICATION" or carries
-"<side-sessions-event") gets no note, only the data count line of D-T8, and a stop after such a turn adds none;
+"<side-sessions-event") gets no note, and a stop after such a turn adds none;
 the notes wait for the next prompt or stop. Every check, block and refusal runs as before.
 
 Exit codes follow the client: 0 go on, 2 block. A usage error exits 1, which the client shows without blocking;
@@ -445,29 +435,6 @@ def name_hits(text: str, p: config.Paths | None = None, entry: bool = False) -> 
     return [h for h in hits if isinstance(h, dict)]
 
 
-def _without_reserved(text: str, hits: list[dict]) -> list[dict]:
-    """`hits` of the name check without the web addresses and IPs that are only a reserved test domain (example.test,
-    *.local) or a private lab address (RFC 1918, 100.64/10, fd00::/8). Names and every other class stay. A hit that
-    cannot be read back in the text stays too."""
-    mod = _module("patterns")
-    if mod is None or not hasattr(mod, "reserved_value"):
-        return hits
-    try:
-        from awb import check, normalize
-
-        view = normalize.normalize(check.with_hidden_views(text)).text
-    except Exception:
-        return hits
-    kept = []
-    for h in hits:
-        cls, start, length = h.get("cls"), h.get("start"), h.get("length")
-        if cls in ("url", "ip") and isinstance(start, int) and isinstance(length, int) and length > 0 \
-                and start + length <= len(view) and mod.reserved_value(view[start:start + length], cls):
-            continue
-        kept.append(h)
-    return kept
-
-
 def _secret_hits(text: str) -> list[dict]:
     """Hits of the gate's secret classes in `text` as {start, length, cls}; nothing when the gate is absent."""
     mod = _module("gate")
@@ -594,17 +561,6 @@ def _ask_project(root: Path | None) -> bool:
         return askkind.is_ask(root)
     except Exception:
         return False
-
-
-def _secrets_only_prompt(data: dict, text: str) -> int:
-    """The prompt hook of an ask project: only a secret of the gate's classes blocks."""
-    secrets = _secret_hits(text)
-    if secrets:
-        print("the prompt carries a secret (%s). A session never holds a live secret: keep it in the vault or the "
-              "password store and refer to it by name." % _counts(secrets), file=sys.stderr)
-        return BLOCK
-    _rules_notice(data)
-    return OK
 
 
 def _platform(root: Path | None) -> str:
@@ -803,18 +759,6 @@ def _prompt_kind(text: str) -> str:
     return "paste" if _paste_spans(text) else "typed"
 
 
-def _typed_has_data(text: str) -> bool:
-    """True when the text outside the pasted blocks carries structured data of its own (checked here, with the
-    patterns alone: no name is in the text at this point). True as well when the patterns cannot run."""
-    try:
-        from awb import check, normalize, patterns
-
-        typed = check.with_hidden_views(_without_pastes(text))
-        return bool(patterns.find_structured(normalize.normalize(typed).text))
-    except Exception:
-        return True
-
-
 def _event_source(text: str, kind: str) -> str:
     """"the result of background agent ID", "the CI event": the agent id only when it has the shape of one."""
     if kind == "ci":
@@ -823,6 +767,24 @@ def _event_source(text: str, kind: str) -> str:
     if m and len(m.group(1)) <= 64:
         return "the result of background agent %s" % m.group(1)
     return "the result of a background agent"
+
+
+def _entry_key_hits(text: str) -> list[str]:
+    """The one content check of the prompt (DMZ 2): a private key block or a TCP access key pair (a key id next to its
+    secret) typed or pasted would leave the host for the model. The classes found, "private-key" and "access-key".
+    A check that cannot run finds nothing: it never refuses."""
+    try:
+        from awb import gate
+
+        found = []
+        if gate._PRIVATE_KEY_RE.search(text):
+            found.append("private-key")
+        # a pair written as ak=... sk=... or "access key: ..." reads the same once the separators are blanks
+        if gate._detect_keypair(text) or gate._detect_keypair(re.sub(r"[=:]", " ", text)):
+            found.append("access-key")
+        return found
+    except Exception:
+        return []
 
 
 def hook_prompt(data: dict) -> int:
@@ -835,63 +797,19 @@ def hook_prompt(data: dict) -> int:
         if refused:
             print(refused, file=sys.stderr)
             return BLOCK
-    if _ask_project(project_root(_session_folder(data))):
-        return _secrets_only_prompt(data, text)
-    try:
-        hits = name_hits(text)
-    except Unavailable as exc:
-        if exc.rate:
-            # not a locked vault: the check is back within a minute, the prompt is not passed unchecked
-            print("the name check is busy (rate limit of the vault daemon). Nothing was sent: send the prompt "
-                  "again in a minute.", file=sys.stderr)
-            return BLOCK
-        # a guard that switches itself off is no guard (T3): whatever stops the check stops the prompt
-        print("%s: %s, then send the prompt again" % (exc.locked(), UNLOCK_HINT), file=sys.stderr)
-        return BLOCK
-    secrets = _secret_hits(text)
-    if not hits and not secrets:
+    found = _entry_key_hits(text)
+    if not found:
         _rules_notice(data)
         return OK
-    names = [h for h in hits if h.get("cls") == "name"]
-    other = [h for h in hits if h.get("cls") != "name"]
     kind = _prompt_kind(text)
-    soft = [h for h in other if h.get("cls") in SOFT_CLASSES]
-    if kind == "typed" and not names and not secrets:
-        # T5: the owner's own words are no entry of customer material; only a registered name or a secret stops
-        # them (the entry checks run at awb start, intake, import, awb clean and the paste door)
-        _rules_notice(data)
-        return OK
-    if (kind != "typed" and not names and not secrets and len(soft) == len(other)
-            and (kind != "paste" or not _typed_has_data(text))):
-        what = {"paste": "The paste", "agent": "The agent result", "ci": "The CI event"}[kind]
-        _rules_notice(data, "%s carries %d data items (%s); never repeat them, refer to them by line."
-                      % (what, len(soft), _counts(soft)))
-        return OK
+    what = ", ".join(found)
     if kind in ("agent", "ci"):
-        blocked = ([{"cls": "registered name"} for _ in names]
-                   + [h for h in other if h.get("cls") not in SOFT_CLASSES] + secrets)
-        rerun = " Run the agent again with the rule \"codes only\"." if kind == "agent" else ""
-        print("%s was not delivered: it carries %s.%s" % (_event_source(text, kind), _counts(blocked), rerun),
+        rerun = " Run the agent again without the key." if kind == "agent" else ""
+        print("%s was not delivered: it carries a key (%s).%s" % (_event_source(text, kind), what, rerun),
               file=sys.stderr)
-        _record_block(text, hits, secrets)
         return BLOCK
-    parts: list[str] = []
-    if names:
-        msg = ("the prompt carries a registered name (%d hits). Register new names with `awb register` in your "
-               "own shell and write the code instead." % len(names))
-        if other:
-            msg += " It also carries structured data (%s)." % _counts(other)
-        parts.append(msg)
-    elif other:
-        parts.append("the prompt carries structured data (%s). Leave it out or write a code instead."
-                     % _counts(other))
-    if secrets:
-        parts.append("the prompt carries a secret (%s). A session never holds a live secret: keep it in the "
-                     "vault or the password store and refer to it by name." % _counts(secrets))
-    if kind == "paste":
-        parts.append(_paste_door(data))
-    print(" ".join(parts), file=sys.stderr)
-    _record_block(text, hits, secrets)
+    print("the prompt carries a key (%s) that would leave this host for the model. Keep it in the vault or the "
+          "password store and refer to it by name." % what, file=sys.stderr)
     return BLOCK
 
 
@@ -907,15 +825,6 @@ def _record_block(text: str, hits: list[dict], secrets: list[dict]) -> None:
         fplearn.record("prompt", check.with_hidden_views(text), hits, extra)
     except Exception:
         pass
-
-
-def _paste_door(data: dict) -> str:
-    """The way in for a pasted mail or transcript: the owner's `awb import CODE --paste`, with the code of the
-    project the session works in when the hook can tell it."""
-    from awb import codes
-    root = project_root(data.get("cwd") if isinstance(data.get("cwd"), str) else None)
-    code = root.name if root is not None and re.fullmatch(codes.ANY_PROJECT, root.name) else "CODE"
-    return "A pasted mail or transcript goes in through `awb import %s --paste` in your own terminal." % code
 
 
 def _written_file(data: dict) -> Path | None:
@@ -1076,17 +985,15 @@ def hook_post_write(data: dict, names: bool = True) -> int:
         return BLOCK
     problems: list[str] = []
     warnings: list[str] = []
+    inside = root is not None           # DMZ 2: a file written inside a project runs no secret and no name check
     text = _plain_text(path)
-    shortened = ""
-    if text is not None and root is not None and not _binary_file(path):
-        # task GT: a log of our own lab runs keeps every id; its secrets are shortened or replaced in place
-        text, shortened = _shorten_in_place(path, text)
     if text is None and not _binary_file(path):
-        # a text file with one byte that is no UTF-8 is still text: its secrets and overrides are looked for in
-        # what decodes (it is never rewritten), so a stray byte does not take the file past the check
+        # a text file with one byte that is no UTF-8 is still text: its overrides (and, outside a project, its
+        # secrets) are looked for in what decodes (it is never rewritten), so a stray byte does not take the file
+        # past the check
         text = _loose_text(path)
     if text is not None:
-        secrets = _secret_hits(text)
+        secrets = [] if inside else _secret_hits(text)
         if secrets:
             problems.append("the written file carries a secret (%s). A session never holds a live secret: keep it "
                             "in the vault or the password store and refer to it by name." % _counts(secrets))
@@ -1098,33 +1005,23 @@ def hook_post_write(data: dict, names: bool = True) -> int:
             print("\n".join(problems), file=sys.stderr)
             return BLOCK
         return OK
-    folders = ""
-    if root is not None:
+    if not inside:
         try:
-            folders = "/".join(path.relative_to(root).parts[:-1])
-        except ValueError:
-            folders = ""
-    try:
-        hits = file_hits(path)
-        if folders and name_hits(folders):
-            problems.append("a folder on the path of the written file carries a registered name: rename it to a "
-                            "code before anything else goes in.")
-    except Unavailable as exc:
-        # the file is written (the tool ran), but it must not count as checked: exit 2 puts this in front of the
-        # session as an error it has to act on, not as a note
-        if exc.rate:
-            problems.append("the written file is not checked: the name check did not run (%s). Keep every name "
-                            "out of it and run `awb check` on it when the check is back; until then it goes "
-                            "nowhere." % exc)
-        else:
-            problems.append("the written file is not checked: %s: %s, then run `awb check` on it. Keep every "
-                            "name out of it; until then it goes nowhere." % (exc.locked(), UNLOCK_HINT))
-        hits = []
-    if root is not None:
-        hits = [h for h in hits if h.get("cls") in NAME_CLASSES]    # task GT: ids and structured data stay
-    if hits:
-        problems.append("the written file carries %d hits of the name check: %s. Replace them with codes "
-                        "(awb check FILE shows the positions)." % (len(hits), _describe(_lines(path, hits))))
+            hits = file_hits(path)
+        except Unavailable as exc:
+            # the file is written (the tool ran), but it must not count as checked: exit 2 puts this in front of the
+            # session as an error it has to act on, not as a note
+            if exc.rate:
+                problems.append("the written file is not checked: the name check did not run (%s). Keep every name "
+                                "out of it and run `awb check` on it when the check is back; until then it goes "
+                                "nowhere." % exc)
+            else:
+                problems.append("the written file is not checked: %s: %s, then run `awb check` on it. Keep every "
+                                "name out of it; until then it goes nowhere." % (exc.locked(), UNLOCK_HINT))
+            hits = []
+        if hits:
+            problems.append("the written file carries %d hits of the name check: %s. Replace them with codes "
+                            "(awb check FILE shows the positions)." % (len(hits), _describe(_lines(path, hits))))
     if deliverable:
         try:
             tells = _writing_tells(path, _platform(root))
@@ -1141,15 +1038,7 @@ def hook_post_write(data: dict, names: bool = True) -> int:
     if warnings:
         text = "Warning from the Workbench: %s. Check the file again when the check is back." % "; ".join(warnings)
         _emit(EVENTS["post-write"], text, "awb: %s" % "; ".join(warnings))
-    elif shortened:
-        _emit(EVENTS["post-write"], "The written file carried secrets: %s in place (passwords and logins masked, "
-              "temporary tokens and keys shortened to 8 characters, a permanent key replaced). Read it again before "
-              "you edit it." % shortened)
     return OK
-
-
-NAME_CLASSES = ("name", "path")
-"""What the write hook still refuses in a project file (task GT): a registered name in the text or the file name."""
 
 
 def _binary_file(path: Path) -> bool:
@@ -1163,34 +1052,6 @@ def _binary_file(path: Path) -> bool:
     except OSError:
         return True
     return putcopy.is_binary(path.name, head)
-
-
-def _shorten_in_place(path: Path, text: str) -> tuple[str, str]:
-    """(the text now, the counts) after the secrets of `text` were shortened or replaced in the file itself."""
-    from awb import labsecrets
-
-    new, counts = labsecrets.shorten(text)
-    if new == text:
-        return text, ""
-    try:
-        with open(path, "r+", encoding="utf-8") as fh:     # the same file: its owner and mode stay
-            fh.write(new)
-            fh.truncate()
-    except OSError:
-        return text, ""
-    return new, labsecrets.said(counts)
-
-
-def _safe_names(files: list[str]) -> list[str]:
-    """File names as they are when they pass the name check, else "file N"."""
-    out = []
-    for n, name in enumerate(files, start=1):
-        try:
-            clean = not name_hits(name)
-        except Unavailable:
-            clean = False
-        out.append(name if clean else "file %d" % n)
-    return out
 
 
 def _git_lines(root: Path, *args: str) -> list[str] | None:
@@ -1222,20 +1083,6 @@ def _hand_entries(p: config.Paths, code: str, since: str) -> int:
                and not tool.match(e.done))
 
 
-def _clean_subject(subject: str) -> str:
-    """A commit subject with every structured value (a URL or a bare domain, an address, a number of a kind the
-    ledger refuses) replaced by its class in brackets, so a file name like `notes/run.md` or a link does not
-    refuse the whole draft. The ledger still checks the result."""
-    try:
-        from awb import patterns
-        spans = patterns.find_structured(subject)
-    except Exception:
-        return subject
-    for sp in sorted(spans, key=lambda x: x.start, reverse=True):
-        subject = subject[:sp.start] + "(%s)" % sp.cls + subject[sp.end:]
-    return subject
-
-
 def _read_refused(path: Path) -> dict:
     """The note of a refused draft: {"head", "hand", "since"}; an old note holds the head alone."""
     try:
@@ -1251,8 +1098,8 @@ def _read_refused(path: Path) -> dict:
 
 def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = None) -> bool:
     """T-41: a ledger entry drafted from the commits of the project since the last draft, at most every
-    DRAFT_HOURS. Commit subjects passed the commit gate; the ledger checks them again, after `_clean_subject`
-    took out links and other structured values. True when written. The marker moves only after the entry is in:
+    DRAFT_HOURS. Commit subjects go in as written (DMZ 2: no masking and no text screen).
+    True when written. The marker moves only after the entry is in:
     a draft the ledger refuses raises ledger.Refused, is noted in <code>.refused beside the marker and is tried
     again with the next commit. Entries by hand (awb ledger add) of the project written after the last draft or
     after the refusal cover the commits up to then: those commits are not drafted again."""
@@ -1295,11 +1142,14 @@ def draft_ledger(p: config.Paths, root: Path, now: datetime.datetime | None = No
     written = False
     if subjects:
         row = next((r for r in projects.load(p) if r.code == code), None)
-        done = "%s: %d commit(s): %s" % (code, len(subjects), "; ".join(_clean_subject(s) for s in reversed(subjects)))
+        done = "%s: %d commit(s): %s" % (code, len(subjects), "; ".join(reversed(subjects)))
         try:
-            ledger.add("other", done[:ledger.MAX_TEXT], project=code,
-                       customer=None if row is None or row.customer == projects.NO_CUSTOMER else row.customer,
-                       outcome=DRAFT_OUTCOME, p=p)
+            # DMZ 2: the draft is written without the ledger's text screen (that screen goes in B-088)
+            entry = ledger.make_entry(
+                kind="other", done=done[:ledger.MAX_TEXT], project=code,
+                customer=None if row is None or row.customer == projects.NO_CUSTOMER else row.customer,
+                outcome=DRAFT_OUTCOME, known_tags=ledger.load_tags())
+            ledger.append_line(ledger.week_file(p, entry.date), entry.as_dict())
         except ledger.Refused:
             marker.parent.mkdir(parents=True, exist_ok=True)
             refused.write_text(json.dumps({"head": head[0], "since": today,
@@ -1584,7 +1434,7 @@ def draft_gate(data: dict, root: Path) -> list[str]:
         if not _named_in(reply, rel, root):
             continue
         mode = "mail" if _is_mail_draft(Path(rel)) else "doc"
-        shown = _safe_names([rel])[0]
+        shown = rel
         if mod is None or lang is None:
             lines.append("%s is shown unchecked: the writing check is not installed" % shown)
             continue
@@ -1799,11 +1649,9 @@ def _project_text(root: Path, name: str) -> str | None:
             os.close(fd)
 
 
-def _section(root: Path, name: str, max_lines: int | None, notes: list[str], down: list[str] | None = None,
-             names: bool = True) -> str:
-    """One file as a section of the session context. Withheld when it carries any hit of the name check and when
-    the check cannot run (`down` carries the reason once the check failed, so the next sections do not wait for
-    it again)."""
+def _section(root: Path, name: str, max_lines: int | None, notes: list[str]) -> str:
+    """One file as a section of the session context, shown as written (DMZ 2: no name, secret or structured-data
+    check inside a project). Withheld only for a bidi override."""
     title = name if max_lines is None else "%s (first %d lines)" % (name, max_lines)
     text = _project_text(root, name)
     if text is None:
@@ -1813,45 +1661,13 @@ def _section(root: Path, name: str, max_lines: int | None, notes: list[str], dow
     if _has_override(text):
         return ("## %s\n\n(withheld: it carries a bidi override (U+202D or U+202E), which a viewer renders "
                 "reversed. Take it out of the file.)\n" % title)
-    checked = text
-    cut = len(text) > SECTION_CHARS
-    if cut:
-        # the cut falls at a line end when one is near, and the check reads on past it, so that a form that
-        # straddles the cut is seen whole and not loaded in part
+    if len(text) > SECTION_CHARS:
+        # the cut falls at a line end when one is near
         end = text.find("\n", SECTION_CHARS, SECTION_CHARS + 500)
         end = SECTION_CHARS if end < 0 else end
-        checked = text[:end + 200]
         text = text[:end]
         notes.append("%s is longer than %d characters: only its start was loaded, read the rest in the file"
                      % (name, SECTION_CHARS))
-    if not names:
-        # an ask project (awb/askkind.py): a secret withholds the file, nothing else does
-        secrets = _secret_hits(checked)
-        if secrets:
-            return ("## %s\n\n(withheld: it carries a secret (%s). Take it out of the file.)\n"
-                    % (title, _counts(secrets)))
-        return "## %s\n\n%s\n" % (title, text.strip())
-    try:
-        if down:
-            raise Unavailable(down[0])
-        hits = name_hits(checked)
-    except Unavailable as exc:
-        # fail closed: a text that could not be checked never goes into the context of a session
-        if down is not None and not down:
-            down.append(str(exc))
-        notes.append("%s was not name checked (%s), so it is withheld" % (name, exc))
-        return "## %s\n\n(withheld: the name check did not run. Read the file yourself once the check is back.)\n" \
-            % title
-    names = [h for h in hits if h.get("cls") == "name"]
-    if names:
-        return ("## %s\n\n(withheld: it carries %d registered names. Run `awb check %s` and replace them with "
-                "codes.)\n" % (title, len(names), name))
-    if name in ("STATE.md", "OPEN.md"):
-        hits = _without_reserved(checked, hits)
-    if hits:
-        notes.append("%s carries structured data (%s), replace it with codes" % (name, _counts(hits)))
-        return ("## %s\n\n(withheld: it carries structured data (%s). Run `awb check %s` and replace it with "
-                "codes.)\n" % (title, _counts(hits), name))
     return "## %s\n\n%s\n" % (title, text.strip())
 
 
@@ -1862,10 +1678,10 @@ COMPACT_LEAD = ("Keep the following standing facts of this Workbench project in 
                 "not ask the owner for them again.")
 
 
-def _pinned_section(root: Path, down: list[str] | None = None, names: bool = True) -> str | None:
-    """The two status lines and the pinned block of STATE.md (awb/status.py pin_text) as a section, checked like
-    STATE.md is at the start: withheld with one line when it carries a bidi override or any hit of the name check
-    or when the check cannot run. None when STATE.md is missing or has neither the lines nor the block."""
+def _pinned_section(root: Path) -> str | None:
+    """The two status lines and the pinned block of STATE.md (awb/status.py pin_text) as a section, shown as written
+    (DMZ 2); withheld with one line only for a bidi override. None when STATE.md is missing or has neither the lines
+    nor the block."""
     from awb import status
 
     text = _project_text(root, status.STATE)
@@ -1874,26 +1690,6 @@ def _pinned_section(root: Path, down: list[str] | None = None, names: bool = Tru
         return None
     if _has_override(block):
         return "%s\n\n(withheld: it carries a bidi override. Take it out of STATE.md.)\n" % PIN_TITLE
-    if not names:
-        secrets = _secret_hits(block)
-        if secrets:
-            return "%s\n\n(withheld: it carries a secret (%s). Take it out of STATE.md.)\n" % (PIN_TITLE,
-                                                                                               _counts(secrets))
-        return "%s\n\n%s\n" % (PIN_TITLE, block)
-    try:
-        if down:
-            raise Unavailable(down[0])
-        hits = name_hits(block)
-    except Unavailable as exc:
-        if down is not None and not down:
-            down.append(str(exc))
-        return ("%s\n\n(withheld: the name check did not run. Read the Status: and Next: lines and the %s block "
-                "of STATE.md yourself once the check is back.)\n" % (PIN_TITLE, status.PIN_HEADING))
-    if not any(h.get("cls") == "name" for h in hits):
-        hits = _without_reserved(block, hits)
-    if hits:
-        return ("%s\n\n(withheld: it carries %s. Run `awb check STATE.md` and replace it with codes.)\n"
-                % (PIN_TITLE, _counts(hits)))
     return "%s\n\n%s\n" % (PIN_TITLE, block)
 
 
@@ -1991,8 +1787,8 @@ def owner_session_start(data: dict) -> int:
 
 def _parked_line(p: config.Paths, root: Path) -> str | None:
     """"This project is parked since DATE (reason): ..." for a parked project (PD4), else None. The project still
-    takes material and work; the line only says the board counts it apart. The reason shows only after the name
-    check. Never fails the hook."""
+    takes material and work; the line only says the board counts it apart. The reason shows as written. Never fails
+    the hook."""
     try:
         from awb import projects
 
@@ -2000,11 +1796,6 @@ def _parked_line(p: config.Paths, root: Path) -> str | None:
         if row is None or row.state != "parked":
             return None
         since, reason = projects.park_info(p, row.code) or ("", "")
-        try:
-            if reason and name_hits(reason, p):
-                reason = ""
-        except Exception:
-            reason = ""
         return ("This project is parked%s%s: the board counts it apart and leaves its open items out. Material "
                 "may still come in and the work goes on; the owner brings it back with awb projects unpark %s."
                 % (" since %s" % since if since else "", " (%s)" % reason if reason else "", row.code))
@@ -2041,32 +1832,21 @@ def hook_session_start(data: dict) -> int:
         parts.append("No Workbench project here (no SCOPE.md in this folder or above it).\n")
     else:
         ask = _ask_project(root)
-        try:
-            # the folder name is whatever a shell command chose (the red team of 2026-09-27): checked like a file;
-            # an ask project's folder is its project code (askkind.is_ask checks the name)
-            shown = root.name if ask else ("this project" if name_hits(root.name) else root.name)
-            down: list[str] = []
-        except Unavailable as exc:
-            if not exc.rate:
-                # locked: one line and no file (T3); the claim of the project still runs
-                _project_notes(p, root, data.get("session_id"), "this project")
-                _emit(EVENTS["session-start"], LOCKED_START % (exc.since or "unknown"))
-                return OK
-            shown, down = "this project", [str(exc)]
+        shown = root.name               # DMZ 2: the folder name shows as written
         if data.get("source") == "compact":
             # Q-0006: after a compaction the standing facts come first, before every file
-            pin = _pinned_section(root, down, names=not ask)
+            pin = _pinned_section(root)
             if pin:
                 parts.append(pin)
-        parts.append(("Workbench ask project %s: the owner's own questions, the secret check only.\n" if ask else
+        parts.append(("Workbench ask project %s: the owner's own questions.\n" if ask else
                       "Workbench project %s. Codes only, never a name.\n") % shown)
         parts.append(FOOTER_RULE + "\n")
         parked = _parked_line(p, root)
         if parked:
             parts.append(parked + "\n")
-        parts.append(_section(root, "SCOPE.md", None, notes, down, names=not ask))
-        parts.append(_section(root, "STATE.md", STATE_LINES, notes, down, names=not ask))
-        parts.append(_section(root, "OPEN.md", None, notes, down, names=not ask))
+        parts.append(_section(root, "SCOPE.md", None, notes))
+        parts.append(_section(root, "STATE.md", STATE_LINES, notes))
+        parts.append(_section(root, "OPEN.md", None, notes))
         notes += _project_notes(p, root, data.get("session_id"), shown)
         notes += _pin_notes(root)
         notes += _preflight_notes(p, root, data.get("session_id"))

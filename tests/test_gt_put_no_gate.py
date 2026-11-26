@@ -273,12 +273,10 @@ def test_gt_the_write_hook_keeps_ids_and_shortens_secrets_in_a_project_file(proj
     f.write_text(text, encoding="utf-8")
     code, out, err = run_hook("post-write", post_write(f), monkeypatch, capsys)
     assert code == 0, err
-    now = f.read_text(encoding="utf-8")
-    assert v["domain"] in now and v["request"] in now and v["token"] not in now and v["sk"] not in now
-    assert "shortened" in out
+    # DMZ 2: a file written inside a project is written as it is: ids, secrets and names stay
+    assert f.read_text(encoding="utf-8") == text and out == ""
     f.write_text("The run for %s.\n" % fx.CUSTOMER_FORMS[1], encoding="utf-8")
-    code, _, err = run_hook("post-write", post_write(f), monkeypatch, capsys)
-    assert code == 2 and "name check" in err, "a registered name still blocks"
+    assert run_hook("post-write", post_write(f), monkeypatch, capsys) == (0, "", "")
 
 
 def test_gt_the_commit_gate_of_a_project_passes_ids_and_still_refuses_a_secret(project, monkeypatch,  # noqa: F811

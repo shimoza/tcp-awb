@@ -34,9 +34,7 @@ def test_a_name_behind_a_base64_or_hex_block_blocks_the_prompt(home, monkeypatch
     b64 = base64.b64encode(("the offer for %s is late" % FULL).encode("utf-8")).decode("ascii")
     for text in ("please decode %s" % b64, "bytes: " + ("the plan of %s" % FULL).encode("utf-8").hex(),
                  "data:text/plain;base64," + b64, json.dumps({"note": b64})):
-        code, out, err = prompt(text, monkeypatch, capsys)
-        assert code == 2 and "registered name" in err
-        assert_clean(out + err, "prompt output")
+        assert prompt(text, monkeypatch, capsys) == (0, "", "")     # DMZ 2: the prompt hook reads no name
 
 
 def test_check_text_sees_what_a_bidi_override_shows_reversed(register_path):
@@ -51,7 +49,7 @@ def test_a_written_file_or_a_section_with_a_bidi_override_is_refused(project, mo
     f = project / "notes.md"
     f.write_text("# Notes\n\nsee ‮%s‬ today\n" % FULL[::-1], encoding="utf-8")
     code, out, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert code == 2 and "bidi override" in err and "hits of the name check: name" in err
+    assert code == 2 and "bidi override" in err and "name check" not in err     # DMZ 2: no name check inside
     assert_clean(out + err, "post-write output")
     (project / "OPEN.md").write_text("# Open\n\n- ‮%s‬\n" % FULL[::-1], encoding="utf-8")
     missing_module(monkeypatch, "kb")
@@ -162,10 +160,17 @@ def test_pre_write_follows_a_hard_link_expands_the_home_and_fails_closed(home, m
 def test_post_write_refuses_a_secret_and_the_prompt_hook_too(project, home, monkeypatch, capsys, no_writing):
     # the invented secrets are built from pieces, so that this file carries no secret shape for the gate
     word = "".join(["K7mQ2v", "X9pL4n", "R8sT"])
-    code, out, err = prompt("use password=%s for the box" % word, monkeypatch, capsys)
-    assert code == 2 and "carries a secret" in err and word[:6] not in err
+    # DMZ 2: a password is no finding in a prompt or in a project file; a key pair or a key block is, in a prompt
+    assert prompt("use password=%s for the box" % word, monkeypatch, capsys) == (0, "", "")
+    f = project / "box.md"
+    f.write_text("password=%s\n" % word, encoding="utf-8")
+    assert run_hook("post-write", write_payload(f), monkeypatch, capsys) == (0, "", "")
+    assert f.read_text(encoding="utf-8") == "password=%s\n" % word
     code, out, err = prompt("the password is in the vault under box-one", monkeypatch, capsys)
     assert code == 0
+    armour = "-----BEGIN " + "OPENSSH PRI" + "VATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n"
+    code, out, err = prompt("use this key:\n" + armour, monkeypatch, capsys)
+    assert code == 2 and "private-key" in err and "b3BlbnNzaC1" not in err
 
 
 def test_post_write_refuses_a_file_over_the_size_limit_without_reading_it(project, monkeypatch, capsys,
@@ -211,9 +216,7 @@ def test_post_write_refuses_a_folder_name_that_carries_a_name(project, monkeypat
     folder.mkdir(parents=True)
     f = folder / "clean.md"
     f.write_text("clean\n", encoding="utf-8")
-    code, out, err = run_hook("post-write", write_payload(f), monkeypatch, capsys)
-    assert code == 2 and "folder on the path" in err
-    assert_clean(out + err, "post-write output")
+    assert run_hook("post-write", write_payload(f), monkeypatch, capsys) == (0, "", "")     # DMZ 2: no name check
 
 
 # --------------------------------------------------------------------------- session-start
@@ -228,8 +231,7 @@ def test_session_start_never_shows_a_project_folder_named_with_a_name(home, monk
     code, out, err = run_hook("session-start", {"cwd": str(root)}, monkeypatch, capsys)
     assert code == 0
     text = context_of(out, "SessionStart")["hookSpecificOutput"]["additionalContext"]
-    assert "Workbench project this project." in text
-    assert_clean(text + err, "session-start context")
+    assert "Workbench project %s." % SHORT in text and err == ""      # DMZ 2: the folder name as written
 
 
 def test_session_start_checks_past_the_cut_and_cuts_at_a_line_end(project, monkeypatch, capsys):
@@ -240,8 +242,8 @@ def test_session_start_checks_past_the_cut_and_cuts_at_a_line_end(project, monke
     (project / "OPEN.md").write_text(head + PERSON + "\n" + filler, encoding="utf-8")
     code, out, _ = run_hook("session-start", {"cwd": str(project)}, monkeypatch, capsys)
     text = context_of(out, "SessionStart")["hookSpecificOutput"]["additionalContext"]
-    assert "OPEN.md" in text and "withheld" in text
-    assert_clean(text, "session-start context")
+    assert "OPEN.md" in text and "withheld" not in text     # DMZ 2: no check, the cut is the only limit
+    assert PERSON in text.split("## OPEN.md")[1]           # the line that straddles the cut is loaded whole
     (project / "OPEN.md").write_text(filler, encoding="utf-8")
     code, out, _ = run_hook("session-start", {"cwd": str(project)}, monkeypatch, capsys)
     text = context_of(out, "SessionStart")["hookSpecificOutput"]["additionalContext"]
@@ -260,7 +262,7 @@ def test_a_hook_over_its_budget_fails_closed(home, monkeypatch, capsys):
         time.sleep(2)
         return []
 
-    monkeypatch.setattr(hooks, "name_hits", slow)
+    monkeypatch.setattr(hooks, "_entry_key_hits", slow)
     t0 = time.monotonic()
     code, _, err = prompt("a slow prompt", monkeypatch, capsys)
     assert code == 2 and "nothing passes unchecked" in err and time.monotonic() - t0 < 1.5
@@ -272,7 +274,7 @@ def test_a_hook_over_its_budget_fails_closed(home, monkeypatch, capsys):
 def test_the_command_line_hook_stops_itself_before_the_client_would(project):
     env = dict(os.environ, AWB_HOOK_BUDGET_TEST="1")
     code = ("import sys, time\nfrom awb import hooks\nhooks.HOOK_BUDGET = 0.3\n"
-            "hooks.name_hits = lambda text, p=None: time.sleep(3) or []\n"
+            "hooks._entry_key_hits = lambda text: time.sleep(3) or []\n"
             "sys.exit(hooks.main(['prompt']))\n")
     import subprocess
     res = subprocess.run([sys.executable, "-c", code], input=json.dumps({"prompt": "slow"}), capture_output=True,
@@ -285,12 +287,10 @@ def test_the_command_line_hook_stops_itself_before_the_client_would(project):
 
 def test_t8_a_name_behind_base64_inside_a_paste_or_an_event_still_blocks(home, monkeypatch, capsys):
     b64 = base64.b64encode(("the offer for %s is late" % FULL).encode("utf-8")).decode("ascii")
-    code, out, err = prompt('see\n<pasted_content id="z9">%s\n</pasted_content id="z9">' % b64, monkeypatch, capsys)
-    assert code == 2 and "registered name" in err
+    assert prompt('see\n<pasted_content id="z9">%s\n</pasted_content id="z9">' % b64, monkeypatch,
+                  capsys) == (0, "", "")        # DMZ 2: no name check on a paste or an event
     event = "<task-notification>\n<task-id>a3f9c21</task-id>\n<result>%s</result>\n</task-notification>" % b64
-    code, out2, err2 = prompt(event, monkeypatch, capsys)
-    assert code == 2 and "registered name 1" in err2 and "a3f9c21" in err2
-    assert_clean(out + err + out2 + err2, "prompt output")
+    assert prompt(event, monkeypatch, capsys) == (0, "", "")
 
 
 # --------------------------------------------------------------------------- T8: listings and clocks are no phones

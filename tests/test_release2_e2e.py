@@ -224,7 +224,7 @@ def test_release2_end_to_end_with_the_tool_guard_and_compact(places, daemon, mon
     assert settings["hooks"]["PreToolUse"][1]["hooks"][0]["command"].endswith(" -m awb hook pre-tool")
     shutil.copy(output, project / "input" / output.name)
 
-    # the prompt hook of the project, run the way the client runs it: a name is blocked over the check socket
+    # the prompt hook of the project, run the way the client runs it: DMZ 2, a name passes and a key is refused
     prompt_command = settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
 
     def prompt_hook(prompt: str) -> subprocess.CompletedProcess:
@@ -236,7 +236,9 @@ def test_release2_end_to_end_with_the_tool_guard_and_compact(places, daemon, mon
 
     if not SEALED_FOR_ANOTHER_USER:     # on a sealed host a hook process is silent for the owner by design
         res = prompt_hook("size the app clusters of %s" % FULL)
-        assert res.returncode == 2 and "registered name (1 hits)" in res.stderr
+        assert res.returncode == 0 and res.stderr == ""
+        res = prompt_hook("use\n-----BEGIN " + "OPENSSH PRI" + "VATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n")
+        assert res.returncode == 2 and "private-key" in res.stderr
         assert prompt_hook("size the app clusters for the next phase").returncode == 0
 
     # ------------------------------------------------------------------ the work side: knowledge and ledger
@@ -316,17 +318,17 @@ def test_release2_end_to_end_with_the_tool_guard_and_compact(places, daemon, mon
     assert "name check unavailable: vault locked" in err
     code, out, err = con.hook("prompt", {"hook_event_name": "UserPromptSubmit", "cwd": str(project),
                                          "prompt": "size the app clusters of %s" % FULL})
-    # T3 (build/DECISIONS.md, 2026-10-07, D-T3): a locked vault blocks the prompt with the time and the unlock
-    assert (code, out) == (2, "")
-    assert re.search(r"^the Workbench is locked since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z \(vault locked\): as the "
-                     r"owner run awb vault unlock", err)
+    # the daemon is asked once while it is locked: it answers locked and logs it
+    with pytest.raises(vault.VaultLocked):
+        vault.check_remote("a text", w.check_socket)
+    # DMZ 2: a locked vault changes nothing for the prompt hook or for a file written inside the project
+    assert (code, out, err) == (0, "", "")
     if not SEALED_FOR_ANOTHER_USER:     # on a sealed host a hook process is silent for the owner by design
         res = prompt_hook("size the app clusters of %s" % FULL)
-        assert res.returncode == 2 and res.stdout == "" and "(vault locked): as the owner run" in res.stderr
+        assert (res.returncode, res.stdout, res.stderr) == (0, "", "")
     code, out, err = con.hook("post-write", {"hook_event_name": "PostToolUse", "cwd": str(project),
                                              "tool_input": {"file_path": str(deliverable)}})
-    # review of release 2: a file written while the check cannot run is reported as unchecked (exit 2)
-    assert code == 2 and "not checked" in err and "(vault locked): as the owner run awb vault unlock" in err
+    assert (code, err) == (0, "")
 
     # the owner unlocks again: the check comes back
     p = owner_side(monkeypatch, places)

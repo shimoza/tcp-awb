@@ -176,10 +176,10 @@ def test_a_notification_prompt_gets_no_note_and_the_note_waits(home, register_pa
 def test_a_notification_keeps_its_data_line_and_its_block(home, monkeypatch, capsys):
     from tests import fixtures
     result = "checked 198.51.100.23, 198.51.100.24 and https://build.qrtvb.io/run/42: all three answer"
-    code, out, err = run_hook("prompt", {"prompt": notification(result)}, monkeypatch, capsys)
-    line = context_of(out, "UserPromptSubmit")["hookSpecificOutput"]["additionalContext"]
-    assert (code, err) == (0, "")
-    assert line == "The agent result carries 3 data items (ip 2, url 1); never repeat them, refer to them by line."
-    code, out, err = run_hook("prompt", {"prompt": notification("the draft for %s" % fixtures.CUSTOMER_FORMS[0])},
-                              monkeypatch, capsys)
+    # DMZ 2: no data line any more; a notification with addresses or a name passes, one with a key is refused
+    assert run_hook("prompt", {"prompt": notification(result)}, monkeypatch, capsys) == (0, "", "")
+    assert run_hook("prompt", {"prompt": notification("the draft for %s" % fixtures.CUSTOMER_FORMS[0])},
+                    monkeypatch, capsys) == (0, "", "")
+    key = "-----BEGIN " + "OPENSSH PRI" + "VATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n"
+    code, out, err = run_hook("prompt", {"prompt": notification("the key\n" + key)}, monkeypatch, capsys)
     assert code == 2 and out == "" and "was not delivered" in err

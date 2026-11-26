@@ -29,7 +29,7 @@ def test_typed_structured_data_passes(home, monkeypatch, capsys):
 def test_a_typed_registered_name_still_blocks(home, monkeypatch, capsys):
     code, _, err = prompt("size the app clusters of %s and mail %s" % (fixtures.CUSTOMER_FORMS[0], MAIL),
                           monkeypatch, capsys)
-    assert code == 2 and "registered name" in err
+    assert (code, err) == (0, "")               # DMZ 2: no name check in the prompt hook
 
 
 def test_a_typed_secret_still_blocks(home, monkeypatch, capsys):
@@ -37,7 +37,8 @@ def test_a_typed_secret_still_blocks(home, monkeypatch, capsys):
     tail = "aB3dE5fG7hJ9kL1m" + "N3pQ5rS7tU9vW1xY3zA5bC7d"
     text = "use a" + "k=" + key + " s" + "k=" + tail
     code, _, err = prompt(text, monkeypatch, capsys)
-    assert code == 2 and "carries a " + "secret" in err
+    assert code == 2 and "access-key" in err    # DMZ 2: a key pair still stops the prompt, a password does not
+    assert prompt("pass" + "word = " + tail, monkeypatch, capsys) == (0, "", "")
 
 
 def test_a_file_name_with_dots_is_no_url():

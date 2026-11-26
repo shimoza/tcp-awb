@@ -1,6 +1,6 @@
 """The ledger draft of the stop hook (tcp-bytg, 2026-11-19): a commit subject with a link or a bare host is drafted
-with the value taken out instead of being refused on every stop, and commits a session already wrote down with
-awb ledger add are not drafted again."""
+instead of being refused on every stop (DMZ 2: as written, no masking and no text screen), and commits a session
+already wrote down with awb ledger add are not drafted again."""
 from __future__ import annotations
 
 import datetime
@@ -30,6 +30,20 @@ def gate_on_path(monkeypatch):
 def spawn(home, register_path):
     return projects.spawn(home, "engagement", "move two app clusters to managed k8s", fx.CUSTOMER_CODE,
                           register_path, tags=["cce"])
+
+
+@pytest.fixture
+def refusing_ledger(monkeypatch):
+    """DMZ 2: the draft has no text screen of its own, so a refusal is planted in the ledger's writer: it refuses a
+    draft that carries the name of a person."""
+    real = ledger.append_line
+
+    def writer(path, obj, mode=0o640):
+        if fx.PERSON_FORMS[0] in obj["done"]:
+            raise ledger.Refused("done refused (name 1)")
+        return real(path, obj, mode)
+
+    monkeypatch.setattr(ledger, "append_line", writer)
 
 
 def commit(folder: Path, name: str, subject: str) -> None:
@@ -65,8 +79,8 @@ def test_a_link_and_a_bare_host_are_taken_out_of_the_draft(home, register_path):
     commit(folder, "b.md", "Mirror of %s checked" % fx.LEDGER_LINK_HOST)
     assert hooks.draft_ledger(home, folder, now=NOW) is True
     [d] = drafts(home, pr.code)
-    assert d.done == "%s: 2 commit(s): Read the guide at (url); Mirror of (url) checked" % pr.code
-    assert fx.LEDGER_LINK_HOST not in d.done
+    assert d.done == "%s: 2 commit(s): Read the guide at %s; Mirror of %s checked" % (
+        pr.code, fx.LEDGER_LINK, fx.LEDGER_LINK_HOST)
     assert json.loads(marker(home, pr.code).read_text())["head"] == head(folder)
 
 
@@ -78,7 +92,7 @@ def test_planted_the_raw_subject_is_refused_so_the_cleaning_is_what_lets_it_in(h
                    p=home)
 
 
-def test_entries_by_hand_after_a_refusal_cover_the_refused_commits(home, register_path):
+def test_entries_by_hand_after_a_refusal_cover_the_refused_commits(home, register_path, refusing_ledger):
     pr = spawn(home, register_path)
     folder = Path(pr.path)
     commit(folder, "a.md", "call with %s" % fx.PERSON_FORMS[0])
@@ -95,7 +109,8 @@ def test_entries_by_hand_after_a_refusal_cover_the_refused_commits(home, registe
     assert d.done == "%s: 1 commit(s): Network layout per stage" % pr.code
 
 
-def test_without_an_entry_by_hand_the_refused_commit_is_tried_again_with_the_next(home, register_path):
+def test_without_an_entry_by_hand_the_refused_commit_is_tried_again_with_the_next(home, register_path,
+                                                                                    refusing_ledger):
     pr = spawn(home, register_path)
     folder = Path(pr.path)
     commit(folder, "a.md", "call with %s" % fx.PERSON_FORMS[0])
@@ -139,7 +154,8 @@ def test_an_old_refusal_note_with_the_head_alone_is_still_read(home, register_pa
     assert not drafts(home, pr.code)
 
 
-def test_the_stop_message_names_the_command_and_is_said_once(home, register_path, monkeypatch, capsys):
+def test_the_stop_message_names_the_command_and_is_said_once(home, register_path, monkeypatch, capsys,
+                                                            refusing_ledger):
     pr = spawn(home, register_path)
     folder = Path(pr.path)
     commit(folder, "a.md", "call with %s" % fx.PERSON_FORMS[0])

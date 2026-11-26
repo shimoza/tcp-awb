@@ -180,8 +180,8 @@ runs `awb projects kind CODE query` once for a customer project before its first
 An ask project (`awb start ask --goal "..."`, his own terminal or his assistant session) is the one place where only the
 owner types. It never has a customer and no material ever enters it: `awb import`, the paste door, `awb paste`, `awb
 material`, `awb inbox take`, `awb xchg`, `awb bucket pull` and `awb fetch` refuse it with one line. In return the
-checks that guard customer names step back there: the prompt, write and start hooks, the draft gate of the stop hook
-and the commit gate of its repository look for secrets only, and the tool guard lets a shell path it cannot read pass
+draft gate of the stop hook and the commit gate of its repository look for secrets only (the prompt, write and start
+hooks read no content in any project, below), and the tool guard lets a shell path it cannot read pass
 while every refused place (another project, a key folder, the client's folder, the session records) still refuses.
 The session answers from the facts first (`awb kb find`), then the public docs (`awb doc fetch`), then a call on a
 test tenant (`awb cloud call`); it names the source of each answer and writes a verified
@@ -452,8 +452,8 @@ Under the two lines `STATE.md` keeps a pinned block, the heading `## Pinned` wit
 `- Chain:` for a running chain. A new project starts with the block; the start of a project without one asks for it
 in its checks. Before a compaction the PreCompact hook (`awb hook compact`) hands the two status lines and the block
 to the summary as plain text and the start after the compaction (source `compact`) prints them again before every
-file, so the session neither asks him again nor switches language. Both are checked like `STATE.md`: a name, other
-structured data, a bidi override or a name check that cannot run withholds the block with one line. A reserved test domain (`example`, `test`, `invalid`, `localhost`, `local` and their suffixes) or a private lab address (10/8, 172.16/12, 192.168/16, 100.64/10, fd00::/8) is no structured data in `STATE.md` and `OPEN.md` at the start (a public address or a real looking domain still is). `awb state rotate [--keep N]` moves the dated layers (`### YYYY-MM-DD ...`) older than the last N dates (3) to `history/STATE-YYYY-MM-DD.md`, leaves the top and writes the lines marked `pinned: Kind: text` into the block; a second run changes nothing. The block stays
+file, so the session neither asks him again nor switches language. Both are shown as written, with a name, an
+address or a secret in them (DMZ 2): only a bidi override withholds the block with one line. The same holds for `SCOPE.md`, `STATE.md` and `OPEN.md` at the start, the folder name and the reason a project is parked. `awb state rotate [--keep N]` moves the dated layers (`### YYYY-MM-DD ...`) older than the last N dates (3) to `history/STATE-YYYY-MM-DD.md`, leaves the top and writes the lines marked `pinned: Kind: text` into the block; a second run changes nothing. The block stays
 within the first 40 lines, at most 12 lines and 1500 characters with every entry of one of the four kinds; the stop
 hook holds a reply whose block breaks that, with the counts. The owner's own PreCompact hook (`pre-compact`, the
 hand-over below) is a separate command, so the managed settings never run it twice. `awb board show` turns the status of every active project into
@@ -662,9 +662,10 @@ while it stays unchanged.
 **Live examples of our own lab runs.** A project keeps full API requests and responses of the lab tenants with
 every id: domains, projects, users, groups, resources, request ids, the header and claims of a JWT. Only passwords
 and logins are masked; temporary tokens and keys are shortened to 8 characters and their length; a permanent key
-is never written. The write hook does it in place, `awb paste --own` does it for a pasted output and the commit
-gate of a project passes ids (it still refuses a name and a secret). Customer names never enter: the entry checks
-are unchanged.
+is never written. A file written inside a project stays as written: the write hook runs no secret check, no name
+check and no mask there (DMZ 2). `awb paste --own` does the shortening for a pasted output and the commit gate of a
+project passes ids (it still refuses a name and a secret). Customer names never enter: the entry checks are
+unchanged.
 
 **Texts in the architect's own voice.** `awb write check` measures a text against the architect's style and a
 drafting skill writes mails, offers and PoC documents in that voice, with a check that the voice pass changed no
@@ -1669,9 +1670,15 @@ customer data out of the model as far as it can:
   of `awb import --auto` takes them with `--trusted` (see "Clean material on your laptop first").
 - The register of names lives in a vault on the owner's side. The sealed setup runs every session as a separate
   system user that cannot read it.
-- Six hooks check every prompt, every written file, every file or shell call and the start and end of every
-  session, so that a registered name typed by mistake is stopped before the model sees it. While the name check
-  cannot run (a locked vault), every prompt is refused with the time of the lock.
+- Six hooks watch every prompt, every written file, every file or shell call and the start and end of every
+  session. They read no content inside a project (DMZ 2, the owner's word of 2026-11-25: the checks stay at the entry
+  of customer material and at the exit of the public repositories). A prompt, a paste, the result of a background
+  agent or a CI event passes with names, addresses, mail addresses and passwords; the prompt hook refuses one thing, a
+  private key block (`BEGIN ... PRIVATE KEY`) or an access key pair (a key id next to its secret), because it would
+  leave the host for the model, and a check that cannot run never refuses. A file written inside a project is not
+  checked for names or secrets and not masked; outside a project folder the write hook keeps its name and secret
+  checks. The start and the compaction show SCOPE.md, STATE.md, OPEN.md and the pinned block as written. The writing
+  check of a deliverable (banned words, vendor names) and the bidi override stay.
 - Hook notes go into one footer line (Q-0005): the start of a project session tells it to put every note of the
   hooks (a notice, a release line, a receipt, a request, the reason a reply was held) into one line under its
   answer, `Notes: ` and the notes joined with `; `, never a paragraph and never above the answer. A prompt that is
@@ -1722,7 +1729,7 @@ customer data out of the model as far as it can:
   checked once, at the entry; a put after it never refuses a file and replaces only its secrets with [secret]
   (task GT). `awb close` still writes the fingerprint of a closed project (sha256 and salted word hashes, no
   text) and pins its hash in the vault.
-- The name check learns from its false positives without your marking anything. Every block of the prompt hook,
+- The name check learns from its false positives without your marking anything. Every block of
   the gate, `awb check` and `awb import` is recorded inside the vault (`<vault>/log/fp/`, yours alone); the work side
   keeps the count and the class only. Each night `awb check learn` (the timer awb-check-learn.timer) takes a blocked
   host name, id, error code, status line, path, timestamp or service name for harmless when it stands in the public

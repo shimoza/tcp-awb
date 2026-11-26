@@ -195,16 +195,13 @@ def test_contracted_and_other_negatives_need_two_tries(home, statement):
 
 
 def test_session_start_without_a_register_loads_no_file(project, home, monkeypatch, capsys):
-    """Red team G3: a start that cannot check loads nothing. T3 replaced the three withheld sections with one line
-    (build/DECISIONS.md, 2026-10-07, D-T3)."""
+    """DMZ 2: the start runs no check, so a vault without a register changes nothing: the files are shown."""
     (project / "SCOPE.md").write_text("# Scope\n\n- goal: size the clusters of %s\n" % FORM, encoding="utf-8")
     home.register.unlink()      # a readable vault folder without a register: the check cannot run
     code, out, err = run_hook("session-start", {"cwd": str(project)}, monkeypatch, capsys)
     assert code == 0
     text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    assert text == hooks.LOCKED_START % "unknown" and len(text.splitlines()) == 1
-    assert "is locked since %s. Every prompt is refused" % "unknown" in text and "files were not loaded" in text
-    fixtures.assert_no_fixture_name(out + err, "session-start context")
+    assert "locked" not in text and "- goal: size the clusters of %s" % FORM in text and err == ""
 
 
 def test_session_start_withholds_a_section_with_structured_data(project, monkeypatch, capsys):
@@ -212,7 +209,7 @@ def test_session_start_withholds_a_section_with_structured_data(project, monkeyp
     (project / "OPEN.md").write_text("# Open items\n\n- mail the plan to %s\n" % value, encoding="utf-8")
     code, out, _ = run_hook("session-start", {"cwd": str(project)}, monkeypatch, capsys)
     text = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-    assert code == 0 and value not in text and "withheld: it carries structured data (mail 1)" in text
+    assert code == 0 and "mail the plan to %s" % value in text and "withheld" not in text    # DMZ 2: as written
     assert "state line" in text
 
 
@@ -231,10 +228,9 @@ def test_prompt_hook_under_the_rate_limit_blocks_instead_of_passing(home, tmp_pa
             monkeypatch.setenv("AWB_CHECK_SOCKET", str(check_sock))
             monkeypatch.setattr(hooks, "HOOK_RATE_WAIT", 0.0)
             assert vault.check_remote("a first text", check_sock) == []    # the whole budget of this minute
+            # DMZ 2: the prompt hook asks no check, so the limit of the daemon does not touch it
             code, out, err = run_hook("prompt", {"prompt": "size the clusters of %s" % FORM}, monkeypatch, capsys)
-            assert code == 2 and out == ""
-            assert "rate limit" in err and "again in a minute" in err
-            fixtures.assert_no_fixture_name(err, "prompt hook output")
+            assert (code, out, err) == (0, "", "")
             with pytest.raises(check.CheckRateLimited):
                 check.check_text("a text", config.paths().register)
     assert hooks._reason(check.CheckRateLimited("x")) == "rate limit of the vault daemon"

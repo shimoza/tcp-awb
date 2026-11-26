@@ -155,7 +155,8 @@ def test_an_internal_error_of_the_prompt_hook_blocks(home, monkeypatch, capsys):
     def broken(text):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(hooks, "_secret_hits", broken)
+    # DMZ 2: the key check never refuses when it cannot run; an error elsewhere in the hook still blocks
+    monkeypatch.setattr(hooks, "_rules_notice", broken)
     code, _, err = run_hook("prompt", {"prompt": "size the backup"}, monkeypatch, capsys)
     assert code == hooks.BLOCK and "internal error" in err
 
@@ -200,14 +201,11 @@ def test_post_write_checks_the_file_the_tool_wrote_when_a_variable_misleads(proj
     """The written file was looked for under the expanded variable, was not there and the hook said nothing."""
     monkeypatch.setenv("AWB_REVIEW_TWO", "a/b")
     f = project / "notes.md"
-    f.write_bytes(b"# Notes\n\n" + _secret() + b"\n")
+    f.write_bytes(b"# Notes\n\n" + b"a \xe2\x80\xae b" + b"\n")       # a bidi override (U+202E): a check that still runs
     raw = "%s/$AWB_REVIEW_TWO/../notes.md" % project
     code, out, err = run_hook("post-write", {"tool_name": "Write", "tool_input": {"file_path": raw}},
                               monkeypatch, capsys)
-    value = _secret().decode("utf-8").strip().splitlines()[-1][-10:]
-    # in a project the secret is shortened in place (task GT) and the session is told so
-    assert code == 0 and "carried secrets" in out and value not in f.read_text(encoding="utf-8")
-    assert value not in out + err
+    assert code == hooks.BLOCK and "bidi override" in err
 
 
 def test_post_write_refuses_a_path_that_reads_as_two_files(project, monkeypatch, capsys):
@@ -222,14 +220,22 @@ def test_post_write_refuses_a_path_that_reads_as_two_files(project, monkeypatch,
 
 
 def test_post_write_finds_a_secret_in_a_file_with_a_stray_byte(project, monkeypatch, capsys):
-    """One byte that is no UTF-8 made the file no text for the hook: its secret passed unseen."""
+    """One byte that is no UTF-8 made the file no text for the hook: its bidi override passed unseen. DMZ 2: inside a
+    project the secret is no finding; outside one it still is."""
     f = project / "notes.md"
-    f.write_bytes(b"# Notes \xff\n\n" + _secret() + b"\n")
+    f.write_bytes(b"# Notes \xff\n\n" + b"a \xe2\x80\xae b" + b"\n")
     code, out, err = run_hook("post-write", {"tool_name": "Write", "tool_input": {"file_path": str(f)}},
+                              monkeypatch, capsys)
+    assert code == hooks.BLOCK and "bidi override" in err
+    fixtures.assert_no_fixture_name(out + err, "post-write output")
+    loose = project.parent / "loose-folder"
+    loose.mkdir()
+    g = loose / "notes.md"
+    g.write_bytes(b"# Notes \xff\n\n" + _secret() + b"\n")
+    code, out, err = run_hook("post-write", {"tool_name": "Write", "tool_input": {"file_path": str(g)}},
                               monkeypatch, capsys)
     assert code == hooks.BLOCK and "carries a secret" in err
     assert _secret().decode("utf-8").strip().splitlines()[-1][-10:] not in out + err
-    fixtures.assert_no_fixture_name(out + err, "post-write output")
 
 
 # --------------------------------------------------------------------------- the stop hook and the start

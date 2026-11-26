@@ -182,8 +182,7 @@ def test_a_file_name_with_a_registered_name_is_never_echoed(project, turn, monke
     rel = "deliverables/offer-%s.md" % fixtures.CUSTOMER_FORMS[1]
     t = turn.write(project / rel, CLEAN)
     code, _, err = stop(project, t.reply("See %s." % rel), monkeypatch, capsys)
-    assert code == 2 and err.strip().startswith("show file 1 only after")
-    assert_clean(err, "the stop message")
+    assert code == 2 and err.strip().startswith("show %s only after" % rel)    # DMZ 2: file names as written
 
 
 def test_his_earlier_prompt_starts_the_turn(project, turn, monkeypatch, capsys):

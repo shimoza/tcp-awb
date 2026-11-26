@@ -45,10 +45,11 @@ def test_reserved_domains_and_private_addresses_pass_the_start_hook(project, mon
 
 
 def test_a_public_address_or_a_real_looking_domain_is_still_withheld(project, monkeypatch, capsys):
+    # DMZ 2: the start shows STATE.md as written, public addresses and domains included
     for line in ("the gateway is 8.8.4.4", "see portal.vendor-corp.com", "see 100.200.1.1", "see 172.32.0.1"):
         (project / "STATE.md").write_text("Status: x\nNext: y\n\n" + line + "\n", encoding="utf-8")
         text = _start_context(project, monkeypatch, capsys)
-        assert "withheld" in _state_section(text), line
+        assert "withheld" not in _state_section(text) and line in _state_section(text), line
 
 
 def _layer(day: str, extra: str = "") -> str:

@@ -590,29 +590,27 @@ strict=False) -> Path | None` (the nearest folder at or above `start` with a SCO
 `review.find_project` answers the start without a SCOPE.md; `pricebook.find_project` resolves links first; the
 translate prompt starts at the folder of the file. `review` and `pricebook` raise on a folder they cannot read.
 
-- `prompt` (UserPromptSubmit): check the prompt text through `check.check_text` (remote when the register is not
-  readable). A hit: exit 2, stderr "the prompt carries a registered name (N hits). Register new names with `awb
-  register` in your own shell and write the code instead." Unavailable check: exit 0 with a JSON
-  `additionalContext` warning, so a locked vault never blocks typing. Since the red team of the hooks
-  (2026-09-27) the check reads what hides behind a base64 or hex block and under a bidi override, and the prompt
-  is also refused when it carries a secret of the gate's classes (`SECRET_CLASSES`: secret, private-key, token),
-  counts and classes only.
+- `prompt` (UserPromptSubmit): DMZ 2, no name check and no structured-data check on typed text, a paste, the
+  result of a background agent or a CI event. The one refusal is `_entry_key_hits(text)`: a private key block
+  (`gate._PRIVATE_KEY_RE`) or an access key pair (`gate._detect_keypair`, also as `ak=... sk=...`), exit 2 with the
+  class only (`private-key`, `access-key`), for an event with the agent id. A check that cannot run finds nothing
+  and never refuses, so a locked vault never blocks typing.
 - `pre-write` (PreToolUse on Write|Edit|MultiEdit|NotebookEdit, added 2026-09-24): exit 2 when the target lies
   inside the knowledge base (relative paths, `~` and variables, links and hard links resolved): facts go in
   through `awb kb add`, `amend` and `retire` only. A tool input the hook cannot read (not an object, a path with
   a NUL byte) blocks too.
-- `post-write` (PostToolUse on Write|Edit|MultiEdit|NotebookEdit): check the written file; for files under a
-  folder named `deliverables` at any depth (whatever its case, also through a link) also run `writing.check_file`
-  (blocking tells only). A hit: exit 2 with class and line numbers. Also exit 2 for a secret, a bidi override, a
-  folder on the path that carries a registered name and a file over `MAX_WRITE_BYTES` (4 MB; `MAX_DELIVERABLE_BYTES`,
-  1 MB, under deliverables), which is not read at all.
+- `post-write` (PostToolUse on Write|Edit|MultiEdit|NotebookEdit): for files under a folder named `deliverables`
+  at any depth (whatever its case, also through a link) run `writing.check_file` (blocking tells only). A hit: exit
+  2 with class and line numbers. Also exit 2 for a bidi override and a file over `MAX_WRITE_BYTES` (4 MB;
+  `MAX_DELIVERABLE_BYTES`, 1 MB, under deliverables), which is not read at all. Inside a project (DMZ 2) there is no
+  name check, no secret check and no mask: the file stays as written. Outside a project folder the name check and
+  the secret refusal stay.
 - `stop` (Stop): when `review.status(project)` lists a deliverable without a valid record, exit 2 with "run the
   review for: <file names made of codes>"; when `stop_hook_active` is true in the input, exit 0 (no loop).
 - `session-start` (SessionStart): print JSON with `additionalContext`: the project's SCOPE.md, the first 60 lines of
   STATE.md, OPEN.md, counts of expired knowledge entries, days since the last career update when over 90. A
-  section is withheld on any hit, on a bidi override and when the check cannot run; a section cut at
-  `SECTION_CHARS` is cut at a line end and checked 200 characters past the cut. The project folder's name is shown
-  only when it passes the name check ("this project" otherwise).
+  section is shown as written (DMZ 2) and withheld on a bidi override only; a section cut at `SECTION_CHARS` is cut
+  at a line end. The project folder's name and the reason a project is parked are shown as written.
 - Every hook stops itself after `HOOK_BUDGET` seconds (50, under the client's own 60) and fails closed: exit 2 for
   prompt, pre-write, pre-tool and post-write, a warning in the context for session-start.
 - pre-tool (PreToolUse, matcher `Read|Edit|MultiEdit|NotebookEdit|Write|Glob|Grep|Bash`): `hooks.guard(data, p,
