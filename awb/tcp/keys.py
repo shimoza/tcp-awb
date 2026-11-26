@@ -136,6 +136,11 @@ lock the owner out of the admin socket (lock, status, unlock)."""
 MAX_FDS = 2
 """Descriptors a request may pass (lab_obs: the file and the run log); those of any other op are closed unread."""
 RATE_LIMIT = 240
+"""Calls a minute of one caller project, the project of the folder token (F8 of the review of 2026-11-26): every
+session runs as the work user, so a count per uid let one looping session starve all others."""
+RATE_LIMIT_UID = 120
+"""Calls a minute of one uid for the calls with no folder token of a granted project (the owner, the console, a
+session outside a project folder)."""
 RATE_WINDOW = 60.0
 # every pattern ends with \Z, never $: `$` also matches before a trailing newline, and "iam\n" would pass as a
 # service name that is not iam
@@ -522,7 +527,7 @@ class Service:
         self._threads: list[threading.Thread] = []
         self._open = 0
         self._open_by = {True: 0, False: 0}   # open connections per socket (True: admin), each up to MAX_CONNECTIONS
-        self._rate: dict[int, deque] = {}
+        self._rate: dict[tuple, deque] = {}
         self.handing_over = threading.Event()
         self.handed_over = threading.Event()
         self._paused = threading.Event()
@@ -730,7 +735,7 @@ class Service:
             try:
                 if not admin and req.get("op") == "obs" and str(req.get("method") or "").upper() == "PUT":
                     # F8: the call is authorised before a byte of the upload is stored
-                    refusal = self._put_refusal(req, uid)
+                    refusal = self._put_refusal(req, uid, self._caller_project(req, uid))
                     if refusal:
                         self._send(conn, {"ok": False, "error": refusal})
                         return
@@ -803,7 +808,7 @@ class Service:
         return keys_exchange.Context(self.settings, self._lab_keys, self._obs_client, self.paths_fn, self._project_row,
                             self._notify)
 
-    def _put_refusal(self, req: dict, uid: int) -> str | None:
+    def _put_refusal(self, req: dict, uid: int, caller=_NOT_ASKED) -> str | None:
         """Why a put is refused before its bytes are read (F8), or None; a refusal is logged like any exchange
         call."""
         from awb.tcp import keys_exchange
@@ -811,6 +816,7 @@ class Service:
         if not self.tenants:
             return "the key service is locked: the owner runs awb keys unlock"
         try:
+            keys_exchange.caller_fence(req, caller if isinstance(caller, str) else None)
             keys_exchange.authorise_put(self._xchg(), req)
         except keys_exchange.XchgError as err:
             project = req.get("project")
@@ -1152,12 +1158,14 @@ class Service:
         if req.get("op") == "kind":
             # the hooks of a session ask before every check (awb/askkind.py): a read of the grants, never rated
             return self._kind(req)
+        # F8: a caller project (the folder token) has its own count; a call without one counts for its uid
+        bucket, limit = (("project", caller), RATE_LIMIT) if isinstance(caller, str) else (("uid", uid), RATE_LIMIT_UID)
         now = time.monotonic()
         with self.lock:
-            q = self._rate.setdefault(uid, deque())
+            q = self._rate.setdefault(bucket, deque())
             while q and now - q[0] > RATE_WINDOW:
                 q.popleft()
-            if len(q) >= RATE_LIMIT:
+            if len(q) >= limit:
                 return {"ok": False, "error": "rate"}
             q.append(now)
         op = req.get("op")
@@ -1219,17 +1227,20 @@ class Service:
         if op == "obs" and str(req.get("method") or "").upper() == "ARCHIVE" and uid != os.getuid():
             # the archive of the puts fetched long ago is awb fetch's too (task BK4): it moves and deletes
             return {"ok": False, "error": "awb fetch archives what was fetched long ago, in the owner's own terminal"}
-        if op in ("obs", "take_owner", "take_lab", "inbox_find") and self._ask_project(req.get("project")) and not (
+        if op in ("obs", "take_owner", "take_lab", "inbox_find") and not (
                 op == "obs" and str(req.get("method") or "").upper() == "PUT"):
             # no material enters an ask project (awb/askkind.py); its own result goes out with awb xchg put (the
-            # owner's request 2026-11-24, ask 2026-11-24-tcp-s2z5-1 and -3)
+            # owner's request 2026-11-24, ask 2026-11-24-tcp-s2z5-1 and -3). F3 of the review of 2026-11-26: the
+            # caller of the folder token decides first, so an ask session that names another code is refused too
             from awb import askkind
 
-            return {"ok": False, "error": askkind.MATERIAL_LINE % req.get("project")}
+            for code in (caller, req.get("project")):
+                if isinstance(code, str) and self._ask_project(code):
+                    return {"ok": False, "error": askkind.MATERIAL_LINE % code}
         if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find", "owner_folder"):
             # owner_folder: spawn (the work user, the console's creation) asks for the project's folder in the
             # owner bucket; the service makes it with the bucket key, which the caller never holds
-            return self._exchange(op, req, uid, upload)
+            return self._exchange(op, req, uid, upload, caller)
         if op in ("web_read", "web_put_in"):
             # the materials service of the web console runs as the owner, like this service; nobody else reads
             # the owner bucket through it
@@ -1238,23 +1249,25 @@ class Service:
             return self._exchange(op, req, uid, upload)
         return {"ok": False, "error": "unknown operation"}
 
-    def _exchange(self, op: str, req: dict, uid: int, upload: Path | None):
+    def _exchange(self, op: str, req: dict, uid: int, upload: Path | None, caller=_NOT_ASKED):
         from awb.tcp import keys_exchange
 
         if not self.tenants:
             return {"ok": False, "kind": "locked", "error": "the key service is locked: the owner runs awb keys unlock"}
         ctx = self._xchg()
         status, stream = "ok", None
+        # F3: the project of the folder token; None for the owner, the console and a call without a token
+        caller = caller if isinstance(caller, str) else None
         try:
             if op == "obs":
-                answer, stream = keys_exchange.serve_obs(ctx, req, upload)
+                answer, stream = keys_exchange.serve_obs(ctx, req, upload, caller=caller)
             elif op == "owner_has":
                 answer = keys_exchange.serve_owner_has(ctx, req)
             elif op == "take_lab":
-                answer, stream = keys_exchange.serve_take_lab(ctx, req)
+                answer, stream = keys_exchange.serve_take_lab(ctx, req, caller=caller)
                 status = answer.get("state", "ok")
             elif op == "inbox_find":
-                answer = keys_exchange.serve_inbox_find(ctx, req)
+                answer = keys_exchange.serve_inbox_find(ctx, req, caller=caller)
             elif op == "owner_folder":
                 answer = keys_exchange.serve_owner_folder(ctx, req)
             elif op == "web_put_in":
@@ -1263,7 +1276,7 @@ class Service:
                 answer, stream = keys_exchange.serve_web_read(ctx, req)
                 status = "ok" if answer.get("ok") else answer.get("kind", "refused")
             else:
-                answer = keys_exchange.serve_take_owner(ctx, req)
+                answer = keys_exchange.serve_take_owner(ctx, req, caller=caller)
                 status = answer.get("state", "ok")
         except (keys_exchange.XchgError, obs.OBSError) as err:
             answer, status = {"ok": False, "error": str(err)}, "refused"
@@ -1428,7 +1441,12 @@ class Service:
             tenant = self.tenants.get(alias) if isinstance(alias, str) else None
         if tenant is None:
             raise Refused("the key service holds no tenant of that alias")
-        ask_code = self._ask_caller(req) if caller is None and self._session_read(uid) else None
+        # F4 of the review of 2026-11-26: the folder token of an ask project names it as the caller, so the ask
+        # refusals run for it; a request without a known token keeps the old look-up
+        if isinstance(caller, str):
+            ask_code = caller if self._ask_project(caller) and self._active_project(caller) else None
+        else:
+            ask_code = self._ask_caller(req) if caller is None and self._session_read(uid) else None
         if ask_code is not None:
             # an ask project (awb/askkind.py): the test tenants with the read or the lab role (owner's word of
             # 2026-11-24), never a customer or read-only tenant, its own code only
@@ -2127,9 +2145,10 @@ def own_token(start: Path | None = None) -> str | None:
 def request(sock: Path, obj: dict, timeout: float = CALL_TIMEOUT + 10, *, upload: Path | None = None,
             download: Path | None = None) -> dict:
     """One request. `upload` sends a file's bytes after the request line (a put); `download` receives the bytes
-    that follow an answer carrying a length (a get). A call, a lease, a doc_get and a projects carry the key token
-    of the project folder this process works in (K4)."""
-    if isinstance(obj, dict) and obj.get("op") in ("call", "lease", "doc_get", "projects", "lab_call", "lab_run") \
+    that follow an answer carrying a length (a get). A call, a lease, a doc_get, a projects and an exchange op carry
+    the key token of the project folder this process works in (K4, F3 and F8 of the review of 2026-11-26)."""
+    if isinstance(obj, dict) and obj.get("op") in ("call", "lease", "doc_get", "projects", "lab_call", "lab_run",
+                                                   "obs", "take_owner", "take_lab", "inbox_find") \
             and "token" not in obj:
         token = own_token()
         if token is not None:

@@ -188,6 +188,8 @@ test tenant (`awb cloud call`); it names the source of each answer and writes a 
 finding that is not yet in the facts with `awb kb add`, which checks the form, the language and the price and no content (the
 dataset build checks every fact at the exit, because the facts are published). It reaches the test tenants directly, read and lab role, writes and lab runs (owner's word of
 2026-11-24); a customer tenant, a read-only tenant and another project's code are refused by the key service.
+The key service takes the ask project from the key token of the folder, never from the code a request names, so a
+material op of that token is refused for any code it names.
 The kind that lifts a check comes from the owner's grant alone: `awb projects kind CODE ask` in his terminal records
 ask and the key token of the folder, and the hooks of the work user ask the key service (op `kind`) for the token
 their folder holds. A row of projects.tsv or a SCOPE.md that says ask only adds refusals; without an answer every
@@ -204,9 +206,11 @@ always refused. Every answer comes back with every key and secret taken out.
 A session's call and lease are bound to its own project by a key token, never by the code the request names (K4 of
 the review of 2026-10-20). `awb spawn` writes the token into the project folder (`.git/awb-key-token`, mode 640, never
 tracked by git); the owner's grant (`awb projects kind CODE project`) records it in `<vault>/key-tokens.json` (mode 600). The
-awb client sends the token of the folder it works in with each call and lease. The key service takes the session's
-project from it: a request that names another project or comes with no token or a wrong one is refused before
-anything is signed. The service reads only the request and the owner's files, never the caller's process, so it works
+awb client sends the token of the folder it works in with each call and lease and with each exchange op (obs,
+take and find). The key service takes the session's project from it: a request that names another project or comes
+with no token or a wrong one is refused before anything is signed. An exchange op whose token names one project
+and whose request names another is refused. The service counts at most 240 calls a minute for each project token
+and 120 a minute for each uid for the calls without one, so one looping session does not starve the others. The service reads only the request and the owner's files, never the caller's process, so it works
 with the service as the owner and the sessions as the work user. The owner's own calls carry no binding. A project
 spawned before the token gets one with its first `awb cloud` call; the key service then refuses with `the grant of
 CODE holds no key token` until the owner runs `awb projects kind CODE project` once more. The sessions of other

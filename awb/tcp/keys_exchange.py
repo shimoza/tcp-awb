@@ -75,10 +75,24 @@ def allowed_prefix(prefix: str, project: str | None) -> bool:
     return bool(project and _CODE_RE.match(project)) and prefix in ("%s/%s" % (project, IN), "%s/%s" % (project, FROM))
 
 
-def serve_obs(ctx: Context, req: dict, body_path: Path | None) -> tuple[dict, Path | None]:
+CALLER_LINE = ("refused: the exchange works for %s (the project of this folder's key token) and never for the code "
+               "a request names")
+"""The one line of an exchange op whose project differs from the caller of the folder token (F3 of the review of
+2026-11-26): the caller's code only, never the code the request wrote."""
+
+
+def caller_fence(req: dict, caller: str | None) -> None:
+    """F3: the key service passes the project of the folder token as `caller` (None for the owner, the console and a
+    call without a token); a request of a caller that names another project is refused."""
+    if isinstance(caller, str) and codes.is_project_code(caller) and req.get("project") != caller:
+        raise XchgError(CALLER_LINE % caller)
+
+
+def serve_obs(ctx: Context, req: dict, body_path: Path | None, caller: str | None = None) -> tuple[dict, Path | None]:
     """One object call of a session on the lab bucket. Returns the answer and, for a GET, a file to stream."""
     from awb import obs
 
+    caller_fence(req, caller)
     method = str(req.get("method") or "").upper()
     project = req.get("project")
     if project is not None and ctx.active_project(project) is None:
@@ -662,11 +676,12 @@ def _project_files(ctx: Context, code: str) -> list[dict]:
     return out
 
 
-def serve_inbox_find(ctx: Context, req: dict) -> dict:
+def serve_inbox_find(ctx: Context, req: dict, caller: str | None = None) -> dict:
     """Which inbox files the owner means: `words` (what he said), `id` (a file an earlier find showed), `all` or
     nothing (the list). Every file of both inboxes comes back with an id, its bucket, kind, size and time; the name
     only for a file of the lab inbox the name check passes, never for one of the owner inbox or of in/. His words
     meet only the names shown; a hidden one meets his kind words and the newest alone (match)."""
+    caller_fence(req, caller)
     project = req.get("project")
     if project is not None and ctx.active_project(project) is None:
         raise XchgError("the project is not an active project")
@@ -746,13 +761,14 @@ def serve_web_put_in(ctx: Context, req: dict, upload: Path | None) -> dict:
     return {"ok": True, "id": ident, "size": size, "project": code}
 
 
-def serve_take_lab(ctx: Context, req: dict) -> tuple[dict, Path | None]:
+def serve_take_lab(ctx: Context, req: dict, caller: str | None = None) -> tuple[dict, Path | None]:
     """The lab path of a take (F6): the key service fetches the file, runs the name check on its name and its
     content in its own process and only then copies it into the project's in/, deletes it from the inbox and
     streams the bytes to the session. A file with a hit, or one that cannot be checked, stays in the inbox and no
     byte of it leaves the service."""
     from awb import gate
 
+    caller_fence(req, caller)
     code, ident = req.get("project"), req.get("id")
     if not (isinstance(ident, str) and ident.startswith("lab-") and _ID_RE.match(ident)):
         raise XchgError("an id of the lab inbox reads lab- and twelve characters")
@@ -792,13 +808,14 @@ def serve_owner_has(ctx: Context, req: dict) -> dict:
     return {"ok": True, "exists": ctx.client("owner").head(INBOX + name) is not None}
 
 
-def serve_take_owner(ctx: Context, req: dict) -> dict:
+def serve_take_owner(ctx: Context, req: dict, caller: str | None = None) -> dict:
     """The owner path of a take: the original goes from the owner inbox into the vault and the project's folder of
     the owner bucket, the intake runs for the customer, the session gets only the ids of the sanitised copies. A file
     above max_mb (fetched at the version its listing showed) or in a folder that is not exactly one CUST-XXXX stays
     in the inbox (findings 19 and 6 of the review of 2026-10-10)."""
     from awb import bucket, intake, projects
 
+    caller_fence(req, caller)
     name, code, ident = req.get("name"), req.get("project"), req.get("id")
     if ident is not None:
         if not (isinstance(ident, str) and ident.startswith(("own-", "prj-")) and _ID_RE.match(ident)):
