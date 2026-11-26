@@ -117,8 +117,8 @@ def test_one_looping_caller_does_not_make_another_caller_answer_rate(home, servi
 
 def test_calls_without_a_token_keep_a_ceiling_per_uid(home, service):
     caller = granted(home)
-    assert keys.RATE_LIMIT_UID == 120 and keys.RATE_LIMIT == 240
-    for _ in range(keys.RATE_LIMIT_UID):
+    assert keys.RATE_LIMIT == 240
+    for _ in range(keys.RATE_LIMIT):
         assert _socket_call(service, {"op": "ping"})["ok"] is True
     assert _socket_call(service, {"op": "ping"}) == {"ok": False, "error": "rate"}
     assert _socket_call(service, {"op": "ping", "token": "0" * 64}) == {"ok": False, "error": "rate"}

@@ -137,10 +137,8 @@ MAX_FDS = 2
 """Descriptors a request may pass (lab_obs: the file and the run log); those of any other op are closed unread."""
 RATE_LIMIT = 240
 """Calls a minute of one caller project, the project of the folder token (F8 of the review of 2026-11-26): every
-session runs as the work user, so a count per uid let one looping session starve all others."""
-RATE_LIMIT_UID = 120
-"""Calls a minute of one uid for the calls with no folder token of a granted project (the owner, the console, a
-session outside a project folder)."""
+session runs as the work user, so a count per uid let one looping session starve all others. A call without the
+token of a granted project counts per uid with the same limit (a recipe run signs more than 120 writes a minute)."""
 RATE_WINDOW = 60.0
 # every pattern ends with \Z, never $: `$` also matches before a trailing newline, and "iam\n" would pass as a
 # service name that is not iam
@@ -1159,7 +1157,7 @@ class Service:
             # the hooks of a session ask before every check (awb/askkind.py): a read of the grants, never rated
             return self._kind(req)
         # F8: a caller project (the folder token) has its own count; a call without one counts for its uid
-        bucket, limit = (("project", caller), RATE_LIMIT) if isinstance(caller, str) else (("uid", uid), RATE_LIMIT_UID)
+        bucket, limit = (("project", caller), RATE_LIMIT) if isinstance(caller, str) else (("uid", uid), RATE_LIMIT)
         now = time.monotonic()
         with self.lock:
             q = self._rate.setdefault(bucket, deque())
