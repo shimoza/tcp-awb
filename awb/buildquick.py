@@ -80,6 +80,22 @@ def tests_for(root: Path, modules: list[str]) -> list[str]:
     return sorted(found)
 
 
+def importing_tests(root: Path, paths: list[str]) -> list[str]:
+    """Every file under tests/ with an `import` or `from` line of a module of `paths` (a plain scan, no run)."""
+    pats = [_imports(m) for m in map(module_of, paths) if m]
+    if not pats:
+        return []
+    found = []
+    for t in sorted((root / "tests").rglob("*.py")):
+        try:
+            text = t.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if any(pat.search(text) for pat in pats):
+            found.append(t.relative_to(root).as_posix())
+    return found
+
+
 def select(root: Path, files: list[str]) -> list[str]:
     modules = [m for m in map(module_of, files) if m]
     own = [f for f in files if re.fullmatch(r"tests/test_\w+\.py", f) and (root / f).is_file()]

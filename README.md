@@ -1998,6 +1998,10 @@ section of its id give the title, `paths` (the place column, the module's test f
 fixed), `check` and a prompt with the finding, the defaults and the rules of a fix. Above `tests_replaced: none` it
 lists as comment lines the rows of `build/tests.json` that run a touched test file: name the ones the fix replaces,
 then `awb build add` the file, which skips the comment lines. The draft never goes into the queue by itself.
+After it queues a task, `awb build add` prints "tests that import the modules of paths:" and every file under
+`tests/` that imports a module of the `paths` line (a plain scan of the `import` and `from` lines, no run), and when
+`tests_replaced` is none the line "if the task changes a behaviour these tests assert, name them in
+tests_replaced". The queue entry stays as it is.
 
 The runner (`awb build serve`, the unit `awb-buildd.service`) takes the next task whose `depends` are done and whose
 `paths` meet no path of a task that is not done, one at a time. The files every task may change (`README.md`,

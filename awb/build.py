@@ -1200,6 +1200,15 @@ def cmd_wait(ids: list[str], every: bool = False, timeout: float | None = None, 
         sleep(poll if end is None else max(0.0, min(poll, end - clock())))
 
 
+def _tree_root(qdir: Path | None) -> Path | None:
+    """The working copy whose tests `awb build add` scans: the folder above `build/queue` when it holds tests/;
+    a queue folder anywhere else belongs to no tree (a scratch queue) and nothing is scanned."""
+    q = Path(qdir or queue_dir())
+    if q.name == "queue" and q.parent.name == "build" and (q.parent.parent / "tests").is_dir():
+        return q.parent.parent
+    return None
+
+
 def cmd_add(path: str, qdir: Path | None = None, runs: Path | None = None, register: Path | None = None) -> int:
     try:
         task = add(Path(path), qdir, runs, register)
@@ -1213,6 +1222,13 @@ def cmd_add(path: str, qdir: Path | None = None, runs: Path | None = None, regis
         print("awb build: warning: %s lists %s; every task may change %s, so %s reserve%s no path" % (
             task.id, " ".join(shared), "it" if len(shared) == 1 else "them", "it" if len(shared) == 1 else "they",
             "s" if len(shared) == 1 else ""), file=sys.stderr)
+    root = _tree_root(qdir)
+    if root is not None:
+        from awb import buildquick
+        found = buildquick.importing_tests(root, list(task.paths))
+        _out("tests that import the modules of paths: %s" % (" ".join(found) or "none"))
+        if not task.tests_replaced:
+            _out("if the task changes a behaviour these tests assert, name them in tests_replaced")
     return 0
 
 
