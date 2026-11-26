@@ -1304,12 +1304,14 @@ check entry files with the checks of add (the commit hook runs --staged)
 - `--project PROJECT`
 - `--tenant ALIAS`
 
-### `awb kb pattern add STATEMENT... --package PACKAGE --kind KIND --tag TAG [--fact FACT] [--file FILE] [--project PROJECT] [--checked CHECKED] [--force-new]`
+### `awb kb pattern add STATEMENT... --package PACKAGE --kind KIND [--sub SUB] [--why WHY] --tag TAG [--fact FACT] [--file FILE] [--project PROJECT] [--checked CHECKED] [--force-new]`
 
 check a card and add it, in the session of its source project
 - `STATEMENT...`: the statement, or - to read it from standard input
 - `--package PACKAGE`: a package slug (repeat or comma list)
 - `--kind KIND`: signal, sizing-rule, step, lesson, question, objection, script, risk
+- `--sub SUB`: the sort of a lesson (dead-end, working-path, gotcha, decision; default gotcha)
+- `--why WHY`: the reason of a decision lesson (required for one)
 - `--tag TAG`: a tag of rules/tags.txt (repeat or comma list)
 - `--fact FACT`: a KB id the card rests on (repeat)
 - `--file FILE`: the file of a script card
@@ -1323,17 +1325,19 @@ count the project of this session for a card
 - `ID`
 - `--project PROJECT`
 
-### `awb kb pattern find WORDS... [--package PACKAGE] [--kind KIND]`
+### `awb kb pattern find WORDS... [--package PACKAGE] [--kind KIND] [--all]`
 
 cards ranked by word overlap
 - `WORDS...`
 - `--package PACKAGE`
 - `--kind KIND`
+- `--all`: a lesson past its best-before too
 
-### `awb kb pattern list [--package PACKAGE]`
+### `awb kb pattern list [--package PACKAGE] [--all]`
 
 the standing cards, of one package with --package
 - `--package PACKAGE`
+- `--all`: a lesson past its best-before too
 
 ### `awb kb pattern show ID`
 
