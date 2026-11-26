@@ -63,7 +63,10 @@ Each hook reads the hook JSON of the client from standard input and answers the 
                                        kept in the list of notes (T-48), the questions count and the refused
                                        tool calls of the project and the day (awb/questions.py). Once per batch
                                        of work with a step that failed and then worked, a reverted step or a new
-                                       decision in STATE.md it asks for lesson cards (awb/lessons.py, L2)
+                                       decision in STATE.md it asks for lesson cards (awb/lessons.py, L2).
+                                       In a development session (a checkout of this repository, no project)
+                                       it holds once a reply whose last paragraph names the session's own
+                                       next step (`NEXT_STEP_PHRASES`) and names none for him (B-099)
     session-start   SessionStart       JSON with `additionalContext`: SCOPE.md, the first 60 lines of STATE.md,
                                        OPEN.md, the count of expired knowledge entries and the days since the last
                                        career update when that is over 90. The files, the folder name and the
@@ -1469,6 +1472,69 @@ def draft_gate(data: dict, root: Path) -> list[str]:
     return lines
 
 
+NEXT_STEP_PHRASES = ("следующее по плану", "следующим возьму", "теперь чиню", "теперь беру", "начинаю с",
+                     "жду её проверку", "жду проверку", "next i", "next:", "i will now", "waiting for the check")
+"""B-099: what a development reply says when it ends on the session's own next step (whole words, case ignored)."""
+NEXT_STEP_LINE = ("you named your next step: do it now; to wait on a build task or check run awb build wait ID in "
+                  "the background so the app wakes you; end the turn only on a step that is his")
+_NEXT_STEP_RE = re.compile(
+    r"(?<!\w)(?:%s)(?!\w)" % "|".join(r"\s+".join(re.escape(w) for w in p.split()) for p in NEXT_STEP_PHRASES),
+    re.IGNORECASE)
+_HIS_STEPS_RE = re.compile(r"(?:твои шаги|your steps)\s*:\**(.*)$", re.IGNORECASE)
+_HIS_STEPS_LINE_RE = re.compile(r"^[ \t>*_#-]*(?:твои шаги|your steps)\s*:", re.IGNORECASE)
+
+
+def _names_his_step(text: str) -> bool:
+    """True when a line "Твои шаги:" or "Your steps:" of the text carries anything but "нет" or "none", after the colon
+    (the line may start earlier) or in the lines under it up to a blank line."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        m = _HIS_STEPS_RE.search(line)
+        if not m:
+            continue
+        rest = [m.group(1)]
+        for nxt in lines[i + 1:]:
+            if not nxt.strip():
+                break
+            rest.append(nxt)
+        said = " ".join(rest).strip(" \t*_.!`")
+        if said and said.lower() not in ("нет", "none"):
+            return True
+    return False
+
+
+def _ends_on_own_step(transcript) -> bool:
+    """B-099: the last reply of the turn ends on a step of the session's own and names none for him. False when the
+    transcript cannot be read."""
+    if not isinstance(transcript, str) or not transcript:
+        return False
+    try:
+        turn = read_turn(transcript)
+    except OSError:
+        return False
+    reply = next((r for r in reversed(turn.reply) if r.strip()), "")
+    if _names_his_step(reply):
+        return False
+    body = "\n".join(l for l in reply.splitlines() if not _HIS_STEPS_LINE_RE.match(l))
+    paragraphs = [q for q in re.split(r"\n\s*\n", body) if q.strip()]
+    return bool(paragraphs) and bool(_NEXT_STEP_RE.search(paragraphs[-1]))
+
+
+def _dev_next_step(data: dict) -> int:
+    """B-099: a development session (a checkout of this repository) does not end a turn on its own next step."""
+    try:
+        from awb import ux
+        if ux.session_kind(_session_folder(data))[0] != "development":
+            return OK
+        if not _ends_on_own_step(data.get("transcript_path")):
+            return OK
+    except Exception:
+        return OK
+    _ux_event("stop", data, "held-note")
+    print(NEXT_STEP_LINE, file=sys.stderr)
+    return BLOCK
+
+
 def hook_stop(data: dict) -> int:
     if data.get("stop_hook_active"):
         return OK
@@ -1478,7 +1544,7 @@ def hook_stop(data: dict) -> int:
     _quietly(questions.capture, config.paths(), data.get("transcript_path"), root)
     _quietly(questions.record_refusals, config.paths(), root, refusals)
     if root is None:
-        return OK
+        return _dev_next_step(data)
     # Q-0005: a turn that answers a notification gets no note; the notes and their once-marks wait for the next stop
     notified = is_notification(turn_prompt(data.get("transcript_path")))
     draft_msg = None

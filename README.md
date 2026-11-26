@@ -1753,6 +1753,14 @@ customer data out of the model as far as it can:
   memory only; one that matches nothing writes no line. The stop hook writes `held-draft` or `held-note` when it
   holds a reply, the pre-compact hook `compaction`. A counted line never carries a word of the prompt and calls no
   vault. See "Counted frictions" below.
+- A development session (a checkout of this repository, no project folder) does not end a turn on its own next step:
+  the stop hook reads the reply and holds it once, with one line on stderr, when its last paragraph carries a phrase
+  of `hooks.NEXT_STEP_PHRASES` ("следующее по плану", "теперь чиню", "начинаю с", "жду проверку", "next:", "i will
+  now" and the like, whole words, case ignored) and the reply names no step for him (no line "Твои шаги:" or "Your
+  steps:" with text other than "нет" or "none"). The line says to do the step now, to wait on a build task or check
+  with `awb build wait ID` in the background so the app wakes the session and to end the turn only on a step that is
+  his. The hold is a `held-note` event; `stop_hook_active` lets the next stop through. Project and desk sessions are
+  not read.
 - A session on the sealed host starts only when every guard answers: the hooks, the commit gate of the project, the
   vault daemon, the key service, the installed rules and the host mode. Its context opens with "guards: 6 of 6
   active"; a missing guard refuses the start and every prompt with one line that names it. `awb board show` counts
