@@ -323,8 +323,8 @@ def test_mail_refuses_if_check_becomes_unavailable_after_probe(home, monkeypatch
         raise ledger.LedgerError("private detail")
 
     monkeypatch.setattr(ledger, "hit_indexes", unavailable)
-    # B-088: the mail runs no name check, so a check that cannot run stops nothing
-    assert ownerwait.mail(home, lambda *a: True) == "sent"
+    # the mail leaves the host (an exit of the DMZ): it keeps the name check
+    assert ownerwait.mail(home, lambda *a: pytest.fail("unchecked mail")) == "not sent: the name check cannot run"
 
 
 def test_status_bad_container_types_raise_value_free_errors(tmp_path):

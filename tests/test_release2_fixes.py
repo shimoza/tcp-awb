@@ -143,10 +143,11 @@ def test_a_code_with_a_look_alike_dash_is_still_a_code(home, dash):
                grade="docs", cls="stable", source="the public service documentation", where=home)
     assert any("register or project code" in r for r in err.value.reasons)
     assert not list((home.kb / "entries").glob("KB-*.md")) if (home.kb / "entries").exists() else True
-    with pytest.raises(career.Refused):
-        career.add("Landing zone", "designed and built", "Terraform", "done for %s" % written,
-                   "Built a landing zone module.", p=home)
-    assert ledger.screen("for %s" % written, home.register, codes_too=True).get("code") == 1
+    # DMZ 4: the career log is inside, a code in it is no refusal
+    career.add("Landing zone", "designed and built", "Terraform", "done for %s" % written,
+               "Built a landing zone module.", p=home)
+    # DMZ 4: the ledger keeps no screen; the code count stays the one place that reads look-alike dashes
+    assert codes.count_codes("for %s" % written) == (1, 0)
 
 
 def test_fullwidth_and_invisible_characters_do_not_hide_a_code():

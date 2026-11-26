@@ -170,7 +170,8 @@ def test_unavailable_name_check_withholds_export_and_refuses_mail(world, monkeyp
     # B-088: no name check inside, so one that cannot run withholds nothing and stops no mail
     item = _one(world)
     assert item.text == "1 files, not imported" and item.block is not None
-    assert ownerwait.mail(world[0], lambda *a: True) == "sent"
+    # the mail leaves the host (an exit of the DMZ): it keeps the name check
+    assert ownerwait.mail(world[0], lambda *a: pytest.fail("unchecked mail")) == "not sent: the name check cannot run"
 
 
 def test_any_logged_hash_excludes_folder_but_unlogged_original_does_not(world):

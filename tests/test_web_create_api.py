@@ -163,11 +163,12 @@ def test_retired_customer_refused(home, tmp_path):
 
 def test_private_goal_refused_and_retry_can_be_edited(home, tmp_path):
     store = ProjectStore(home, tmp_path / "state")
+    # DMZ 4: the goal is inside, a name in it is no refusal; a goal with a control character still is
     with pytest.raises(Problem):
-        store.create(project_payload(goal="Work for " + fixtures.CUSTOMER_FORMS[0]))
+        store.create(project_payload(goal="Work for \x07 the bell"))
     assert not projects.load(home)
     assert not store.journal.codes()
-    assert store.create(project_payload())["created"]
+    assert store.create(project_payload(goal="Work for " + fixtures.CUSTOMER_FORMS[0]))["created"]
 
 
 def test_concurrent_project_submissions_are_one_project(home, tmp_path):

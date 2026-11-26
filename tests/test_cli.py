@@ -213,14 +213,14 @@ def test_spawn_and_projects_list(con, home):
     code, out, _ = con.run("projects", "list", "--paths")
     assert code == 0 and str(home.projects_root / pcode) in out
 
-    # a name in the goal is refused. The refusal does not repeat it
+    # DMZ 4: a goal is inside, a name in it is no refusal; the project is spawned as written
     code, _, err = con.run("spawn", "lab", "--goal", "Migration for %s" % FULL)
-    assert code == 2 and "name check" in err
+    assert code == 0, err
     code, _, err = con.run("spawn", SHORT, "--goal", "anything at all")
     assert code == 2 and "kind" in err
     code, _, _ = con.run("spawn", "lab")
     assert code == 2
-    assert len(projects.load(home)) == 1
+    assert len(projects.load(home)) == 2
     con.assert_clean()
 
 

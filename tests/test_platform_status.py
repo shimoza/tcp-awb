@@ -320,7 +320,7 @@ def test_ps_api_board_carries_the_platform_field_with_checked_titles():
             return text.replace("trouble", "[masked]"), True
         with patch.object(api, "checked", check):
             masked = api.board(t.paths)["platform"]["events"]
-        assert seen[-1] == "major trouble\nnetwork work"
+        assert "major trouble\nnetwork work" in seen  # DMZ 4: other board texts may pass after it
         assert [e["title"] for e in masked] == ["major [masked]", "network work"]
     finally:
         t.tearDown()

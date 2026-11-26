@@ -93,7 +93,11 @@ def test_ux4_a_text_with_a_name_is_withheld_and_the_list_has_no_name(home, proj,
     _open(proj, "## Owner", "- call %s about the dates" % fx.CUSTOMER_FORMS[0])
     items, parked = ownerwait.collect(home, tmp_path / "none.md", tmp_path / "runs")
     text = "\n".join(ownerwait.render(items, parked))
-    assert fx.CUSTOMER_FORMS[0] not in text and "withheld by the name check" in text
+    # DMZ 4: the list inside shows the text as written; the mail leaves the host and keeps the name check
+    assert fx.CUSTOMER_FORMS[0] in text
+    sent = []
+    assert ownerwait.mail(home, lambda s, m: sent.append(m) or "sent", tmp_path / "none.md", tmp_path / "runs") == (
+        "not sent: the mail is withheld") and sent == []
 
 
 def test_ux4_the_mail_goes_once_per_call_with_the_list_and_not_when_empty(home, proj, tmp_path):
