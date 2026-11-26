@@ -178,7 +178,7 @@ def test_intake_usage_and_errors(con, home):
     con.assert_clean()
 
 
-def test_gate_selftest_and_findings(con, home):
+def test_gate_selftest_and_findings(con, home, monkeypatch):
     code, out, _ = con.run("gate", "--selftest")
     assert code == 0 and "selftest passed" in out
     clean = home.shared / "clean.md"
@@ -191,6 +191,9 @@ def test_gate_selftest_and_findings(con, home):
     assert code == 1
     assert sorted(line.split()[0] for line in out.splitlines()) == ["homepath", "name"]
     assert all(line.endswith(":2") for line in out.splitlines())
+    # outside a repository the plain call is a usage error; inside one it checks the staged files (tcp-bytg ask 7),
+    # and since B-087 a working copy of this repository is inside and passes: run it where no repository is
+    monkeypatch.chdir(home.shared)
     code, _, _ = con.run("gate")
     assert code == 2
     con.assert_clean()
@@ -377,10 +380,11 @@ def quick_refresh(monkeypatch):
 
 
 @pytest.mark.parametrize("name", sorted(cli.DELEGATED))
-def test_every_delegated_command_runs(con, name, quick_refresh):
+def test_every_delegated_command_runs(con, name, quick_refresh, monkeypatch, tmp_path):
     code, out, err = con.run(name, "--help")
     assert code == 0, err[-300:]
     assert out.startswith("usage: awb %s" % name)
+    monkeypatch.chdir(tmp_path)  # no repository around: `awb gate` alone checks the staged files of one (B-087)
     code, out, err = con.run(name)
     assert code in (1, 2) and "Traceback" not in out + err
     con.assert_clean()
