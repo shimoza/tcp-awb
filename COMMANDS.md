@@ -1623,7 +1623,7 @@ clean project material on the laptop, offline: docs or logs; register, init, she
 - `--put`: put the clean copies into <YYYY-MM>/tcp-xxxx/in/ of the bucket awb with the key of AWB_OBS_AK and AWB_OBS_SK
 - `--llm URL`: a second pass of a docs run by a local model that proposes the names the rules missed (default URL http://localhost:4891/v1/chat/completions of GPT4All, else AWB_CLEAN_LLM_URL; the model AWB_CLEAN_LLM_MODEL); loopback only, no proxy
 
-### `awb import [CODE] [FILE...] [--customer CUST-XXXX|new] [--review] [--trusted] [--auto] [--redo] [--paste] [--kind KIND]`
+### `awb import [CODE] [FILE...] [--customer CUST-XXXX|new] [--review] [--trusted] [--auto] [--redo N] [--redo-list] [--paste] [--kind KIND]`
 
 customer material into a project in one command: the bucket, the vault inbox, files or pasted text (--paste)
 - `[CODE]`: the project code, tcp-xxxx (none with --auto)
@@ -1632,7 +1632,8 @@ customer material into a project in one command: the bucket, the vault inbox, fi
 - `--review`: stop once on the candidates and review them in an editor
 - `--trusted`: the owner vouches that the files hold no name: no name is guessed; the registered forms, the secret check, mail addresses and phones still apply
 - `--auto`: the owner's job of the timer awb-import-auto: the new files of in/ of every active project, the clean copies of awb clean with --trusted, the rest in wipe mode; the originals into the vault and out of the bucket, one log line per run
-- `--redo`: run the originals of the last import again with the keep list of now, the copies replace the earlier ones
+- `--redo N`: run the originals of the last import (or of import N of --redo-list) again with the keep list of now, the copies replace the earlier ones
+- `--redo-list`: the imports of the project's customer that --redo N takes, newest first: number, time, files, folder import
 - `--paste`: take pasted text from standard input instead of files: pbpaste | awb import CODE --paste (wl-paste or xclip -o -selection clipboard on Linux) or paste into the terminal and end with Ctrl-D; a secret refuses the whole paste
 - `--kind KIND`: with --paste: a mail (signature and quoted header wiped as a whole), a meeting transcript (speakers as [person 1], timestamps kept, filler dropped) or a table copied from a spreadsheet (tab-separated, people and mail columns wiped as a whole); without it plain text
 

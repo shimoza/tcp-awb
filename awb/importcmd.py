@@ -1,6 +1,7 @@
 """`awb import CODE [FILE...]`: customer material into a project in one command (owner side, T4).
 
-    awb import CODE [FILE...] [--customer CUST-XXXX|new] [--review] [--redo]
+    awb import CODE [FILE...] [--customer CUST-XXXX|new] [--review] [--redo [N]]
+    awb import CODE --redo-list
 
 The one door of wipe mode. It takes the FILE arguments, else every new file of the project's in/ folder in the
 owner bucket, else every file of the vault inbox, and says how many from where. It runs the intake for the
@@ -18,7 +19,9 @@ class, the pictures held and the files withheld, and leaves a notice for the ses
 - `--review` stops once on the candidates and opens the review of `awb register review` (the marks register the
   names, the rest goes to the keep list), then the run goes on in wipe mode.
 - `--redo` takes the originals of the customer's last import out of the vault and runs them again under their file
-  ids with the keep list of now; the copies replace the earlier ones in the outbox.
+  ids with the keep list of now; the copies replace the earlier ones in the outbox. `--redo N` takes import N of
+  `--redo-list` instead (1 is the newest), which lists the customer's imports that wrote copies, newest first: number,
+  time, files and whether it was a folder import, never a name or a path.
 
 The report workbook of his laptop (a workbook with both sheets Names and Projects, awb/reportbook.py and
 rules/report-workbook.txt) is held: nothing of it is imported, it stays where it is (in/ of the bucket, the vault
@@ -55,6 +58,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -157,14 +161,15 @@ def _last_import(p: config.Paths, customer: str) -> list[tuple[str, Path]]:
     return _last_report(p, customer)[0]
 
 
-def _last_report(p: config.Paths, customer: str) -> tuple[list[tuple[str, Path]], dict[str, str]]:
-    """The rows of `_last_import` and the relative path of each file of a folder import in the same report (its
-    section Paths): file id -> path, as the first import read it."""
+def _imports(p: config.Paths, customer: str) -> list[tuple[str, list[tuple[str, Path]], dict[str, str]]]:
+    """The customer's imports that wrote copies, newest first: (stamp of the private report, its rows of
+    `_last_import`, the relative path of each file of a folder import in its section Paths: file id -> path)."""
     from awb import candidates
     from awb import report as _report
 
     folder = p.private_reports / customer
     reports = sorted((f for f in folder.glob("*.md*") if f.is_file()), reverse=True) if folder.is_dir() else []
+    found = []
     for report in reports:
         text = candidates.read_report(report)
         if "- mode: stopped for the review" in text:
@@ -183,8 +188,28 @@ def _last_report(p: config.Paths, customer: str) -> tuple[list[tuple[str, Path]]
             elif inside == _report.PATHS_SECTION and len(cells) >= 2 and intake.FILE_ID_RE.fullmatch(cells[0]):
                 paths[cells[0]] = cells[1]
         if rows:
-            return rows, paths
-    return [], {}
+            found.append((report.name.split(".", 1)[0], rows, paths))
+    return found
+
+
+def _last_report(p: config.Paths, customer: str, n: int = 1) -> tuple[list[tuple[str, Path]], dict[str, str]]:
+    """The rows and paths of the `n`th import of `_imports` (1 = the newest); empty when there is none."""
+    found = _imports(p, customer)
+    if not 1 <= n <= len(found):
+        return [], {}
+    return found[n - 1][1], found[n - 1][2]
+
+
+def redo_list(p: config.Paths, customer: str) -> list[str]:
+    """One line per import of `_imports`: number, time of the report, files, folder import. No name, no path."""
+    out = []
+    for i, (stamp, rows, paths) in enumerate(_imports(p, customer), 1):
+        when = stamp
+        m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})", stamp)
+        if m:
+            when = "%s %s:%s:%s UTC" % m.groups()
+        out.append("%d  %s  %d file(s)  folder import: %s" % (i, when, len(rows), "yes" if paths else "no"))
+    return out
 
 
 def _copy_out(p: config.Paths, original: Path, folder: Path) -> Path:
@@ -203,6 +228,27 @@ def _copy_out(p: config.Paths, original: Path, folder: Path) -> Path:
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
     return dst
+
+
+def run_redo_list(p: config.Paths, code: str) -> int:
+    """`awb import CODE --redo-list`: the lines of `redo_list` for the project's customer (the project code for a
+    project without one). Owner side only, like --redo."""
+    from awb import projects, vault
+
+    if config.is_work_user() or vault.in_assistant_session():
+        raise ImportRefused(hold_line(code))
+    if not codes.is_project_code(code or ""):
+        raise ImportRefused("a project code reads tcp-xxxx")
+    project = next((pr for pr in projects.load(p) if pr.code == code), None)
+    if project is None:
+        raise ImportRefused("%s is not a project" % code)
+    cust = project.customer if project.customer != projects.NO_CUSTOMER else code
+    lines = redo_list(p, cust)
+    for line in lines:
+        print(line)
+    if not lines:
+        _say("%s has no import to redo" % cust)
+    return EXIT_OK
 
 
 def session_may(files: list[Path], *, customer: str | None, review: bool, redo: bool, trusted: bool,
@@ -285,8 +331,11 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
         if redo:
             if files:
                 raise ImportRefused("--redo takes the files of the last import, give no FILE")
-            last, last_paths = _last_report(p, cust)
+            n = 1 if redo is True else int(redo)
+            last, last_paths = _last_report(p, cust, n)
             if not last:
+                if n != 1 and _imports(p, cust):
+                    raise ImportRefused("%s has no import number %d (awb import CODE --redo-list)" % (cust, n))
                 raise ImportRefused("%s has no import to redo" % cust)
             config.make_dir(p.vault / "tmp", 0o700)
             tmp = Path(tempfile.mkdtemp(prefix="redo-", dir=p.vault / "tmp"))
@@ -344,7 +393,7 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
 
         fplearn.record("import", extra={"withheld": len(res.held)}, p=p)
     if copies:
-        rulesync.post_input(p, res.customer, code, [o.stem for o in copies], replaced=redo, auto=auto)
+        rulesync.post_input(p, res.customer, code, [o.stem for o in copies], replaced=bool(redo), auto=auto)
     return EXIT_HELD if res.held or res.unsealed else EXIT_OK
 
 
@@ -528,8 +577,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--auto", action="store_true", help="the owner's job of the timer awb-import-auto: the new "
                     "files of in/ of every active project, the clean copies of awb clean with --trusted, the rest in "
                     "wipe mode; the originals into the vault and out of the bucket, one log line per run")
-    ap.add_argument("--redo", action="store_true", help="run the originals of the last import again with the keep "
-                                                         "list of now, the copies replace the earlier ones")
+    ap.add_argument("--redo", nargs="?", const=1, type=int, default=None, metavar="N",
+                    help="run the originals of the last import (or of import N of --redo-list) again with the keep "
+                         "list of now, the copies replace the earlier ones")
+    ap.add_argument("--redo-list", action="store_true",
+                    help="the imports of the project's customer that --redo N takes, newest first: number, time, "
+                         "files, folder import")
     ap.add_argument("--paste", action="store_true",
                     help="take pasted text from standard input instead of files: pbpaste | awb import CODE --paste "
                          "(wl-paste or xclip -o -selection clipboard on Linux) or paste into the terminal and end "
@@ -559,10 +612,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.kind and not args.paste:
         print("awb import: --kind goes with --paste", file=sys.stderr)
         return EXIT_ERROR
+    if args.redo is not None and args.redo < 1:
+        print("awb import: --redo N counts from 1 (awb import CODE --redo-list)", file=sys.stderr)
+        return EXIT_ERROR
+    if args.redo_list and (args.files or args.customer or args.review or args.redo or args.paste or args.trusted):
+        print("awb import: --redo-list takes no FILE or other option", file=sys.stderr)
+        return EXIT_ERROR
     if args.paste and (args.files or args.customer or args.review or args.redo):
         print("awb import: --paste takes no FILE, --customer, --review or --redo", file=sys.stderr)
         return EXIT_ERROR
     try:
+        if args.redo_list:
+            return run_redo_list(config.paths(), args.code)
         if args.paste:
             return run_paste(config.paths(), args.code, args.kind)
         files, paths = _expand_paths(args.files)

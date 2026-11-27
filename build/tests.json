@@ -31226,6 +31226,13 @@
    "name": "project rules: under- or over-scrub of the input goes to awb dev ask by the session itself",
    "run": ".venv/bin/pytest tests/test_scrub_report_rule.py",
    "status": "passing"
+  },
+  {
+   "id": "IMP-redo-n-1127",
+   "phase": "import",
+   "name": "awb import --redo-list and --redo N redo an older import of the customer",
+   "run": ".venv/bin/pytest tests/test_import_redo_older.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4460,
