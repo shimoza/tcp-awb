@@ -62,7 +62,7 @@ EXIT_OK, EXIT_FAILED, EXIT_ERROR = 0, 1, 2
 
 _PLAN_DIR_RE = re.compile(r"^plan-([0-9]{8}-[0-9]{6})$")
 _CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)
-_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+_ALIAS_RE = re.compile("^" + codes.NOT_A_PROJECT + r"[a-z][a-z0-9-]{1,30}$")
 _FOLDER = r"(%s)/(%s)/" % (bucket_layout.MONTH, codes.TCP_PROJECT_WIDE)
 _OWNER_LAYOUT_RE = re.compile("^%s(?:in|out|%s)/" % (_FOLDER, filesplan.ARCHIVE))
 _OWNER_MOVE_RE = re.compile(r"^%s(?:in|out)/([^/]+)$" % _FOLDER)

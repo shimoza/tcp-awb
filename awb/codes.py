@@ -60,6 +60,14 @@ TCP_PROJECT = r"tcp-" + PROJECT_ID
 TCP_PROJECT_WIDE = r"tcp-[a-z0-9]{4}"
 """a tcp project code with the older alphabet of lowercase letters and every digit (the web services, the grants,
 the keys and the tenants); new codes are base32 only (new_project_code)"""
+TENANT = r"tcp-[0-9]{5,6}"
+"""a tenant alias: tcp- and the five or six digits of the tenant. Never a project code (tcp- and four characters):
+the two shapes differ in length, so a pattern that anchors its code (fullmatch, a word boundary) never takes one for the
+other; a project code of four digits is not a tenant."""
+NOT_A_PROJECT = r"(?!(?:%s|%s)\n?\Z)" % (PROJECT, "tcp-[a-z0-9]{4}")
+"""a lookahead at the start of a tenant alias pattern: a project code is no tenant alias (tcp-q7m4, also tcp-1049)"""
+TENANT_OLD = r"test-[0-9]{5,6}"
+"""the older name of a tenant alias, a synonym of TENANT with the same digits for a window (tenants.window_end)"""
 ANY_PROJECT = r"[a-z]{3}-" + PROJECT_ID
 """a project code with any three letter platform prefix (the hooks name a project folder by it)"""
 KB_WIDE = r"KB-[A-Z0-9]{4}"
@@ -125,6 +133,15 @@ owner at the paste door of the intake (awb import --paste)."""
 
 def is_project_code(s: str) -> bool:
     return bool(PROJECT_RE.fullmatch(s or ""))
+
+
+TENANT_RE = re.compile(r"(?<![\w-])(?:%s|%s)(?![\w-])" % (TENANT, TENANT_OLD))
+"""a tenant alias in a text, in either form, as a whole word"""
+
+
+def is_tenant_alias(s: str) -> bool:
+    """A tenant alias of the new form (tcp-10491) or the old one (test-10491), never a project code."""
+    return bool(re.fullmatch("%s|%s" % (TENANT, TENANT_OLD), s or ""))
 
 
 def kind_of(code: str) -> str:

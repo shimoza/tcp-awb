@@ -68,8 +68,11 @@ the live price API per region (730 hours a month) and writes `<shared>/tenants/c
 runs it after the snapshots. `cost note HANDLE TEXT` keeps an owner note on one item in
 `<shared>/tenants/cost-notes.tsv`.
 
-The history is kept for good. The tenants are named by aliases (test-1), never by their ids: a tenant id is an
-identifier the commit gate refuses.
+The history is kept for good. The tenants are named by aliases (tcp-10491), never by their ids: a tenant id is an
+identifier the commit gate refuses. A tenant alias is tcp- and the five or six digits of the tenant, never a project
+code (tcp- and four characters). test-10491, the old name, is a synonym of tcp-10491 for 30 days from the date in
+rules/tenant-alias-window.txt: it prints one line "test-10491 is the old name of tcp-10491, until DATE" and is refused
+after that date (`resolve`). Every command takes either name for a tenant of the register.
 """
 from __future__ import annotations
 
@@ -85,7 +88,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from awb import codes, config, jobs, obs, safefile
+from awb import codes, config, jobs, obs, safefile, tenantname
 from awb.tcp import sweep as _sweep
 
 TENANTS_DIR = "tenants"
@@ -93,7 +96,9 @@ REGISTER = "tenants.tsv"
 EVENTS = "events.jsonl"
 SNAPSHOTS = "snapshots"
 HANDLES = "handles.json"
-_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")      # \Z: "$" lets a trailing newline through
+_ALIAS_RE = re.compile("^" + codes.NOT_A_PROJECT + r"[a-z][a-z0-9-]{1,30}\Z")
+"""An alias: small letters, digits and dashes (the end is Z, not $, which lets a trailing newline through). A
+project code is never one (tcp-q7m4, also tcp-1049 with the older alphabet): a project and a tenant stay apart."""
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\Z")
 _PROJECT_TAG_RE = re.compile(codes.TCP_PROJECT_WIDE)          # as tenant_api.project_tag of the console
 _CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)       # pinned by test_codes: callers use fullmatch
@@ -194,9 +199,38 @@ def load(p: config.Paths) -> list[Tenant]:
     return out
 
 
-def get(p: config.Paths, alias: str) -> Tenant:
-    for t in load(p):
-        if t.alias == alias:
+# tcp-NNNNN is the name of a tenant; test-NNNNN, its old name, is a synonym for a window (awb/tenantname.py)
+window_end = tenantname.window_end
+twin = tenantname.twin
+
+
+def canonical(alias, today: datetime.date | None = None, say: Callable[[str], None] | None = None,
+              window: Path | None = None):
+    """tenantname.canonical with a TenantError: the old name is refused after its window."""
+    try:
+        return tenantname.canonical(alias, today, say, window)
+    except tenantname.OldNameRefused as err:
+        raise TenantError(str(err)) from None
+
+
+def resolve(alias, known, today: datetime.date | None = None, say: Callable[[str], None] | None = None,
+            window: Path | None = None):
+    """The name in `known` (the aliases of a register or of the key service) that `alias` stands for: the alias
+    itself or its other form; the canonical name when neither is there, for the caller to refuse."""
+    name = canonical(alias, today, say, window)
+    known = set(known)
+    if name in known:
+        return name
+    other = twin(name)
+    return other if other in known else name
+
+
+def get(p: config.Paths, alias: str, today: datetime.date | None = None) -> Tenant:
+    """The tenant of an alias. tcp-10491 and test-10491 are one tenant, whichever the register holds."""
+    found = load(p)
+    want = resolve(alias, [t.alias for t in found], today)
+    for t in found:
+        if t.alias == want:
             return t
     raise TenantError("no tenant with the alias %s (awb tenant list)" % _shown_alias(alias))
 
@@ -218,7 +252,7 @@ def add(p: config.Paths, alias: str, keys: str, regions: list[str], today: str |
     reg = root(p) / REGISTER
     # two adds at once: the second waits, sees the first row and writes no second head line
     with _Lock(root(p)):
-        if any(x.alias == alias for x in load(p)):
+        if any(x.alias in (alias, twin(alias)) for x in load(p)):
             raise TenantError("the alias %s is taken" % alias)
         try:
             new = reg.lstat().st_size == 0
@@ -1202,17 +1236,17 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "list":
             print("\n".join(list_lines(p, today) + customer_lines(p)))
         elif args.command == "now":
-            get(p, args.alias)
+            args.alias = get(p, args.alias).alias
             print("\n".join(now_lines(p, args.alias, today)))
         elif args.command == "history":
-            get(p, args.alias)
+            args.alias = get(p, args.alias).alias
             if args.since and not _DATE_RE.match(args.since):
                 raise TenantError("--since reads YYYY-MM-DD")
             if args.project and not _CODE_RE.fullmatch(args.project):
                 raise TenantError("a project code reads like tcp-q7m4")
             print("\n".join(history_lines(p, args.alias, args.project, args.since)))
         elif args.command == "at":
-            get(p, args.alias)
+            args.alias = get(p, args.alias).alias
             if not _DATE_RE.match(args.date):
                 raise TenantError("the date reads YYYY-MM-DD")
             snap = latest(p, args.alias, on=args.date)

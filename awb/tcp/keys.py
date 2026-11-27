@@ -142,7 +142,7 @@ token of a granted project counts per uid with the same limit (a recipe run sign
 RATE_WINDOW = 60.0
 # every pattern ends with \Z, never $: `$` also matches before a trailing newline, and "iam\n" would pass as a
 # service name that is not iam
-_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
+_ALIAS_RE = re.compile("^" + codes.NOT_A_PROJECT + r"[a-z][a-z0-9-]{1,30}\Z")
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,40}\Z")
 _SERVICE_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
 _PATH_RE = re.compile(r"^/[A-Za-z0-9_{}.:/-]{0,500}\Z")
@@ -731,6 +731,7 @@ class Service:
             upload = None
             stream = None
             try:
+                self._name_tenant(req)
                 if not admin and req.get("op") == "obs" and str(req.get("method") or "").upper() == "PUT":
                     # F8: the call is authorised before a byte of the upload is stored
                     refusal = self._put_refusal(req, uid, self._caller_project(req, uid))
@@ -1399,6 +1400,21 @@ class Service:
         the kind ask, else no kind. The hooks of that folder then check secrets only."""
         code = self._ask_caller(req)
         return {"ok": True, "kind": "ask", "code": code} if code else {"ok": True, "kind": None}
+
+    def _name_tenant(self, req: dict) -> None:
+        """tcp-10491 and test-10491 name one tenant: the alias of a request becomes the one keys.conf holds. The old
+        name is refused after its window (tenants.canonical); an alias of another shape passes as it is."""
+        alias = req.get("tenant")
+        if not (isinstance(alias, str) and codes.TENANT_RE.fullmatch(alias)):
+            return
+        from awb.tcp import tenants as _tenants
+
+        with self.lock:
+            known = list(self.tenants)
+        try:
+            req["tenant"] = _tenants.resolve(alias, known)
+        except _tenants.TenantError as err:
+            raise KeysError(str(err)) from None
 
     def _caller_project(self, req: dict, uid: int):
         """K4: the project of a session (the work user) is the granted project whose key token the request

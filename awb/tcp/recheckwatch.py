@@ -55,7 +55,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from awb import config, jobs
+from awb import config, jobs, tenantname
 
 EXIT_OK, EXIT_STOPPED, EXIT_LEFT = 0, 2, 4
 WATCH_TSV = "recheck-watch.tsv"
@@ -733,7 +733,12 @@ def main(argv: list[str] | None = None) -> int:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else EXIT_STOPPED
-    return run(args.project, args.tenants)
+    try:
+        tenants = [tenantname.canonical(t) for t in args.tenants]
+    except tenantname.OldNameRefused as err:
+        print("awb kb recheck-watch: %s" % err, file=sys.stderr)
+        return EXIT_STOPPED
+    return run(args.project, tenants)
 
 
 if __name__ == "__main__":

@@ -104,7 +104,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
-from awb import bucket, bucket_layout, config, gate, kb, kbreview, obs, offered, pdf, register
+from awb import bucket, bucket_layout, codes, config, gate, kb, kbreview, obs, offered, pdf, register
 from awb.kbreview import (changes, datasets_dir, latest, read_facts, record_release, released, released_path,  # noqa: F401
                           require_review, review, review_path)
 from awb.tcp import price, recheck
@@ -137,8 +137,8 @@ PRICE_COLUMNS = (("id", "id"), ("service", "productId"), ("product", "productNam
                  ("payg", "priceAmount"), ("reserved_12m", "R12"), ("reserved_24m", "R24"), ("reserved_36m", "R36"),
                  ("reserved_upfront_12m", "RU12"), ("reserved_upfront_24m", "RU24"),
                  ("reserved_upfront_36m", "RU36"))
-_TENANT_RE = re.compile(r"\b(?:(?:the\s+)?test\s+tenant\s+)?test-\d{5}\b")
-_LEFT_RE = re.compile(r"\btest-\d{5}\b")      # the scan after the build: its own pattern, so a weak rewrite cannot hide
+_TENANT_RE = re.compile(r"\b(?:(?:the\s+)?test\s+tenant\s+)?(?:test-\d{5}|%s)\b" % codes.TENANT)
+_LEFT_RE = re.compile(r"\b(?:test-\d{5}|%s)\b" % codes.TENANT)      # the scan after the build: its own pattern, so a weak rewrite cannot hide
 _TOOL_RULES = (                                   # the Workbench's own commands and parts, named in source lines
     (re.compile(r"\bawb\s+[a-z]+(?:\s+[a-z]+)?(?:\s+--[a-z-]+(?:\s+[^\s,;.)]+)?)*"), "a scripted call"),
     (re.compile(r"\bthe key service\b", re.I), "a signed call"),

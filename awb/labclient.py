@@ -67,7 +67,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from awb import safefile
+from awb import safefile, tenantname
 
 EXIT_OK, EXIT_REFUSED, EXIT_LEFT = 0, 2, 4
 LOG_FOLDER = Path("notes") / "lab-runs"
@@ -85,6 +85,15 @@ OBS_ENDED = ("done", "failed", "interrupted", "aborted")
 
 class LabClientError(Exception):
     """A lab call that could not be made: the one line of the key service or of this client."""
+
+
+def _tenant_name(alias):
+    """The alias of --tenant as the work rules write it: test-10491 is the old name of tcp-10491 (one warning line
+    in its window, refused after it)."""
+    try:
+        return tenantname.canonical(alias)
+    except tenantname.OldNameRefused as err:
+        raise LabClientError(str(err)) from None
 
 
 def _root(start: Path | None = None) -> Path:
@@ -133,7 +142,7 @@ def _print(text: str, **kwargs) -> None:
 def _service_error(answer: dict) -> str:
     # Keep the established diagnosis without relaying arbitrary service prose.
     error = answer.get("error")
-    if isinstance(error, str) and re.fullmatch(r"refused: test-[0-9]+ is no lab tenant.*", error):
+    if isinstance(error, str) and re.fullmatch(r"refused: (?:test-|tcp-)[0-9]+ is no lab tenant.*", error):
         return "refused: no lab tenant"
     # The key service's own refusals ("refused: ...", one short line) carry the reason the session needs; they are
     # relayed only when the screen leaves them unchanged. Anything else stays generic.
@@ -817,6 +826,7 @@ def obs_main(argv: list[str]) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else EXIT_REFUSED
     try:
+        args.tenant = _tenant_name(getattr(args, "tenant", None))
         if action == "hosts":
             hosts, portals = obs_hosts()
             for h in hosts:
@@ -912,6 +922,7 @@ def run_main(argv: list[str]) -> int:
     except LabClientError:
         root = None
     try:
+        args.tenant = _tenant_name(getattr(args, "tenant", None))
         project = args.project or (_code(root) if root else None)
         if project is not None:
             _identifier(project, "project")

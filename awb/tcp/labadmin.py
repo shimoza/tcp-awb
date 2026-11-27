@@ -179,10 +179,17 @@ class LabAdminError(Exception):
 # --------------------------------------------------------------------------- the line of keys.conf
 
 
+def allowed(alias) -> bool:
+    """True for a lab tenant of ALLOWED by either name: tcp-10491 is test-10491 (tenants.twin)."""
+    from awb.tcp import tenants
+
+    return isinstance(alias, str) and (alias in ALLOWED or tenants.twin(alias) in ALLOWED)
+
+
 def parse(value: str) -> list[str] | None:
     """The aliases of the lab_admin line (separated by blanks or commas), or None when one is not allowed."""
     found = [a for a in re.split(r"[\s,]+", value.strip()) if a]
-    if len(set(found)) != len(found) or not all(a in ALLOWED for a in found):
+    if len(set(found)) != len(found) or not all(allowed(a) for a in found):
         return None
     return found
 
@@ -612,7 +619,7 @@ def _tenant(svc, alias, project=None) -> tuple[dict, dict]:
     tenant in write mode that the owner granted `project` (TW). A lab tenant is never a customer tenant."""
     if _is_customer(svc, alias):
         return _customer(svc, alias, project)
-    if not isinstance(alias, str) or alias not in ALLOWED:
+    if not allowed(alias):
         raise _refused(TENANT_LINE % (alias if isinstance(alias, str) and re.match(r"^[a-z0-9-]{1,32}$", alias)
                                       else "that tenant", " and ".join(ALLOWED)))
     if svc._readonly(alias) is not None:
@@ -632,7 +639,7 @@ def _tenant(svc, alias, project=None) -> tuple[dict, dict]:
 
 def _is_customer(svc, alias) -> bool:
     """True for a customer tenant (a read-only tenant of keys.conf that is no lab tenant), TW."""
-    return isinstance(alias, str) and alias not in ALLOWED and svc._readonly(alias) is not None
+    return isinstance(alias, str) and not allowed(alias) and svc._readonly(alias) is not None
 
 
 def _customer(svc, alias: str, project) -> tuple[dict, dict]:

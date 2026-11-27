@@ -303,8 +303,15 @@ def _cmd_spawn(args, p: config.Paths) -> int:
     elif customer is not None and customer != projects.NO_CUSTOMER:
         print("awb spawn: every project gets its own code: give --customer new or no customer", file=sys.stderr)
         return EXIT_ERROR
+    from awb import tenantname
+
+    try:
+        tenant = tenantname.canonical(args.tenant)
+    except tenantname.OldNameRefused as err:
+        print("awb spawn: %s" % err, file=sys.stderr)
+        return EXIT_ERROR
     pr = projects.spawn(p, args.kind, args.goal, customer, p.register, args.tag or [],
-                        from_outbox=args.from_outbox, tenant=args.tenant, code=code, new_customer=issued,
+                        from_outbox=args.from_outbox, tenant=tenant, code=code, new_customer=issued,
                         review_tier=args.review_tier)
     print("spawned %s (%s, customer %s): %s" % (pr.code, pr.kind, pr.customer, pr.path))
     print(pr.folder_note)

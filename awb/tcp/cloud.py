@@ -42,7 +42,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from awb import config, jobs, obs, sign
+from awb import config, jobs, obs, sign, tenantname
 
 DOMAIN = "otc.t-systems.com"
 KEYS_ENV = "AWB_CLOUD_KEYS"
@@ -561,7 +561,12 @@ def _through_service(args) -> int:
             except (OSError, ValueError):
                 print("awb cloud: the body file is not readable JSON", file=sys.stderr)
                 return 2
-        req = {"op": "call", "tenant": args.tenant, "role": args.role, "method": args.method.upper(),
+        try:
+            tenant = tenantname.canonical(args.tenant)
+        except tenantname.OldNameRefused as err:
+            print("awb cloud: %s" % err, file=sys.stderr)
+            return 2
+        req = {"op": "call", "tenant": tenant, "role": args.role, "method": args.method.upper(),
                "service": args.service, "path": args.path, "region": args.region, "query": _pairs(args.query),
                "body": body, "project": _project_code(args.project)}
         if args.scope:

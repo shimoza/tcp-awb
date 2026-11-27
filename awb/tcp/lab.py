@@ -2056,6 +2056,7 @@ def script_line() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from awb import tenantname
     from awb.cli import SafeParser
 
     argv = sys.argv[1:] if argv is None else list(argv)
@@ -2101,6 +2102,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "list":
         print("\n".join(list_lines()))
         return EXIT_OK
+    try:
+        args.tenant = tenantname.canonical(getattr(args, "tenant", None))
+    except tenantname.OldNameRefused as err:
+        print("awb lab: %s" % err, file=sys.stderr)
+        return EXIT_STOPPED
     if args.command == "dry-run":
         try:
             r = load(find(args.recipe))
@@ -2112,6 +2118,11 @@ def main(argv: list[str] | None = None) -> int:
     project, tenant = args.project, args.tenant
     if project is None or tenant is None:
         code, alias = scope_defaults()
+        try:
+            alias = tenantname.canonical(alias)
+        except tenantname.OldNameRefused as err:
+            print("awb lab: %s" % err, file=sys.stderr)
+            return EXIT_STOPPED
         project, tenant = project or code, tenant or alias
     if project is None or tenant is None:
         print("awb lab: this folder names no %s; give --%s" % (("tenant",) * 2 if project else ("project",) * 2),

@@ -1,0 +1,4 @@
+# The window of the old tenant name (awb/tcp/tenants.py window_end). A tenant is named tcp-NNNNN (five or six digits);
+# test-NNNNN stays a synonym for 30 days from the date below, with one warning line, and is refused after it.
+# No line, or an unreadable date: the old name is refused.
+window-from 2026-11-27

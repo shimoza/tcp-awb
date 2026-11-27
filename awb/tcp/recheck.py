@@ -84,7 +84,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from awb import codes, jobs, kb, safefile
+from awb import codes, jobs, kb, safefile, tenantname
 
 PROJECT_KEY = "recheck_project"
 """The key of the host file that names the standing service project of the design (kind project, no customer,
@@ -933,6 +933,11 @@ def main(argv: list[str] | None = None) -> int:
         args = ap.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else EXIT_STOPPED
+    try:
+        args.tenant = tenantname.canonical(args.tenant)
+    except tenantname.OldNameRefused as err:
+        print("awb kb recheck-run: %s" % err, file=sys.stderr)
+        return EXIT_STOPPED
     if args.trial:
         if args.tier != "read" or args.dry_run:
             print("awb kb recheck-run --try: a try run is the read tier and makes its calls", file=sys.stderr)

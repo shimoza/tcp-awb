@@ -81,7 +81,7 @@ RENEW_MARGIN = 600.0
 FALLBACK_LIFE = 3600.0
 """Seconds a token is used when IAM names no readable expiry."""
 GRANTS_NAME = "readonly-grants.json"
-_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+_ALIAS_RE = re.compile("^" + codes.NOT_A_PROJECT + r"[a-z][a-z0-9-]{1,30}$")
 _DOMAIN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _REGION_RE = re.compile(r"^[a-z]{2}-[a-z0-9]{2,10}$")
 _CODE_RE = re.compile("^%s$" % codes.TCP_PROJECT_WIDE)

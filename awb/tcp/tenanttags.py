@@ -101,7 +101,7 @@ def command(p: config.Paths, alias: str | None, today: datetime.date) -> list[st
     aliases = [alias] if alias else [t.alias for t in tenants.load(p)]
     out: list[str] = []
     for a in aliases:
-        tenants.get(p, a)
+        a = tenants.get(p, a).alias
         out += lines(p, a, today)
     return out or ["no tenant yet"]
 

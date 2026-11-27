@@ -127,6 +127,11 @@ def write_note(p: config.Paths, ref: str, text: str, today: str | None = None) -
         snap = tenants.latest(p, t.alias)
         if snap and any(i.get("handle") == handle for i in snap.get("items", [])):
             holders.append(t.alias)
+    if alias:
+        try:
+            alias = tenants.resolve(alias, [t.alias for t in tenants.load(p)])
+        except tenants.TenantError as err:
+            raise CostError(str(err)) from None
     if alias and alias not in holders:
         raise CostError("the latest snapshot of %s has no %s" % (alias, handle))
     if not alias:

@@ -255,14 +255,27 @@ the files. The engine gained a wait on the status of an answer, `keep`, `restore
 `awb lab list` shows the recipes and `awb lab dry-run` the calls a run would make. A resource it cannot delete stays
 in `RESOURCES.md` as live with the line to delete it.
 
+### Tenant aliases: tcp-NNNNN and the old test-NNNNN (B-097)
+
+A tenant alias is `tcp-` and the five or six digits of the tenant (`tcp-10491`); it is never a project code, which is
+`tcp-` and four characters (`tcp-q7m4`). A project code is never a tenant. The old name `test-NNNNN` (the same
+digits) stays a synonym for 30 days from the date in `rules/tenant-alias-window.txt` (`window-from DATE`; until
+2026-12-27 now): every command that takes an alias (`--tenant ALIAS` of `awb cloud call`, `awb lab run`, `awb lab obs`,
+`awb lab`, `awb kb recheck-run`, `awb kb recheck-watch` and `awb spawn`; `awb tenant now|history|at|snapshot|tags`)
+takes either name for the same tenant, the old one with one warning line "test-NNNNN is the old name of tcp-NNNNN, until
+DATE" on standard error. After that day it refuses the old one with "use tcp-NNNNN". The key service maps a request to
+the alias `keys.conf` and the register hold, so the host keeps its entries, keys and the line `lab_admin` as they are
+until the owner renames them. An alias of another shape (`test-1`) is not touched. Customer tenant numbers stay in the
+vault only.
+
 ### Lab runs of a project's own scripts (LR)
 
-A project session may test its own scripts on the lab tenants test-10491, test-10497 and test-10503 (since
+A project session may test its own scripts on the lab tenants tcp-10491, tcp-10497 and tcp-10503 (since
 2026-11-20) with their admin login, only on his word in the session. The owner sets it up once: the logins in pass as
-`awb/admin/<alias>/domain`, `user` and `password`, the line `lab_admin = test-10491 test-10497 test-10503` in
-keys.conf, then `awb keys unlock`. Any other alias in the line refuses the unlock; test-10498, a customer tenant and a read-only
+`awb/admin/<alias>/domain`, `user` and `password`, the line `lab_admin = tcp-10491 tcp-10497 tcp-10503` in
+keys.conf, then `awb keys unlock`. Any other alias in the line refuses the unlock; tcp-10498, a customer tenant and a read-only
 tenant are refused there. A customer tenant you switched to write (`awb tenant mode`, below) takes lab runs too,
-for the projects granted it, with its write credential in place of an admin login. The session runs `awb lab run start --tenant test-10491 [--note TEXT]`, its scripts call
+for the projects granted it, with its write credential in place of an admin login. The session runs `awb lab run start --tenant tcp-10491 [--note TEXT]`, its scripts call
 through the key service with
 
     /opt/tcp-awb/venv/bin/python3 evidence/<folder>/poc.py      # the script: from awb import labclient
@@ -323,7 +336,7 @@ background job:
     awb lab obs link BUCKET KEY [--minutes N]              labclient.obs_link(bucket, key, minutes=60)
 
 put and get answer a job id at once; status shows bytes done, total, rate and state. The rules are those of a lab
-call: the open run of the project on test-10491, test-10497, test-10503 or a customer tenant in write mode (never a read-only
+call: the open run of the project on tcp-10491, tcp-10497, tcp-10503 or a customer tenant in write mode (never a read-only
 tenant), a bucket named after the
 project (`<code>-...`), never an exchange bucket, signed with the run's temporary credential. The session holds no
 key. The file reaches the service as an open descriptor over the socket, never as a path, so a file the session

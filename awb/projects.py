@@ -778,7 +778,7 @@ def spawn(p: _config.Paths, kind: str, goal: str, customer: str | None, register
         raise ProjectError("an ask project has no customer, no outbox copies and no tenant line, nothing was created")
     if review_tier is not None and review_tier not in REVIEW_TIERS:
         raise ProjectError("the review tier is 1, 2 or 3")
-    if tenant is not None and not (tenant_access(kind) and re.fullmatch(r"[a-z][a-z0-9-]{1,30}", tenant)):
+    if tenant is not None and not (tenant_access(kind) and re.fullmatch(_codes.NOT_A_PROJECT + r"[a-z][a-z0-9-]{1,30}", tenant)):
         raise ProjectError("a tenant alias reads like test-1 and belongs to a project, not a query")
     goal = _clean_goal(goal)
     tags = _clean_tags(tags)

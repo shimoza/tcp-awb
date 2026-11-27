@@ -17,9 +17,11 @@ import os
 import re
 from pathlib import Path
 
+from awb import codes
+
 SETTING = "tenant_write"
 NOTE_MAX = 120
-_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+_ALIAS_RE = re.compile("^" + codes.NOT_A_PROJECT + r"[a-z][a-z0-9-]{1,30}$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NOTE_RE = re.compile(r"^[A-Za-z0-9 ._/()#+-]{0,%d}$" % NOTE_MAX)
 """A note: plain words, digits and . _ / ( ) # + -, no comma, colon or equals sign (the separators of the line)."""

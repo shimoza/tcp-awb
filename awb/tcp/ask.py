@@ -136,8 +136,12 @@ def run_tool(p: config.Paths, name: str, args: dict) -> str:
 
         today = datetime.date.today()
         alias = str(args.get("alias") or "")
-        if alias and alias in [t.alias for t in tenants.load(p)]:
-            return "\n".join(tenants.now_lines(p, alias, today))
+        try:
+            known = tenants.get(p, alias).alias if alias else None
+        except tenants.TenantError:
+            known = None
+        if known:
+            return "\n".join(tenants.now_lines(p, known, today))
         return "\n".join(tenants.list_lines(p, today))
     return json.dumps({"error": "no such tool"})
 

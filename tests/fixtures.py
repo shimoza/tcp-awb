@@ -76,6 +76,8 @@ def assert_no_fixture_name(text: str, where: str = "") -> None:
 # scrub of the dataset matches that form, and they belong to no account
 TENANT_ONE = "test-00001"
 TENANT_TWO = "test-00002"
+# the same tenant under its new name (tcp- and the same five digits): the old name is a synonym for a window
+TENANT_ONE_NEW = "tcp-00001"
 
 # the invented form the gate selftest plants into its own temporary folder (awb/gate.py carries the same
 # string); it is not in the fixture register above
