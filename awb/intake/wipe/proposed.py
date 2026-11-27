@@ -16,7 +16,7 @@ from awb.intake.wipe.basic import (_ABBREVIATIONS, _COMPANY_RE, _FORM_ALT, _FUNC
 from awb.intake.wipe.lexicon import (_FIRST_NAMES, _GENERIC_ADDRESSEES, _GENERIC_COMPANY_WORDS, _GERMAN_FUNCTION,
                                      _LEGAL_WORDS, _MONTHS_DAYS, _NEUTRAL_LABELS, _PARTICLE_WORDS, _ROLE_WORDS,
                                      _SECTION_WORDS, _SOURCE_PLATFORM_WORDS, _STANDARD_WORDS, _TITLE_WORDS, _UNIT_WORDS,
-                                     _common_word, _compound_known, _generic_word, _known_word, _lettered_list, _letters,
+                                     _common_word, _compound_known, _dictionary_word, _generic_word, _known_word, _lettered_list, _letters,
                                      _org_word, _person_known, _role_shape, _speech_shaped)
 from awb.matcher import GLUE_AFFIXES, Span
 
@@ -99,6 +99,9 @@ def _person_value(text: str, a: int, b: int, blocked, *, allow_lower: bool = Fal
         return None
     if any(c.isdigit() for w in words for c in w[2]):
         return None
+    if all(known(w[2]) or w[2][:1].islower() and w[2].casefold() not in _FIRST_NAMES
+           and (_letters(w[2]) < 3 or _dictionary_word(w[2])) for w in words):
+        return None   # "That's it", "You're familiar": the words left in lower case are prose (B-117)
     if len(words) == 1 and (words[0][2].isupper() and len(words[0][2]) <= 5 or codes.is_code(words[0][2])):
         return None   # an acronym or a code is no one-word name
     return words[0][0], words[-1][1]
@@ -1342,7 +1345,10 @@ def _lone_first_name_candidates(text: str, blocked) -> list[tuple[int, int, str]
             continue
         if w.casefold() in _UNIT_WORDS or w.casefold() in _ABBREVIATIONS or text[m.end():m.end() + 1] == ".":
             continue   # Max. Bandbreite is an abbreviation
-        prev = re.search(r"([^\W\d_][\w'’-]*)[ \t]+$", text[max(0, m.start() - 40):m.start()])
+        glued = re.search(r"([^\W_]+)[-_/.]$", text[max(0, m.start() - 40):m.start()])
+        if glued and glued.group(1).casefold() not in _FIRST_NAMES or text[m.end():m.end() + 1] == "_":
+            continue   # QwenVL-Max, Max_concurrency: a piece of a product name or an identifier (B-117)
+        prev =re.search(r"([^\W\d_][\w'’-]*)[ \t]+$", text[max(0, m.start() - 40):m.start()])
         nxt = re.match(r"[ \t]+([^\W\d_][\w'’-]*)", text[m.end():m.end() + 40])
         if (prev and prev.group(1)[:1].isupper()) or (nxt and nxt.group(1)[:1].isupper()):
             continue   # part of a run of capitalised words, the run rule's business

@@ -19,7 +19,8 @@ The numbers count per class within one import run and restart with the next one:
 chain apart and link nothing across imports. `collect` gives the spans of a text with their class and the rule that
 found them (`WipeSpan`); `WipeState` holds what one run learned: the forms of every wiped person and company, matched
 over every output of the run (whole words only: a letter, a digit or a hyphen next to a form makes it part of a word;
-with German and Russian endings; never a word of the dictionary lists or a product or vendor name), the tokens
+with German and Russian endings; never a word of the dictionary lists or a product or vendor name; a known word
+that is a name here, such as Max or Klein, only capitalised and only where it stands as a name, B-117), the tokens
 issued and the product-label words of the run. In a German text the run of capitalised words needs a first name of
 rules/first-names.txt in it (B-090).
 

@@ -399,7 +399,8 @@ def _generic_word(word: str, months: bool = True) -> bool:
     return (low in _FUNCTION_WORDS or low in _STOP_SINGLES or low in _TOOL_WORDS
             or low in _TITLE_WORDS or low in _GENERIC_ADDRESSEES or low in _ROLE_WORDS or low in _NEUTRAL_LABELS
             or (months and low in _MONTHS_DAYS) or low in _LEGAL_WORDS or low in _PARTICLE_WORDS
-            or low in _UNIT_WORDS or low in _GERMAN_FUNCTION or _role_shape(low))
+            or low in _UNIT_WORDS or low in _GERMAN_FUNCTION or _role_shape(low)
+            or _contraction(low, lambda w: _generic_word(w, months)))
 
 
 _SQL_WORDS = frozenset(w.casefold() for w in (
@@ -427,6 +428,22 @@ _UNIT_WORDS = frozenset(w.casefold() for w in (
 ))
 
 
+_CONTRACTION_RE = re.compile(r"(?i)(?P<stem>[^\W\d_]+?)(?:n['’]t|['’](?:s|re|ve|ll|d|m|t))")
+_CONTRACTION_STEMS = frozenset("""i it he she we you they that there here what who where how let this these those
+is are was were do does did have has had could would should must need ca wo sha ai""".split())
+"""The short words of English contractions that no list holds (it's, I'm, can't, won't)."""
+
+
+def _contraction(word: str, known) -> bool:
+    """An English contraction (That's, they're, isn't) of a word that `known` knows or of a short pronoun; a first
+    name with an apostrophe (Max's) is not one: it stays a name."""
+    m = _CONTRACTION_RE.fullmatch(word.strip(".,;:!?()[]\"'"))
+    if not m:
+        return False
+    stem = m.group("stem").casefold()
+    return stem not in _FIRST_NAMES and (stem in _CONTRACTION_STEMS or known(stem))
+
+
 def _known_word(word: str, suffix: bool = True) -> bool:
     """A word the run rule may not take for a name in proposed mode: a function word, a stop word, an opener, a
     tool name, a legal form, a month, a unit, a word of the public corpus or of the German list, a word with a long
@@ -445,6 +462,8 @@ def _known_word(word: str, suffix: bool = True) -> bool:
             return True
     if not any(c.isalpha() for c in low):
         return True
+    if _contraction(raw, lambda w: _known_word(w, suffix=suffix)):
+        return True   # That's, they're: a known word with an apostrophe ending (B-117)
     if low in _runstate._RUN_EXEMPT:
         return True   # a value under a product label (Hersteller: Kemp) is a term of this run
     if _role_shape(raw):
@@ -525,7 +544,7 @@ def _dictionary_word(word: str) -> bool:
     if not low or low in _FIRST_NAMES:
         return False
     return (low in _GERMAN_KNOWN or low in _CORPUS or low in _COMMON_WORDS or low in _VENDOR_WORDS
-            or low in _SOURCE_PLATFORM_WORDS or low in _TECH_SINGLE)
+            or low in _SOURCE_PLATFORM_WORDS or low in _TECH_SINGLE or _contraction(low, _dictionary_word))
 
 
 _ROLE_SUFFIXES = ("leiter", "leiterin", "manager", "managerin", "berater", "beraterin", "architekt", "architektin",

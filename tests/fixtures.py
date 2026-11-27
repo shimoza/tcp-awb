@@ -121,6 +121,12 @@ MEETING_COMPANIES = (" ".join(("Oxtrel", "Systems", "Ltd")), " ".join(("Plozmar"
 MEETING_PLACES = ("Ostervrell", "Brakwitz")
 MEETING_DOMAINS = ("oxtrel.example", "plozmar.example")
 
+# B-117: a person whose first name is also a word (Max. Output TPM), a surname that is a German word (zu klein) and a
+# short surname that makes an English word with an s
+WORD_FIRST_PERSON = " ".join(("Max", MEETING_LASTS[7]))
+WORD_SURNAME = "Klein"
+SHORT_SURNAME = "Plu"
+
 # the self-test's own customer (awb/planted.py carries the same strings): its short form inside a company shape must
 # become the code
 SELFTEST_CUSTOMER_CODE = "CUST-SELF"

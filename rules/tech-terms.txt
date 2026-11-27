@@ -520,6 +520,24 @@ OpenBenchmarking
 Flame Graph
 Flame Graphs
 
+# AI platforms and models (B-117: a model or platform name is no person)
+AIFS
+AI Foundation Services
+LLM Hub
+LLMHub
+Qwen
+QwenVL
+Qwen3
+Alibaba
+Alibaba Cloud
+Jina
+Jina AI
+DeepSeek
+Llama
+Gemini
+Mixtral
+Gemma
+
 # Names that are also plain words, people or places: only with the vendor in front
 AMD Rome
 AMD Naples
