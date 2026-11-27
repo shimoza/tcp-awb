@@ -31212,8 +31212,15 @@
    "name": "awb docx and awb pdf take a Markdown image ![alt](file) as a figure with its alt text as caption (PNG and JPEG); a path outside the project, an absolute path, a URL, another kind or a missing file refuses with the path named, nothing written",
    "run": ".venv/bin/pytest tests/test_bj3o_md_images.py",
    "status": "passing"
+  },
+  {
+   "id": "ASK-j5sy-1127",
+   "phase": "ask",
+   "name": "awb inbox take --outbox: only the copies the notices of this project name (all of outbox/<code> without a customer), name check first, a hit stays held, a second take takes nothing, redo replaces, report stays, project rules and sync name the command",
+   "run": ".venv/bin/pytest tests/test_take_outbox.py",
+   "status": "passing"
   }
  ],
- "total_tests": 4459,
+ "total_tests": 4460,
  "checked": "2026-11-22"
 }
