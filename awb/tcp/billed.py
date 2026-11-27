@@ -316,9 +316,10 @@ def owner_command(p, args):
         if args.date and not args.hourly or args.month and args.hourly:
             raise BilledError("--date needs --hourly; --month needs daily data")
         store = tenants.Store()
-        aliases = [args.alias] if args.alias else sorted(
-            f.stem for f in (store.root / "awb" / "fd").glob("*.gpg")
-            if tenants._ALIAS_RE.fullmatch(f.stem))
+        stored = sorted(f.stem for f in (store.root / "awb" / "fd").glob("*.gpg")
+                        if tenants._ALIAS_RE.fullmatch(f.stem))
+        # tcp-NNNNN and test-NNNNN are one tenant (B-097): the name the token is stored under (ask tcp-s2z5-4)
+        aliases = [tenants.resolve(args.alias, stored)] if args.alias else stored
         today = now().astimezone(BERLIN).date()
         if args.hourly:
             periods = [args.date] if args.date else [today.isoformat(), (today - dt.timedelta(days=1)).isoformat()]
@@ -506,8 +507,11 @@ def main(argv=None):
         today = now().astimezone(BERLIN).date()
         period = args.date or today.isoformat() if hourly else month_value(args.month or today.strftime("%Y-%m"))
         bounds = window(period, args.start, args.end) if hourly else None
-        aliases = [args.tenant] if args.tenant else sorted(
-            f.name for f in tenants.root(p).iterdir() if tenants._ALIAS_RE.fullmatch(f.name) and f.is_dir())
+        root = tenants.root(p)
+        cached = sorted(f.name for f in root.iterdir() if tenants._ALIAS_RE.fullmatch(f.name) and f.is_dir()) \
+            if root.is_dir() else []
+        # tcp-NNNNN and test-NNNNN are one tenant (B-097): the name its cache folder has (ask tcp-s2z5-4)
+        aliases = [tenants.resolve(args.tenant, cached)] if args.tenant else cached
         reports = []
         for alias in aliases:
             path = folder(p, alias) / (("billed-hourly-" if hourly else "billed-") + period + ".json")

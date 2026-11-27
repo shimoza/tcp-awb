@@ -31149,6 +31149,20 @@
    "name": "awb career update drafts CV bullets only, no LinkedIn paragraph (career project correction 5)",
    "run": ".venv/bin/pytest tests/test_career.py",
    "status": "passing"
+  },
+  {
+   "id": "ASK-s2z5-4-1127",
+   "phase": "ask",
+   "name": "billed: the new tenant name tcp-NNNNN reads the cache and token of test-NNNNN",
+   "run": ".venv/bin/pytest tests/test_billed_tenant_names.py",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-bj3o-4-1127",
+   "phase": "ask",
+   "name": "images release: the img folder and pictures take the group of the project folder with group read",
+   "run": ".venv/bin/pytest tests/test_images_release_group.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4447,

@@ -21,6 +21,7 @@ import datetime
 import hashlib
 import json
 import os
+import stat
 import re
 import shutil
 import subprocess
@@ -322,14 +323,29 @@ def project_folder(p: config.Paths, customer: str, project: str | None = None) -
     return Path(active[0].path) if active else None
 
 
-def _open_folder(parent_fd: int, name: str) -> int:
-    """The folder `name` of the folder `parent_fd`, made when it is missing, never through a link."""
+def _open_folder(parent_fd: int, name: str, gid: int = -1) -> int:
+    """The folder `name` of the folder `parent_fd`, made when it is missing, never through a link. A folder this
+    user made or owns gets the group `gid` (the group of the project folder) and g+rX, so the work user reads what
+    the owner released (ask 2026-11-27-tcp-bj3o-4)."""
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     try:
-        return os.open(name, flags, dir_fd=parent_fd)
+        fd = os.open(name, flags, dir_fd=parent_fd)
     except FileNotFoundError:
         os.mkdir(name, 0o750, dir_fd=parent_fd)
-        return os.open(name, flags, dir_fd=parent_fd)
+        fd = os.open(name, flags, dir_fd=parent_fd)
+    _share(fd, gid)
+    return fd
+
+
+def _share(fd: int, gid: int) -> None:
+    """Give an object of this user the group `gid` and group read (and search on a folder); others stay out."""
+    st = os.fstat(fd)
+    if gid < 0 or st.st_uid != os.geteuid():
+        return
+    if st.st_gid != gid:
+        os.fchown(fd, -1, gid)
+    mode = stat.S_IMODE(st.st_mode) | stat.S_IRGRP | (stat.S_IXGRP if stat.S_ISDIR(st.st_mode) else 0)
+    os.fchmod(fd, mode & ~0o007)
 
 
 def _land_in_project(folder_: Path, file_id: str, ready: list[tuple[int, str, bytes]]) -> list[Path]:
@@ -337,11 +353,17 @@ def _land_in_project(folder_: Path, file_id: str, ready: list[tuple[int, str, by
     root = os.open(folder_, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     fds = [root]
     try:
+        gid = os.fstat(root).st_gid
         fds.append(_open_folder(fds[-1], "input"))
-        fds.append(_open_folder(fds[-1], "%s-img" % file_id))
+        fds.append(_open_folder(fds[-1], "%s-img" % file_id, gid))
         written = []
         for _, name, data in ready:
             safefile.write_atomic(name, data, dir_fd=fds[-1], mode=0o640, chmod=True)
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fds[-1])
+            try:
+                _share(fd, gid)
+            finally:
+                os.close(fd)
             written.append(folder_ / "input" / ("%s-img" % file_id) / name)
         return written
     finally:
