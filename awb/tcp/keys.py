@@ -10,7 +10,9 @@ A working session never reads a key: it sends its call to the service, which che
 signs it, sends it to the TCP API and answers with every secret taken out. A call to obs is signed the OBS way
 (awb/obs.py, path `/BUCKET[/KEY]`, `/` lists the buckets), every other service the way of the API gateway
 (SDK-HMAC-SHA256, awb/sign.py). An OBS call never reaches the two exchange buckets (awb xchg has them) and an OBS
-write reaches only a bucket named after the project of the call (<code>-...), as the lease policy allows.
+write reaches only a bucket named after the project of the call (<code>-...), as the lease policy allows. A
+session's OBS read reaches those buckets too and one the owner granted its project (awb/tcp/bucketgrant.py); a
+granted bucket is refused for every other project.
 
 The password store layout, one tenant per alias (the alias of `awb tenant add`):
 
@@ -100,7 +102,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from awb import codes, config, obs
-from awb.tcp import projecttags, readonly
+from awb.tcp import bucketgrant, projecttags, readonly
 
 CALL_SOCKET_ENV = "AWB_KEYS_SOCKET"
 ADMIN_SOCKET_ENV = "AWB_KEYS_ADMIN"
@@ -1145,6 +1147,14 @@ class Service:
         self.tokens.drop(_write_key(alias))
         return labobs.end_tenant_jobs(self, alias, labobs.READONLY_LINE % (alias, alias))
 
+    def _bucket_holder(self, alias, bucket) -> str | None:
+        """The project the owner granted `bucket` of the tenant `alias` (awb/tcp/bucketgrant.py); None without a
+        grant and when the grants cannot be read (fail closed: the bucket-named rule alone)."""
+        try:
+            return bucketgrant.holder(self.paths_fn(), alias, bucket)
+        except Exception:
+            return None
+
     def _readonly_granted(self, alias: str, code: str) -> bool:
         """The owner's grant of the read-only tenant `alias` to the project `code` (RT)."""
         try:
@@ -1539,10 +1549,17 @@ class Service:
                 raise Refused("the exchange buckets are reached through awb xchg only")
             if method in WRITE_METHODS and not bucket.startswith(project + "-"):
                 raise Refused("an OBS write reaches only a bucket named after the project (%s-...)" % project)
-            if method not in WRITE_METHODS and self._session_read(uid) and not self._obs_read_ok(
-                    bucket, path[1:].partition("/")[2], req.get("query"), project):
-                # K1: a session reads its own project's buckets, the bucket list (the sweep) and the tags of a bucket
-                raise Refused("an OBS read reaches only a bucket named after the project (%s-...)" % project)
+            holder = self._bucket_holder(alias, bucket) if bucket else None
+            if method not in WRITE_METHODS and self._session_read(uid):
+                # the owner's bucket grant (awb/tcp/bucketgrant.py): his bucket is the granted project's own for a
+                # read and refused for every other project, its tags included
+                if holder is not None and holder != project:
+                    raise Refused(bucketgrant.REFUSED_LINE % bucket)
+                if holder is None and not self._obs_read_ok(bucket, path[1:].partition("/")[2], req.get("query"),
+                                                            project):
+                    # K1: a session reads its own project's buckets, the bucket list (the sweep) and the tags of a
+                    # bucket
+                    raise Refused("an OBS read reaches only a bucket named after the project (%s-...)" % project)
         query = req.get("query") or {}
         if not isinstance(query, dict) or not all(isinstance(k, str) and isinstance(v, (str, list))
                                                   for k, v in query.items()):

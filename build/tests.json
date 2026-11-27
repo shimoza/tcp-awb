@@ -31149,6 +31149,13 @@
    "name": "awb career update drafts CV bullets only, no LinkedIn paragraph (career project correction 5)",
    "run": ".venv/bin/pytest tests/test_career.py",
    "status": "passing"
+  },
+  {
+   "id": "ASK-7c7b-1127",
+   "phase": "ask",
+   "name": "bucket grant: one existing bucket of a test tenant to one project with the owner's word; read and lab obs for that project, refused for every other, no write and no lease change, a broken file grants nothing",
+   "run": ".venv/bin/pytest tests/test_bucket_grant.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4447,
