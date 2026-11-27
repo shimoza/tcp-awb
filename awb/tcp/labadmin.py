@@ -778,10 +778,45 @@ def _base(svc, service: str, region: str) -> str:
     return svc.endpoint.rstrip("/") if svc.endpoint else "https://%s.%s.otc.t-systems.com" % (service, region)
 
 
+_PROJECT_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _path_project(path: str) -> str | None:
+    """The project id of a path /vN/<project_id>/...: its second segment when that is 32 hex digits."""
+    segs = [s for s in path.split("/") if s]
+    return segs[1] if len(segs) >= 2 and _PROJECT_ID_RE.match(segs[1]) else None
+
+
+def _held_project(svc, region: str, held_cred, scope: str) -> str:
+    """The project id of a held temporary key for `scope` (a project id, or a project name such as eu-de): the
+    key's own projects from IAM (GET /v3/auth/projects signed with it), so the temporary key of an agency reaches
+    the projects of the delegating account."""
+    from awb import sign
+
+    if _PROJECT_ID_RE.match(scope):
+        return scope
+    url = iam_base(region, svc.endpoint) + "/v3/auth/projects"
+    hdrs = sign.sign("GET", url, {"Content-Type": "application/json", "X-Security-Token": held_cred[2]}, b"",
+                     held_cred[0], held_cred[1])
+    status, _h, raw = _http("GET", url, hdrs, None, timeout=30.0)
+    try:
+        rows = (json.loads(raw) or {}).get("projects") if raw else None
+    except (ValueError, AttributeError):
+        rows = None
+    found = [p.get("id") for p in rows or [] if isinstance(p, dict) and p.get("name") == scope
+             and isinstance(p.get("id"), str)]
+    if status != 200 or len(found) != 1:
+        raise LabAdminError("the project %s of the temporary key cannot be read from IAM: HTTP %d; name the project "
+                            "id in the path" % (scope, status))
+    return found[0]
+
+
 def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, query: dict, body, headers: dict,
-          scope: str | None, held_token: str | None, held_cred) -> tuple[int, dict, bytes, str]:
+          scope: str | None, held_token: str | None, held_cred, foreign: bool = False
+          ) -> tuple[int, dict, bytes, str]:
     """One call with the admin login, the write credential of a customer tenant (TW) or a held token or credential
-    of the run. Returns (status, headers, raw, the expanded path); a 401 stops without another login."""
+    of the run. Returns (status, headers, raw, the expanded path); a 401 stops without another login. `foreign`:
+    the held key came from an assume_role (the key of an agency), so `{project_id}` is its own project from IAM."""
     from awb import obs, sign
     from awb.tcp import cloud
 
@@ -789,8 +824,13 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
     project = None if scope == "domain" else scope
     expanded = path
     if "{project_id}" in expanded:
-        _, info = auth.token(project or auth.region)
-        expanded = expanded.replace("{project_id}", info.get("project_id") or "")
+        if held_cred and foreign and service != "obs":
+            # the temporary key of an agency belongs to the delegating account: its own project, never the one of
+            # the admin login (ask 2026-11-27-tcp-bj3o-1)
+            pid = _held_project(svc, auth.region, held_cred, project or auth.region)
+        else:
+            pid = auth.token(project or auth.region)[1].get("project_id")
+        expanded = expanded.replace("{project_id}", pid or "")
     if "{domain_id}" in expanded:
         _, info = auth.token("domain")
         expanded = expanded.replace("{domain_id}", info.get("domain_id") or "")
@@ -823,6 +863,10 @@ def _send(svc, auth: _Auth, run: str, method: str, service: str, path: str, quer
                 hdrs["X-Domain-Id"] = domain
         if held_cred:
             hdrs["X-Security-Token"] = held_cred[2]
+            # an AK/SK call of a project names it in X-Project-Id, signed with the rest (ask 2026-11-27-tcp-bj3o-1)
+            pid = _path_project(expanded) or (scope if scope and _PROJECT_ID_RE.match(scope) else None)
+            if pid and service not in DOMAIN_SERVICES and not any(k.lower() == "x-project-id" for k in hdrs):
+                hdrs["X-Project-Id"] = pid
             hdrs = sign.sign(method, url, hdrs, data or b"", held_cred[0], held_cred[1])
         elif held_token:
             hdrs["X-Auth-Token"] = held_token
@@ -1104,6 +1148,12 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         held_cred = svc.lab.find(run["id"], "cred", req.get("credential"))
         if held_cred is None:
             raise _refused("refused: credential takes only the shortened access key of a temporary key this run got")
+    # a token or key from an assume_role, or got with one, belongs to the delegating account (an agency)
+    foreign = any(svc.lab.find(run["id"], "foreign", "foreign:" + v) is not None
+                  for v in (req.get("credential"), headers.get("X-Auth-Token"), headers.get("x-auth-token"))
+                  if isinstance(v, str))
+    if service == "iam" and isinstance(body, (dict, list)) and "assume_role" in json.dumps(body):
+        foreign = True
     rows = listed_rows(svc, project) if method not in ("GET", "HEAD") else []
     listed = listed_targets(rows, method, path, body)
     if listed and req.get("delete_listed") is not True:
@@ -1138,7 +1188,7 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
                                    query, None, {}, scope, None, None)
             absent = st == 404
         status, rh, raw, expanded = _send(svc, signer, run["id"], method, service, path, query, body, extra, scope,
-                                          held_token, held_cred)
+                                          held_token, held_cred, foreign)
     except LabAdminError as err:
         if with_key:
             svc.note_keyed(alias, region, body, None)
@@ -1154,8 +1204,12 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
     with svc.lab.lock:
         for t in tokens:
             svc.lab.hold(run["id"], "token", t, labsecrets.short(t))
+            if foreign:
+                svc.lab.hold(run["id"], "foreign", True, "foreign:" + labsecrets.short(t))
         for c in creds:
             svc.lab.hold(run["id"], "cred", c, labsecrets.short(c[0]))
+            if foreign:
+                svc.lab.hold(run["id"], "foreign", True, "foreign:" + labsecrets.short(c[0]))
         run = open_run(p, project, alias) or run
         made = creates(method, service, expanded, query, status, data, region, absent, customer)
         if method in ("PUT", "PATCH") and service != "obs":

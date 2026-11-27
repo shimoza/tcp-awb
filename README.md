@@ -294,7 +294,7 @@ key service takes the token itself (domain scoped for iam, project scoped for th
 for obs; `scope="domain"` gives a GET to eps a domain token made for that call and never kept, any other method or
 service with it is refused; eu-nl is closed on the test tenants by the owner's rule), answers in full and never hands over the password, the login or a whole token: tokens, temporary keys and
 security tokens come shortened to 8 characters, "..." and the length, and such a shortened value of the run works
-again as `X-Auth-Token` or `credential=`. Every create is recorded with its delete (a POST whose answer names a new
+again as `X-Auth-Token` or `credential=` (a call with `credential=`, also the temporary key of an agency, is signed with its security token and names its project in X-Project-Id; `{project_id}` of a key from an assume_role is the project of the delegating account). Every create is recorded with its delete (a POST whose answer names a new
 id or name, a PUT or PATCH of a path a read before did not find; not the upload of an image's data and not a PUT
 below a resource the run made). A delete that answers 2xx or 404 removes the record it names, also when it names the
 resource by another API version (`/v1.1/images/ID` or `/v1/cloudimages/ID` for `/v2/images/ID`), what was recorded below it and a leftover
