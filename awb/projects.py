@@ -612,10 +612,42 @@ guard keeps the sessions of other projects out of the folder."""
 _KEY_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def read_key_token(folder: Path) -> str | None:
-    """The key token of the project in `folder`; None when there is none, it is a link or not 64 hex digits."""
+def _side_main_git(folder: Path) -> Path | None:
+    """B-116: the .git folder of the project whose side session's worktree `folder` is (`<project>/.side/NAME`,
+    awb/side.py), so the worktree presents its project's key token. Only when the worktree's git link and its
+    commondir lead into that project's own .git (receipt._side_git) and the project is an active or parked project of
+    the register whose folder is right under the projects root; None for anything else."""
+    from awb import receipt
+
+    folder = Path(os.path.abspath(folder))
+    main = receipt._side_git(folder, folder / ".git")
+    if main is None:
+        return None
+    project = main.parent
     try:
-        fd = os.open(Path(folder) / BIND_FILE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        p = _config.paths()
+        if project.parent.resolve() != p.projects_root.resolve():
+            return None
+        if not any(pr.code == project.name and Path(pr.path).resolve() == project.resolve()
+                   and pr.state in LIVE_STATES for pr in load(p)):
+            return None
+    except (OSError, ValueError, RuntimeError, ProjectError):
+        return None
+    return main
+
+
+def read_key_token(folder: Path) -> str | None:
+    """The key token of the project in `folder`; None when there is none, it is a link or not 64 hex digits. A side
+    session's worktree of a project (its .git is a file) reads the token of its project (B-116, _side_main_git)."""
+    path = Path(folder) / BIND_FILE
+    git = Path(folder) / ".git"
+    if not git.is_symlink() and git.is_file():
+        main = _side_main_git(Path(folder))
+        if main is None:
+            return None
+        path = main / Path(BIND_FILE).name
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return None
     try:
@@ -630,7 +662,8 @@ def read_key_token(folder: Path) -> str | None:
 
 
 def write_key_token(folder: Path) -> str:
-    """Write a new key token into the .git of `folder` (never over one that is there); the token."""
+    """Write a new key token into the .git of `folder` (never over one that is there); the token. A side session's
+    worktree (its .git is a file) never writes one: it presents its project's token (B-116)."""
     import secrets
 
     git = Path(folder) / ".git"

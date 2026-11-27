@@ -214,7 +214,10 @@ and 120 a minute for each uid for the calls without one, so one looping session 
 with the service as the owner and the sessions as the work user. The owner's own calls carry no binding. A project
 spawned before the token gets one with its first `awb cloud` call; the key service then refuses with `the grant of
 CODE holds no key token` until the owner runs `awb projects kind CODE project` once more. The sessions of other
-projects share the work user, so the token is kept from them by the place guard, as the rest of the folder is.
+projects share the work user, so the token is kept from them by the place guard, as the rest of the folder is. A side
+session's worktree (`<project>/.side/NAME`, `awb side`) presents the token of its project: its `.git` is a file,
+so the client follows it and its `commondir` to the project's own `.git`, and only when that project is active or
+parked in the register and lies right under the projects root. A worktree never writes a token of its own.
 
 Every resource a project creates carries the project code as a tag and a row in the project's `RESOURCES.md`. A
 daily snapshot tells what ran on which tenant on which day. `awb close` refuses while something is still running and while the project keeps a bucket (`awb lab kept drop NAME`
