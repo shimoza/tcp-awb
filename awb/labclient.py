@@ -809,7 +809,7 @@ def _obs_parser(action: str) -> argparse.ArgumentParser:
     else:
         ap.add_argument("job", metavar="JOB")
     if action in ("put", "get", "fetch", "link"):
-        ap.add_argument("--tenant", default=None, help="test-10491, test-10497, test-10503 or a granted customer "
+        ap.add_argument("--tenant", default=None, help="a lab tenant of the owner's list or a granted customer "
                                                        "tenant in write mode (default: the one open run)")
     return ap
 
@@ -901,7 +901,7 @@ def _parser(action: str) -> argparse.ArgumentParser:
         ap.add_argument("--reason", required=True, help="why it stays, one line")
     if action in ("start", "end", "keep"):
         ap.add_argument("--tenant", required=action == "start", default=None,
-                        help="test-10491, test-10497, test-10503 or a granted customer tenant in write mode (end: "
+                        help="a lab tenant of the owner's list or a granted customer tenant in write mode (end: "
                              "default the one open run)")
     if action == "start":
         ap.add_argument("--note", default="", help="a short note of what the run tests")

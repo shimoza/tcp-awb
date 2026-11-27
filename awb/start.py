@@ -19,7 +19,7 @@ does it today. It ends with the one line that opens the session:
 
 With `--from DIR` (and `--trusted` for an export that carries no name) the import of step 4 takes every regular file
 of DIR and its subfolders (a link or a special file is skipped and counted) instead of the bucket folder, and the run
-ends with the one line `app: SSH host awb-10491, folder WORKHOME/tcp-xxxx`, WORKHOME being the work user's home of the register folder.
+ends with the one line `app: SSH host ALIAS, folder WORKHOME/tcp-xxxx` (ALIAS is `work_ssh_host` of paths.conf), WORKHOME being the work user's home of the register folder.
 
 Then: `open: awb projects open CODE`. Owner side only: refused for the work user. Inside an assistant session of the
 owner user (UX10, his yes 2026-11-12) `awb start query|project --goal ... [--tag TAG] [--from DIR --trusted]` runs;
@@ -41,7 +41,13 @@ EXIT_OK, EXIT_HELD, EXIT_ERROR = 0, 1, 2
 
 
 APP_SSH_HOST = "awb-10491"
-"""The SSH host of the app: the owner opens a session there, in the folder of the project."""
+"""The SSH host of the app when paths.conf has no `work_ssh_host`: the owner opens a session there, in the folder of
+the project."""
+
+
+def app_ssh_host() -> str:
+    """The SSH host alias of the app: `work_ssh_host` of the host file, else APP_SSH_HOST."""
+    return config.host_conf().get("work_ssh_host") or APP_SSH_HOST
 
 
 class StartError(Exception):
@@ -149,7 +155,7 @@ def app_line(p: config.Paths, code: str) -> str:
     """The one line that opens the session in the app: the SSH host and the project's folder from the register."""
     pr = next((r for r in projects.load(p) if r.code == code), None)
     folder = pr.path if pr is not None and pr.path else str(Path(p.projects_root) / code)
-    return "app: SSH host %s, folder %s" % (APP_SSH_HOST, folder)
+    return "app: SSH host %s, folder %s" % (app_ssh_host(), folder)
 
 
 def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, tags: list[str] = (), *,

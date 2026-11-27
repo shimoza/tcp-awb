@@ -45,7 +45,14 @@ def test_from_walks_the_subfolders_and_skips_links(tmp_path):
     assert {f.name for f in files} == {"top.md", "mid.md", "deep.md"} and skipped == 1
 
 
-def test_from_imports_every_file_of_the_folder_trusted_and_ends_with_the_app_line(home, capsys, tmp_path):
+def _alias_conf(monkeypatch, tmp_path: Path) -> None:
+    conf = tmp_path / "paths.conf"
+    conf.write_text("work_ssh_host = lab-host\n", encoding="utf-8")
+    monkeypatch.setenv("AWB_CONF", str(conf))
+
+
+def test_from_imports_every_file_of_the_folder_trusted_and_ends_with_the_app_line(home, capsys, tmp_path, monkeypatch):
+    _alias_conf(monkeypatch, tmp_path)
     root = _export(tmp_path)
     assert start.start(home, "project", GOAL, None, from_dir=str(root), trusted=True) == 0
     (pr,) = projects.load(home)
@@ -54,7 +61,7 @@ def test_from_imports_every_file_of_the_folder_trusted_and_ends_with_the_app_lin
     assert "not a regular file" not in out + err
     last = out.strip().splitlines()
     assert last[-2] == "open: awb projects open %s" % pr.code
-    assert last[-1] == "app: SSH host awb-10491, folder %s" % pr.path
+    assert last[-1] == "app: SSH host lab-host, folder %s" % pr.path
     assert fx.SECOND_LAST in "\n".join(f.read_text(encoding="utf-8") for f in (home.outbox / pr.code).glob("F-*.md"))
 
 
@@ -82,9 +89,10 @@ def test_without_from_the_start_ends_with_the_open_line_as_before(home, capsys):
     assert capsys.readouterr().out.strip().splitlines()[-1] == "open: awb projects open %s" % pr.code
 
 
-def test_the_command_line_takes_from_and_trusted(home, capsys, tmp_path):
+def test_the_command_line_takes_from_and_trusted(home, capsys, tmp_path, monkeypatch):
+    _alias_conf(monkeypatch, tmp_path)
     assert cli.main(["start", "project", "--goal", GOAL, "--from", str(_export(tmp_path)), "--trusted"]) == 0
-    assert capsys.readouterr().out.strip().splitlines()[-1].startswith("app: SSH host awb-10491, folder ")
+    assert capsys.readouterr().out.strip().splitlines()[-1].startswith("app: SSH host lab-host, folder ")
 
 
 def test_an_auto_import_posts_a_notice_and_the_next_prompt_prints_one_line(home, register_path, monkeypatch, capsys,
