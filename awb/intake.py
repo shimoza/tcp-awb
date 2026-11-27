@@ -215,12 +215,49 @@ def _output_text(record: _report.FileRecord, bodies: dict[str, str]) -> str:
             lines += ["", "## %s" % part.part_id, ""]
         lines.append("- file id: %s" % part.part_id)
         lines.append("- kind: %s" % part.kind)
+        if i == 0 and record.public_path:
+            lines.append("- path: %s" % record.public_path)
         lines.append("- state: %s" % part.state)
         lines.append("- notes: %s" % ("; ".join(part.public_notes) or "none"))
         body = bodies.get(part.part_id, "")
         if body.strip():
             lines += ["", body.strip("\n")]
     return "\n".join(lines) + "\n"
+
+
+PATH_WITHHELD = "withheld, see the private report"
+
+
+def _relative_path(value) -> str:
+    """A relative path of a folder import as the copy carries it: forward slashes, no empty, dot or dot-dot piece,
+    no control character; anything else is no path ("")."""
+    if not isinstance(value, str) or not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        return ""
+    pieces = value.replace("\\", "/").split("/")
+    if any(x in ("", ".", "..") for x in pieces):
+        return ""
+    return "/".join(pieces)
+
+
+def _public_path(engine: _Engine, path: str, where: str) -> str:
+    """The relative path with every piece wiped like the content (registered forms, structured data, candidates
+    and learned forms of the run, secrets, the gate classes). A path in which the final check still finds something
+    is withheld: the copy says so and the private report keeps the path."""
+    out = []
+    for piece in path.split("/"):
+        counts: Counter = Counter()
+        clean, _ = engine.sanitize(cleanlogs.wipe_secrets(piece, counts), where)
+        clean = gate.wipe_gate_classes(clean)[0]
+        if not clean or "/" in clean or "\n" in clean:
+            return PATH_WITHHELD
+        out.append(clean)
+    masked = "/".join(out)
+    # the line as the copy carries it and its pieces apart, as the candidate rules read a line of prose
+    line = "- path: %s\n" % masked
+    if (engine.leaks(line, candidates=False) or _body_hits(engine, line)
+            or _body_hits(engine, masked.replace("/", " / ")) or not _public_safe(engine, masked)):
+        return PATH_WITHHELD
+    return masked
 
 
 def vault_encrypted(p: config.Paths) -> bool:
@@ -575,7 +612,8 @@ def selftest() -> list[str]:
 
 @_quiet_io
 def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = False, edit=None,
-        confirm=None, redo: dict | None = None, trusted: bool = False, progress=None) -> IntakeResult:
+        confirm=None, redo: dict | None = None, trusted: bool = False, progress=None,
+        paths: dict | None = None) -> IntakeResult:
     """Take `files` in for `customer` (a CUST code, "new" or the code of a project without a customer, tcp-xxxx)
     in wipe mode. See the module text for the steps.
     Nothing is read before the self-test passed. With `review` the run first stops on the candidates and hands
@@ -585,7 +623,10 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
     (file id, its original in the vault): a copy of an original taken out of the vault runs again under its file id,
     its output replaces the one in the outbox, and nothing moves into the vault (`awb import --redo`).
     `progress` is called with one line of text when the slow part starts ("checking 13 files") and after each file
-    ("file 3 of 13: F-XXXX, 0.8 s"); a line carries the file id and never the name of the original."""
+    ("file 3 of 13: F-XXXX, 0.8 s"); a line carries the file id and never the name of the original.
+    `paths` maps a file to its relative path below the folder it came from (`awb import CODE DIR`, and the paths of
+    the last import on `--redo`): the path is wiped like the content and written into the copy (`- path:`) and the
+    public report, as written into the private one."""
     try:
         files = [Path(f) for f in files]
     except (TypeError, ValueError):
@@ -616,12 +657,14 @@ def run(files: list[Path], customer: str, p: config.Paths, *, review: bool = Fal
                     raise IntakeError("candidate review failed") from None
         with vault.vault_lock(p):
             _validate_files(files)
-            return _run(files, customer, p, reviewed=reviewed, redo=redo, trusted=trusted, progress=progress)
+            return _run(files, customer, p, reviewed=reviewed, redo=redo, trusted=trusted, progress=progress,
+                        paths=paths)
     except vault.VaultError as err:
         raise IntakeError(_vault_message(err)) from None
 
 
-def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | None = None, trusted: bool = False):
+def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | None = None, trusted: bool = False,
+                paths: dict | None = None):
     """Steps 2 to 4: the customer, file ids, extraction, detection and the forms the run learns. No stop."""
     entries = register.load(p.register)
     cust, is_new = _resolve_customer(customer, entries, p)
@@ -653,9 +696,14 @@ def _detect_all(files: list[Path], customer: str, p: config.Paths, redo: dict | 
             if _source_state(src) != before or _identity(os.fstat(fd)) != before:
                 raise IntakeError("an input changed during intake, nothing was archived")
             sources[src] = before
-        fr = _report.FileRecord(file_id=fid, original_name=src.name, kind=ex.kind, state=ex.state)
+        fr = _report.FileRecord(file_id=fid, original_name=src.name, kind=ex.kind, state=ex.state,
+                                relative_path=_relative_path((paths or {}).get(src)))
         name_text = re.sub(r"_+", " ", src.name)
         engine.detect("%s file name" % fid, name_text)
+        if fr.relative_path:
+            # every piece of the path is read like the file name: scanned, teaching nothing
+            engine.detect("%s path file name" % fid, "\n".join(re.sub(r"_+", " ", x)
+                                                                 for x in fr.relative_path.split("/")))
         parts = list(_walk(ex, fid))
         extractions[fid] = parts
         for part_id, pex in parts:
@@ -698,12 +746,12 @@ def _review_stop(files: list[Path], customer: str, p: config.Paths) -> tuple[str
 
 
 def _run(files: list[Path], customer: str, p: config.Paths, *, reviewed: int = 0,
-         redo: dict | None = None, trusted: bool = False, progress=None) -> IntakeResult:
+         redo: dict | None = None, trusted: bool = False, progress=None, paths: dict | None = None) -> IntakeResult:
     # an encrypted register is read through the vault daemon; originals and private reports are then sealed
     encrypted = vault_encrypted(p)
     if progress:
         progress("checking %d file%s" % (len(files), "" if len(files) == 1 else "s"))
-    cust, engine, rec, extractions, now, sources = _detect_all(files, customer, p, redo, trusted)
+    cust, engine, rec, extractions, now, sources = _detect_all(files, customer, p, redo, trusted, paths)
     rec.reviewed = reviewed
     stamp = now.strftime("%Y-%m-%d-%H%M%S")
     private_path = p.private_reports / cust / ("%s.md" % stamp)
@@ -958,13 +1006,18 @@ def _write_outputs(rec, extractions, engine: _Engine, outdir: Path, outputs: lis
 
 
 def _sanitize_code(engine: _Engine, text: str, profile: str, where: str) -> tuple[str, Counter]:
-    """A code file with its string literals and comments sanitised; the code between them stays byte for byte."""
+    """A code file with its string literals and comments sanitised; the code between them stays byte for byte. A
+    comment, a docstring and a literal that reads like text are sanitised like prose; a key, an identifier, a SQL
+    statement or a regular expression (a data literal, awb/extract/text.py literal_pieces) gets the registered
+    forms, the structured data and the learned forms standing as a word of their own only, so the file still runs
+    (ask 2026-11-27-tcp-7c7b)."""
     counts: Counter = Counter()
     out: list[str] = []
-    for a, b, literal in _extract_text.code_segments(text, profile):
+    for a, b, kind in _extract_text.literal_pieces(text, profile):
         piece = text[a:b]
+        literal = kind != "code"
         if literal and piece.strip():
-            piece, found = engine.sanitize(piece, where)
+            piece, found = engine.sanitize(piece, where, data=kind == "data")
             counts.update(found)
         elif not literal:
             # an encoded run of the code is read like one of a string: decoded, checked and replaced as before
@@ -979,12 +1032,13 @@ def _sanitize_code(engine: _Engine, text: str, profile: str, where: str) -> tupl
     return "".join(out), counts
 
 
-def _code_view(text: str, views: list[tuple[str, str]]) -> str:
+def _code_view(text: str, views: list[tuple[str, str, str]], prose: bool = False) -> str:
     """An output with the body of each code file as the checks read it (awb/extract/text.py mask_code): the words
-    of the code are no names, no addresses and no bank codes."""
-    for body, seen in views:
+    of the code are no names, no addresses and no bank codes. With `prose` the data literals are blanked too: the
+    view the candidate rules and the learned forms read."""
+    for body, seen, seen_prose in views:
         if body:
-            text = text.replace(body, seen, 1)
+            text = text.replace(body, seen_prose if prose else seen, 1)
     return text
 
 
@@ -992,7 +1046,7 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
                replace: bool, fr) -> None:
     """Steps 6 and 7 for one file."""
     bodies: dict[str, str] = {}
-    views: list[tuple[str, str]] = []     # (body, body as the checks read it) of every code file
+    views: list[tuple[str, str, str]] = []   # (body, as the checks read it, its prose alone) of every code file
     by_id = dict(extractions[fr.file_id])
     for part in fr.parts:
         pex = by_id[part.part_id]
@@ -1008,7 +1062,8 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
         body = cleanlogs.drop_secret_lines(body, wiped)
         body, gate_counts = gate.wipe_gate_classes(body)     # a home path and a blocklist word, also when trusted
         if pex.code:
-            views.append((body.strip("\n"), _extract_text.mask_code(body, pex.code).strip("\n")))
+            views.append((body.strip("\n"), _extract_text.mask_code(body, pex.code).strip("\n"),
+                          _extract_text.mask_code(body, pex.code, prose=True).strip("\n")))
         counts.update(wiped)
         counts.update(gate_counts)
         bodies[part.part_id] = body
@@ -1018,10 +1073,12 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
     if not any(b.strip() for b in bodies.values()):
         fr.reasons.append("no text to write, no output")
         return
+    if fr.relative_path:
+        fr.public_path = _public_path(engine, fr.relative_path, "%s path" % fr.file_id)
     out = outdir / ("%s.md" % fr.file_id)
     text = _output_text(fr, bodies)
     seen = _code_view(text, views)
-    hits = engine.leaks(seen, candidates=False) + _body_hits(engine, seen)
+    hits = engine.leaks(seen, candidates=False) + _body_hits(engine, _code_view(text, views, prose=True))
     if not hits:
         existed = os.path.lexists(out)
         try:
@@ -1039,7 +1096,7 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
         outputs.append(out)   # from here on a failure of the run removes it again
         written_text = out.read_text(encoding="utf-8")
         seen = _code_view(written_text, views)
-        hits = engine.leaks(seen, candidates=False) + _body_hits(engine, seen)
+        hits = engine.leaks(seen, candidates=False) + _body_hits(engine, _code_view(written_text, views, prose=True))
         if hits:
             out.unlink(missing_ok=True)
             outputs.remove(out)

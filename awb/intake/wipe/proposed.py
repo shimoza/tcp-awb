@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from awb import codes
+from awb import codes, patterns
 from awb.intake.wipe.basic import (_ABBREVIATIONS, _COMPANY_RE, _FORM_ALT, _FUNCTION_WORDS, _MAIL_RE, _PERSON_LOCAL_RE,
                                    _SPACED_RE, _STOP_SINGLES, _TOKEN_RE, _WORD_RE, _company_candidates,
                                    _initial_candidates, _inverted_candidates, _label_candidates, _particle_candidates,
@@ -1364,6 +1364,137 @@ def _lone_first_name_candidates(text: str, blocked) -> list[tuple[int, int, str]
     return out
 
 
+_HOST_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+_HOSTISH_RE = re.compile(r"(?:(?<=://)|(?<=@)|(?<![\w.@/:-]))(?P<host>" + _HOST_LABEL + r"(?:\." + _HOST_LABEL
+                         + r")*)(?![\w-])(?:(?P<sep>[/:])~?(?P<owner>[A-Za-z0-9][\w.-]*))?")
+_CODE_HOSTS = frozenset(("github.com", "gist.github.com", "raw.githubusercontent.com", "gitlab.com", "bitbucket.org",
+                         "codeberg.org", "gitee.com", "sr.ht", "git.sr.ht", "dev.azure.com", "huggingface.co",
+                         "sourceforge.net", "gitea.com", "framagit.org", "salsa.debian.org", "launchpad.net"))
+"""The public code hosts whose first path segment (github.com/OWNER/repo, git@gitlab.com:OWNER/repo) is an account."""
+_CODE_HOST_PAGES = frozenset((
+    "about", "features", "pricing", "login", "logout", "join", "signup", "sign_in", "users", "orgs", "organizations",
+    "settings", "topics", "explore", "marketplace", "sponsors", "apps", "enterprise", "security", "notifications",
+    "new", "search", "site", "contact", "collections", "trending", "readme", "pulls", "issues", "codespaces",
+    "dashboard", "help", "docs", "groups", "projects", "api", "blog", "events", "customer-stories", "team", "home",
+    "models", "datasets", "spaces", "p", "u", "_git", "-", "downloads", "releases", "raw"))
+"""Pages of a code host, never an account."""
+_PUBLIC_CODE_OWNERS = frozenset((
+    "hashicorp", "opentelekomcloud", "opentelekomcloud-community", "opentelekomcloud-infra", "huaweicloud",
+    "terraform-providers", "terraform-aws-modules", "kubernetes", "kubernetes-sigs", "helm", "ansible",
+    "ansible-collections", "docker", "moby", "prometheus", "grafana", "golang", "python", "nodejs", "microsoft",
+    "azure", "aws", "awslabs", "aws-samples", "google", "googleapis", "googlecloudplatform", "openstack", "cloudflare",
+    "actions", "github", "gitlab-org", "torvalds", "apache", "cncf", "istio", "argoproj", "fluxcd", "openshift",
+    "redhat", "canonical", "ubuntu", "debian", "rancher", "traefik", "nginx", "elastic", "jenkinsci", "mozilla",
+    "rust-lang", "npm", "pypa", "psf", "anthropics", "openai", "meta-llama", "huggingface", "mistralai", "qwenlm",
+    "deepseek-ai", "minio", "hashicorp-education", "vmware", "veeam", "fortinet", "paloaltonetworks", "netbox-community",
+    "kubernetes-csi", "containerd", "opencontainers", "etcd-io", "coredns", "projectcalico", "cilium", "jetstack",
+    "cert-manager", "bitnami", "zabbix", "postgres", "mysql", "mariadb", "redis", "mongodb", "keycloak", "vault",
+))
+"""Public organisations of the platforms and tools the material is about: their account is no name."""
+_HOST_ROLE_WORDS = frozenset((
+    "dev", "prod", "test", "stage", "staging", "qa", "uat", "int", "lab", "vm", "srv", "server", "pc", "laptop",
+    "notebook", "nb", "desktop", "ws", "box", "home", "build", "ci", "jump", "bastion", "mac", "macbook", "win",
+    "linux", "wsl", "tmp", "sandbox", "demo", "play", "local"))
+"""The other part of a personal host name (anna-dev, laptop-anna): next to one of them a first name that is also a
+word of the corpus (Anna, Max) is the person the host belongs to."""
+
+
+def _host_name_candidates(text: str, blocked) -> list[tuple[int, int, str]]:
+    """A first name of the list as one label or one dash part of a host name (svenja-dev, build.svenja.example.org,
+    https://svenja-01.example.org/x) and the account of a code-host address (github.com/OWNER/repo,
+    git@gitlab.com:OWNER/repo.git), also inside a web address and a backtick span, which give no other candidate
+    (ask 2026-11-27-tcp-7c7b-3). A first name that is also a known word (Anna, Max) counts only next to a host role
+    word or a host number (anna-dev, max-01), so max-age, max-width and jan-2026 stay; the top-level label, a file
+    suffix and the platform's own hosts are never read. The account is no page of the host, no public organisation and no known
+    word."""
+    inner = getattr(blocked, "inner", blocked)
+    out: list[tuple[int, int, str]] = []
+    for m in _HOSTISH_RE.finditer(text):
+        host = m.group("host")
+        if "-" not in host and "." not in host:
+            continue
+        a = m.start("host")
+        labels = host.split(".")
+        low = host.casefold()
+        if len(labels) > 1 and (not labels[-1].isalpha() or labels[-1].casefold() in patterns._FILE_SUFFIX_TLDS):
+            if m.group("sep") is None:
+                continue   # a file name (deploy-svenja.py) or a version: no host
+        bare = low[4:] if low.startswith("www.") else low
+        owner = m.group("owner")
+        if owner and bare in _CODE_HOSTS and (m.group("sep") == "/" or text[m.end():m.end() + 1] == "/"):
+            o = owner.rstrip(".")
+            if o.endswith(".git"):
+                o = o[:-4]
+            ol = o.casefold()
+            if (ol not in _CODE_HOST_PAGES and ol not in _PUBLIC_CODE_OWNERS and ol not in _PUBLIC_PROVIDERS
+                    and _letters(o) >= 2 and not _known_word(o)
+                    and not all(_known_word(x) or len(x) < 3 for x in re.split(r"[-_.]", o) if x)):
+                x = m.start("owner")
+                x += len(owner) - len(owner.lstrip("~"))
+                if not inner.hit(x, x + len(o)):
+                    out.append((x, x + len(o), "unknown"))
+        if patterns._allowed_host(host) or bare in _CODE_HOSTS:
+            continue
+        pos = a
+        last = len(labels) - 1 if len(labels) > 1 else len(labels)
+        for i, label in enumerate(labels):
+            if i < last:
+                parts = label.split("-")
+                ppos = pos
+                for j, part in enumerate(parts):
+                    pl = part.casefold()
+                    if part.isalpha() and len(part) >= 3 and pl in _FIRST_NAMES and pl not in _SYSTEM_USERS:
+                        others = [q.casefold() for k, q in enumerate(parts) if k != j]
+                        strong = not _known_word(part) or any(q in _HOST_ROLE_WORDS or (q.isdigit() and len(q) <= 3)
+                                                              for q in others)
+                        if strong and not inner.hit(ppos, ppos + len(part)):
+                            out.append((ppos, ppos + len(part), "person"))
+                    ppos += len(part) + 1
+            pos += len(label) + 1
+    return out
+
+
+_DOTTED_LOGIN_RE = re.compile(r"(?<![\w.@/\\-])(?P<v>(?P<first>[A-Za-z][a-z]+)[._](?P<last>[A-Za-z][a-z]{2,}))"
+                              r"(?![\w-]|\.[A-Za-z]|\()")
+_OPTION_LOGIN_RE = re.compile(r"(?:(?<=\s)|^)(?:-u|-U|--user(?:name)?|--login|--owner|/user:)(?:[ \t]+|=|(?<=:))"
+                              r"(?:[A-Za-z][\w-]{0,14}\\)?(?P<v>[A-Za-z][\w.-]{2,})", re.M)
+_DOMAIN_LOGIN_RE = re.compile(r"(?<![\w\\])[A-Z][A-Z0-9-]{1,14}\\(?P<v>[A-Za-z][\w.-]{2,})")
+_HOME_LOGIN_RE = re.compile(r"(?i)(?:(?<![\w/])/home/|(?<![\w/])/Users/|[A-Z]:\\Users\\)(?P<v>[A-Za-z][\w.-]{2,})")
+_HOME_SKIP = frozenset(("public", "default", "all users", "shared", "admin", "administrator", "guest"))
+
+
+def _login_shape_candidates(text: str, blocked) -> list[tuple[int, int, str]]:
+    """The logins of customer persons (ask 2026-11-27-tcp-j5sy): first.last or first_last with a first name of the list
+    and an unknown surname; a Windows account (DOMAIN\\login) and a Windows or Mac profile folder (the folder of the
+    user under Users) when it is no system user and no known word; the value of a login option (sudo -u, psql -U, --user,
+    runas /user:) and of a server home folder only when it starts with a first name of the list, so a
+    service user (sudo -u appsvc) stays. Read inside a code span too; a call or an attribute of code (felix.items(),
+    self.config) is none."""
+    inner = getattr(blocked, "inner", blocked)
+    out: list[tuple[int, int, str]] = []
+    for m in _DOTTED_LOGIN_RE.finditer(text):
+        first, last = m.group("first"), m.group("last")
+        if (first.casefold() in _FIRST_NAMES and not _known_word(last) and last.casefold() not in _FIRST_NAMES
+                and last.casefold() not in patterns._FILE_SUFFIX_TLDS and not inner.hit(m.start("v"), m.end("v"))):
+            out.append((m.start("v"), m.end("v"), "person"))
+    for rx in (_OPTION_LOGIN_RE, _DOMAIN_LOGIN_RE, _HOME_LOGIN_RE):
+        for m in rx.finditer(text):
+            v = m.group("v").rstrip(".-")
+            a = m.start("v")
+            if v.casefold() in _HOME_SKIP or v.casefold() in _SYSTEM_USERS or inner.hit(a, a + len(v)):
+                continue
+            pieces = [x.casefold() for x in re.split(r"[._-]", v) if x]
+            person = bool(pieces) and pieces[0] in _FIRST_NAMES and not _known_word(pieces[0]) or (
+                len(pieces) >= 2 and pieces[0] in _FIRST_NAMES)
+            # a service user of a server (sudo -u appsvc, its home folder) is no person: an option and a server home
+            # folder take a first name of the list only; a Windows account and a Windows profile folder name a person
+            personal = rx is _DOMAIN_LOGIN_RE or (rx is _HOME_LOGIN_RE and "/home/" not in m.group(0).lower())
+            if not person and not (personal and _login_value(v.casefold()) is not None):
+                continue
+            out.append((a, a + len(v), "person"))
+    return out
+
+
 def _cn_candidates(text: str, blocked) -> list[tuple[int, int, str]]:
     """The common-name parameter of a calendar attendee or organiser (ATTENDEE;CN=Name:mailto:...)."""
     out = []
@@ -1457,6 +1588,8 @@ PROPOSED_RULES = (
     _lone_line_candidates,
     _lone_first_name_candidates,
     _login_candidates,
+    _login_shape_candidates,
+    _host_name_candidates,
 )
 
 

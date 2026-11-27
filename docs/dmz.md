@@ -27,6 +27,23 @@ customer data out of the model as far as it can:
   A paragraph or a list item of a docx is a heading only by a heading style, a picture leaves no empty `#` line and a
   docx with text carries no "no text layer" note. The line `wiped:` of the import and the table of `intake-report.md`
   use the same class words (person, company, place, name; the report says registered for a registered form).
+  A folder given to `awb import CODE DIR` (and `awb start --from DIR`) is a tree: each copy carries the path of its
+  file below the folder in the line `- path:` under the kind, wiped like the content (a piece that is a name becomes its
+  token, a registered form its code), and `intake-report.md` lists the paths under `## Paths`. The private report keeps
+  the path as written and `--redo` writes the same path again; a path in which the final check still finds something
+  reads `withheld, see the private report` (ask 2026-11-27-tcp-7c7b-1).
+  Inside a kept host name or web address, and inside a backtick span, two forms still become tokens (ask
+  2026-11-27-tcp-7c7b-3): a first name of `rules/first-names.txt` as one label or one dash part of a host name
+  (`NAME-dev`, `build.NAME.HOST`; the rest of the host stays) and the account of a code-host address
+  (`github.com/ACCOUNT/repo`, `gitlab.com/ACCOUNT/...`, `codeberg.org`, `bitbucket.org` and the like). A first name
+  that is also a word (Anna, Max) counts only next to a host role word such as `dev`, `lab` or `laptop` or a host
+  number, so `max-age` stays; a file name, the top-level label and the platform's own hosts are never read; a page of
+  the code host (`features`, `explore`), a public organisation (`hashicorp`, `opentelekomcloud`) and a known word are
+  no account.
+  In a code file (`.py`, `.sh`, `.ps1`, `.tf`, `.yaml`, `.json`, `.sql`, `.bat`) names are guessed in its prose only:
+  comments, docstrings and string literals that read like text. A key, an identifier, a column list, a SQL statement, a
+  regular expression or a property name keeps its words; a registered form, a mail address and a name the import
+  learned from prose, written capitalised as a word of its own, still go there. So the copy of a code file still runs.
   `awb images release CUST-XXXX FILEID N... [--project CODE]` puts a released picture into `input/FILEID-img/` of the
   project and the take note says so; the commit gate of a project checks no content (DMZ 3), so it can be committed. A
   script line that only reads or sets a variable (`pm.environment.set("token", pm.response.json().access_token)`,

@@ -569,3 +569,42 @@ AMD Instinct
 AMD Bergamo
 AMD Opteron
 Intel Itanium
+
+# SQL Server and database maintenance (ask 2026-11-27-tcp-j5sy, import 1 over-scrubbed)
+RDS
+RDS for SQL Server
+RDS for MySQL
+RDS for PostgreSQL
+DRS
+GaussDB
+DBCC
+CHECKDB
+CHECKTABLE
+CHECKALLOC
+CHECKCATALOG
+CHECKCONSTRAINTS
+VERIFYONLY
+NORECOVERY
+NOINIT
+NOFORMAT
+SHRINKFILE
+SHRINKDATABASE
+FILELISTONLY
+HEADERONLY
+tempdb
+msdb
+SQL Server Agent
+SQL Server Management Studio
+SSMS
+Always On
+Availability Group
+Log Shipping
+Standard Edition
+Enterprise Edition
+Developer Edition
+Express Edition
+Web Edition
+Index Rebuild
+Update Statistics
+Wartungsplan
+Konsistenzprüfung

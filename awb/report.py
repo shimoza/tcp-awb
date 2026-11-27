@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PUBLIC_NAME = "intake-report.md"
+PATHS_SECTION = "## Paths"
+"""The section of the private report with the relative path of each file of a folder import (awb import CODE DIR)."""
 """File name of the public report inside `<shared>/outbox/<CUST>/`."""
 
 MAX_POSITIONS = 5
@@ -48,6 +50,8 @@ class FileRecord:
     original_name: str              # private only
     kind: str
     state: str
+    relative_path: str = ""         # the path below the folder of `awb import CODE DIR`, as written: private only
+    public_path: str = ""           # the same path after the wipe of the content, in the copy and the public report
     parts: list[Part] = field(default_factory=list)          # parts[0] is the file itself
     output: Path | None = None
     original: Path | None = None    # where the original went in the vault, None when it stayed
@@ -191,6 +195,12 @@ def render_public(run: Run) -> str:
     unread = [f.file_id for f in run.files if f.state in ("unreadable", "unsupported")]
     if unread:
         lines += ["Not read as text, review the original in the vault: %s." % ", ".join(unread), ""]
+    paths = [f for f in run.files if f.public_path]
+    if paths:
+        lines += ["## Paths", "", "The path of each file below the folder of the import, wiped like its content.", "",
+                  "| file id | path |", "| --- | --- |"]
+        lines += ["| %s | %s |" % (f.file_id, _cell(f.public_path)) for f in paths]
+        lines.append("")
     rules = wiped_by_rule(run)
     if rules:
         lines += ["## Wiped", "",
@@ -264,6 +274,13 @@ def render_private(run: Run) -> str:
             _cell(f.output.name if f.output else "none"), _cell(f.original if f.original else "not moved"),
         ))
     lines.append("")
+
+    if any(f.relative_path for f in run.files):
+        # read back by awb import --redo (importcmd.last_paths): the path of the copy stays the same
+        lines += [PATHS_SECTION, "", "| file id | relative path | path in the copy |", "| --- | --- | --- |"]
+        lines += ["| %s | %s | %s |" % (f.file_id, _cell(f.relative_path), _cell(f.public_path or "none"))
+                  for f in run.files if f.relative_path]
+        lines.append("")
 
     lines += ["## Parts", "", "| part id | name | kind | state | replaced | notes |",
               "| --- | --- | --- | --- | --- | --- |"]

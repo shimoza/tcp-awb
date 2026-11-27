@@ -163,3 +163,14 @@ LOG_PRIVATE_IP = "10.20.30.40"
 # no allowed domain, so the name check classes it as url
 LEDGER_LINK_HOST = "qvelmarbau.de"
 LEDGER_LINK = "https://" + LEDGER_LINK_HOST + "/docs/run?x=1"
+
+# ask 2026-11-27-tcp-7c7b-3: a first name of rules/first-names.txt inside a host name (the ninth meeting person's, and
+# the second one's, which is also a word of the corpus) and an invented account of a code host
+HOST_FIRST = MEETING_FIRSTS[8]
+HOST_WORD_FIRST = MEETING_FIRSTS[1]
+CODE_HOST_ACCOUNT = "qorvandt"
+
+# ask 2026-11-27-tcp-j5sy (import 2): logins of an invented customer person, first.last and the initial and surname
+LOGIN_FIRST_LAST = ".".join((MEETING_FIRSTS[8].lower(), MEETING_LASTS[0].lower()))
+LOGIN_SHORT = MEETING_FIRSTS[8][0].lower() + MEETING_LASTS[0].lower()
+LOGIN_DOMAIN = "QVELNET"

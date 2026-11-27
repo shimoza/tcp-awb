@@ -30,7 +30,8 @@ names. Inside an assistant session of the owner user (UX10, his yes 2026-11-12) 
 --trusted DIR|FILE...` and `awb import CODE` of the bucket folder in/ (never the vault inbox there); everything else
 (--customer, --review, --redo, FILE without --trusted, --trusted without FILE, a customer whose forms are to be typed)
 is refused with the same line. A DIR argument takes every regular file of the folder and its subfolders (links and
-special files skipped). Nothing here prints a name, a form or a file name.
+special files skipped); each copy carries the path of its file below the folder (`- path:`, wiped like the content,
+written again by --redo). Nothing here prints a name, a form or a file name.
 
     awb import --auto
 
@@ -153,7 +154,14 @@ def _from_bucket(p: config.Paths, code: str) -> list[Path] | None:
 
 def _last_import(p: config.Paths, customer: str) -> list[tuple[str, Path]]:
     """(file id, original in the vault) of the newest private report of the customer that wrote copies."""
+    return _last_report(p, customer)[0]
+
+
+def _last_report(p: config.Paths, customer: str) -> tuple[list[tuple[str, Path]], dict[str, str]]:
+    """The rows of `_last_import` and the relative path of each file of a folder import in the same report (its
+    section Paths): file id -> path, as the first import read it."""
     from awb import candidates
+    from awb import report as _report
 
     folder = p.private_reports / customer
     reports = sorted((f for f in folder.glob("*.md*") if f.is_file()), reverse=True) if folder.is_dir() else []
@@ -161,19 +169,22 @@ def _last_import(p: config.Paths, customer: str) -> list[tuple[str, Path]]:
         text = candidates.read_report(report)
         if "- mode: stopped for the review" in text:
             continue
-        rows, inside = [], False
+        rows, paths, inside = [], {}, ""
         for line in text.splitlines():
             if line.startswith("## "):
-                inside = line.strip() == "## Files"
+                inside = line.strip()
                 continue
-            if not inside or not line.startswith("| F-"):
+            if not line.startswith("| F-"):
                 continue
             cells = candidates._cells(line)
-            if len(cells) >= 6 and intake.FILE_ID_RE.fullmatch(cells[0]) and cells[5] not in ("not moved", ""):
+            if inside == "## Files" and len(cells) >= 6 and intake.FILE_ID_RE.fullmatch(cells[0]) \
+                    and cells[5] not in ("not moved", ""):
                 rows.append((cells[0], Path(cells[5])))
+            elif inside == _report.PATHS_SECTION and len(cells) >= 2 and intake.FILE_ID_RE.fullmatch(cells[0]):
+                paths[cells[0]] = cells[1]
         if rows:
-            return rows
-    return []
+            return rows, paths
+    return [], {}
 
 
 def _copy_out(p: config.Paths, original: Path, folder: Path) -> Path:
@@ -207,8 +218,9 @@ def session_may(files: list[Path], *, customer: str | None, review: bool, redo: 
 
 def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None = None, review: bool = False,
         redo: bool = False, read=None, tty=None, edit=None, confirm=None, trusted: bool = False,
-        auto: bool = False, pulled: bool = False) -> int:
-    """`pulled`: the files came from the bucket folder in/ (awb start), not from the command line."""
+        auto: bool = False, pulled: bool = False, paths: dict | None = None) -> int:
+    """`pulled`: the files came from the bucket folder in/ (awb start), not from the command line. `paths`: file ->
+    its relative path below the folder given (`folder_files`), carried wiped into the copy."""
     from awb import projects, vault
 
     session = vault.in_assistant_session()
@@ -258,11 +270,11 @@ def run(p: config.Paths, code: str, files: list[Path], *, customer: str | None =
             raise ImportRefused("an import of %s is running (awb import --auto or another terminal): try again when "
                                 "it ends" % code)
         return _take(p, code, files, cust, review=review, redo=redo, edit=edit, confirm=confirm, trusted=trusted,
-                     auto=auto)
+                     auto=auto, paths=paths)
 
 
 def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: bool, redo: bool, edit, confirm,
-          trusted: bool, auto: bool = False) -> int:
+          trusted: bool, auto: bool = False, paths: dict | None = None) -> int:
     """The files of the import (the arguments, the bucket, the vault inbox or the last import) through the intake,
     under the import lock of the project."""
     from awb import rulesync, vault
@@ -273,14 +285,17 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
         if redo:
             if files:
                 raise ImportRefused("--redo takes the files of the last import, give no FILE")
-            last = _last_import(p, cust)
+            last, last_paths = _last_report(p, cust)
             if not last:
                 raise ImportRefused("%s has no import to redo" % cust)
             config.make_dir(p.vault / "tmp", 0o700)
             tmp = Path(tempfile.mkdtemp(prefix="redo-", dir=p.vault / "tmp"))
-            mapping = {}
+            mapping, paths = {}, {}
             for fid, original in last:
-                mapping[_copy_out(p, original, tmp)] = (fid, original)
+                copy = _copy_out(p, original, tmp)
+                mapping[copy] = (fid, original)
+                if last_paths.get(fid):
+                    paths[copy] = last_paths[fid]     # the copy keeps the path of the first import
             files = list(mapping)
             where = "the vault (the last import of %s)" % cust
         elif files:
@@ -307,7 +322,7 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
         if trusted:
             _say("trusted: no name is guessed; registered forms, secrets, mail addresses and phones are still wiped")
         res = intake.run(files, cust, p, review=review, edit=edit, confirm=confirm, redo=mapping, trusted=trusted,
-                         progress=_progress)
+                         progress=_progress, paths=paths)
     finally:
         if tmp is not None:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -339,9 +354,21 @@ HELD_MARK = "report-workbook.mailed"
 def _expand(args: list[str]) -> list[Path]:
     """The FILE arguments, a folder (not a link to one) as every regular file of it and its subfolders, as awb start
     --from takes it; the count of the links and special files skipped goes to standard error."""
+    return _expand_paths(args)[0]
+
+
+def folder_files(root: Path, files: list[Path]) -> dict[Path, str]:
+    """file -> its path below `root` with forward slashes (src/app/main.py): the tree a project rebuilds from the
+    copies of a folder import."""
+    return {f: f.relative_to(root).as_posix() for f in files}
+
+
+def _expand_paths(args: list[str]) -> tuple[list[Path], dict[Path, str]]:
+    """`_expand` and the relative path of every file found in a folder argument (`folder_files`)."""
     from awb import start
 
     out: list[Path] = []
+    paths: dict[Path, str] = {}
     for arg in args:
         path = Path(arg)
         if path.is_dir() and not path.is_symlink():
@@ -352,9 +379,10 @@ def _expand(args: list[str]) -> list[Path]:
             if skipped:
                 _progress("a folder: %d link(s) or special file(s) skipped" % skipped)
             out += found
+            paths.update(folder_files(path, found))
         else:
             out.append(path)
-    return out
+    return out, paths
 
 
 def _send_mail(subject: str, message: str) -> bool:
@@ -537,8 +565,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.paste:
             return run_paste(config.paths(), args.code, args.kind)
-        return run(config.paths(), args.code, _expand(args.files), customer=args.customer,
-                   review=args.review, redo=args.redo, trusted=args.trusted)
+        files, paths = _expand_paths(args.files)
+        return run(config.paths(), args.code, files, customer=args.customer,
+                   review=args.review, redo=args.redo, trusted=args.trusted, paths=paths)
     except (ImportRefused, intake.IntakeError, register.RegisterError, projects.ProjectError, vault.VaultError) as err:
         text = str(err)
         print(text if text.startswith("held: ") else "awb import: %s" % text, file=sys.stderr)

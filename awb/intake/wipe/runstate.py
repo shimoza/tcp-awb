@@ -75,6 +75,8 @@ RULE_LABELS = {
     "_lone_line_candidates": "lone line before a company or role line",
     "_lone_first_name_candidates": "lone first name",
     "_login_candidates": "login or handle",
+    "_host_name_candidates": "first name in a host name or account of a code host",
+    "_login_shape_candidates": "login of a person",
 }
 """The rule of each span in words, for the reports: the private one lists every wiped value with it, the public one
 counts per class how often each rule fired."""
@@ -172,6 +174,9 @@ def _candidate_spans(state: WipeState, text: str, known: list[Span]) -> list[Spa
     extra = _token_spans(text) + [Span(m.start("v"), m.end("v"), "token") for m in _PRODUCT_LABEL_RE.finditer(text)]
     extra += _code_spans(text) + _tech_spans(text)   # code and vendor terms (KVM, Sapphire Rapids) give no candidates
     blocked = _Mask(len(text), known + _stop_spans(text) + extra)
+    # the host rule reads inside a web address and a code span too (ask 2026-11-27-tcp-7c7b-3): only a registered form,
+    # a structured value other than a host or web address and a token or code stay its ground
+    blocked.inner = _Mask(len(text), [k for k in known if k.cls != "url"] + _token_spans(text))
     found: list[tuple[int, int, int, str]] = []
     for prio, rule in enumerate(PROPOSED_RULES):
         for a, b, cls in rule(text, blocked):

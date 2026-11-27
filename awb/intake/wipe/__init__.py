@@ -5,11 +5,13 @@ token (the patterns; at the entry not an address, a host name or a web address, 
 neither knows: strings shaped like the name of a person, a company or a place. In wipe mode every string they recognise becomes a neutral token of its class, without a stop:
 
     person    [person 1]   a title, a salutation, a sign-off, a mail header, a speaker label, a person label or
-                           column, a by-line, an initial, "Last, First", a login, a first name of the list ...
+                           column, a by-line, an initial, "Last, First", a login, a first name of the list, a first
+                           name as a piece of a host name ...
     company   [company 1]  a legal form, a company label or column, "Firma X", a Russian legal form, the domain of a
                            mail address whose local part names a person
     place     [place 1]    a street and number, a postcode and town, a place label or column
-    unknown   [name 1]     a run of capitalised words that no list knows, an identifier, a lone word in a heading
+    unknown   [name 1]     a run of capitalised words that no list knows, an identifier, a lone word in a heading,
+                           the account of a code-host address
 
 A technical word is never a candidate of any class (`_technical_word`): an acronym of up to four capitals or its
 plural (VMs, IPs, ECSs), a hyphen compound in lower case (pre-shared-key) and a word of the section intake-seed of

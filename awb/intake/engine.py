@@ -273,7 +273,26 @@ class _Engine:
                 out.append(value)
         return out
 
-    def sanitize(self, text: str, where: str) -> tuple[str, Counter]:
+    def data_spans(self, text: str) -> tuple[list[Span], list[Span]]:
+        """The spans of a data literal of a code file (a key, an identifier, a SQL statement: awb/extract/text.py
+        literal_pieces): registered forms, structured data and the learned forms of the run that stand as a capitalised
+        word of their own; no candidate rule guesses there (ask 2026-11-27-tcp-7c7b)."""
+        names, every = self.raw_spans(text)
+        structured = self.data(every)
+        taken_spans = names + every
+
+        def taken(a: int, b: int) -> bool:
+            return any(a < s.end and s.start < b for s in taken_spans)
+
+        learned = []
+        for s in self.wipe.learned.find(text, taken, keep=self.wipe.keep):
+            left = text[s.start - 1] if s.start > 0 else " "
+            right = text[s.end] if s.end < len(text) else " "
+            if text[s.start:s.start + 1].isupper() and left not in "_.$@{[" and right not in "_.(":
+                learned.append(s)
+        return names, structured + learned
+
+    def sanitize(self, text: str, where: str, data: bool = False) -> tuple[str, Counter]:
         """`text` with every hit replaced by its token, normalised: the registered forms by their codes, structured
         data, candidates and learned forms by their tokens; a [company] token right after the customer code merges
         into the code. Counts per class of what was replaced."""
@@ -287,7 +306,7 @@ class _Engine:
         text = normalize.strip_invisible(text)
         for _ in range(MAX_PASSES):
             n = normalize.normalize(text)
-            spans = _resolve(*self.spans(n.text))
+            spans = _resolve(*(self.data_spans(n.text) if data else self.spans(n.text)))
             if not spans:
                 break
 

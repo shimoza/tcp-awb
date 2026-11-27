@@ -624,6 +624,90 @@ def code_segments(text: str, profile: str) -> list[tuple[int, int, bool]]:
     return out
 
 
+_COMMENT_STARTS = ("#", "//", "--", "/*", "<#", "::", "rem ", "REM ")
+_TRIPLE = ("'" * 3, '"' * 3)
+_SQL_START_RE = re.compile(r"(?is)\A[\s(]*(?:select|insert|update|delete|create|alter|drop|with|merge|exec|execute|"
+                           r"grant|revoke|truncate|backup|restore|dbcc|declare|use|set)\b")
+_REGEX_SHAPE_RE = re.compile(r"\(\?P?<|\\[dswbDSWB]|\[\^|\(\?:|\$\{|%\(\w+\)[sd]")
+_PROSE_WORDS_RE = re.compile(r"[^\W\d_][\w'’.-]*(?:[ \t]+[^\W\d_][\w'’.-]*)+")
+_IDENT_PIECE_RE = re.compile(r"(?<![\w-])(?:--[A-Za-z][\w-]*|[A-Za-z]\w*_\w+|\w+_[A-Za-z]\w*|"
+                             r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?=\())(?![\w-])")
+_FSTRING_PREFIX_RE = re.compile(r"(?i)(?<![\w])[rbu]?f[rb]?$")
+
+
+def _fstring_fields(piece: str) -> list[tuple[int, int]]:
+    """The replacement fields of an f-string ({r.name}, {KEY_DATE:%Y}): (start, end) inside `piece`, braces included;
+    a doubled brace is text."""
+    out, i, n = [], 0, len(piece)
+    while i < n:
+        if piece.startswith("{{", i) or piece.startswith("}}", i):
+            i += 2
+            continue
+        if piece[i] == "{":
+            depth, j = 1, i + 1
+            while j < n and depth:
+                depth += {"{": 1, "}": -1}.get(piece[j], 0)
+                j += 1
+            out.append((i, j))
+            i = j
+            continue
+        i += 1
+    return out
+
+
+def _reads_as_prose(content: str) -> bool:
+    """A string literal that reads like text for a person: two words or more side by side, no SQL statement, no
+    regular expression or format template."""
+    return bool(_PROSE_WORDS_RE.search(content)) and not _SQL_START_RE.match(content) \
+        and not _REGEX_SHAPE_RE.search(content)
+
+
+def literal_pieces(text: str, profile: str) -> list[tuple[int, int, str]]:
+    """`text` cut into (start, end, kind) pieces that cover it (ask 2026-11-27-tcp-7c7b, over-scrub of code): "code"
+    is the code between the literals, "prose" a comment, a docstring, a here-document or a string literal that reads
+    like text (`_reads_as_prose`), "data" every other literal: a key, an identifier, a column list, a SQL statement, a
+    regular expression, a property name. Inside a prose literal an identifier piece (a_b, --css-name, obj.call() )
+    is data and the fields of an f-string ({r.name}) are code. Names are guessed in prose only; data gets the
+    registered forms, the structured data and the learned forms that stand as a capitalised word of their own."""
+    out: list[tuple[int, int, str]] = []
+    for a, b, literal in code_segments(text, profile):
+        if not literal:
+            out.append((a, b, "code"))
+            continue
+        piece = text[a:b]
+        head = piece.lstrip()
+        quoted = head[:1] in ("'", '"', "`") and not head.startswith(_TRIPLE)
+        if profile == "json":
+            after = text[b:b + 40].lstrip(" \t")
+            kind = "data" if after.startswith(":") or not _reads_as_prose(piece[1:-1]) else "prose"
+            out.append((a, b, kind))
+            continue
+        if not quoted:
+            if head.startswith(_COMMENT_STARTS) or head.startswith(_TRIPLE) or profile not in ("yaml", "bat"):
+                kind = "prose"     # a comment, a docstring, a here-document
+            else:
+                kind = "prose" if _reads_as_prose(piece) else "data"   # a yaml value, an echoed line
+        else:
+            kind = "prose" if _reads_as_prose(piece[1:-1]) else "data"
+        if kind == "data":
+            out.append((a, b, "data"))
+            continue
+        cuts: list[tuple[int, int, str]] = []
+        if profile == "py" and quoted and _FSTRING_PREFIX_RE.search(text[max(0, a - 3):a]):
+            cuts += [(x, y, "code") for x, y in _fstring_fields(piece)]
+        cuts += [(m.start(), m.end(), "data") for m in _IDENT_PIECE_RE.finditer(piece)
+                 if not any(x < m.end() and m.start() < y for x, y, _ in cuts)]
+        pos = 0
+        for x, y, k in sorted(cuts):
+            if x > pos:
+                out.append((a + pos, a + x, "prose"))
+            out.append((a + x, a + y, k))
+            pos = y
+        if pos < len(piece):
+            out.append((a + pos, b, "prose"))
+    return out
+
+
 _WORD_RE = re.compile(r"\S+")
 
 
@@ -632,13 +716,16 @@ def encoded_word(word: str) -> bool:
     return len(word) >= 16 and any(r is not None for _, _, r, *_ in _decoded_blocks(word, ("base64", "hex")))
 
 
-def mask_code(text: str, profile: str) -> str:
+def mask_code(text: str, profile: str, prose: bool = False) -> str:
     """`text` as the checks read a code file: string literals and comments as they are, the words of the code
-    blanked (same length, line breaks kept), an encoded run of the code kept so that it is still decoded."""
+    blanked (same length, line breaks kept), an encoded run of the code kept so that it is still decoded. With
+    `prose` the data literals are blanked too (`literal_pieces`): the text detection learns from and the candidate
+    rules read."""
     out = []
-    for a, b, literal in code_segments(text, profile):
+    for a, b, kind in literal_pieces(text, profile):
         piece = text[a:b]
-        out.append(piece if literal else _WORD_RE.sub(
+        keep = kind == "prose" or (kind == "data" and not prose)
+        out.append(piece if keep else _WORD_RE.sub(
             lambda m: m.group(0) if encoded_word(m.group(0)) else " " * len(m.group(0)), piece))
     return "".join(out)
 
@@ -702,7 +789,7 @@ def extract_text(path: Path, kind: str = "text") -> Extraction:
     if kind == "svg":
         ex.notes.append("svg picture, its text nodes are the output, the picture is held on the vault side")
 
-    parts = [mask_code(ex.text, profile) if profile else ex.text]
+    parts = [mask_code(ex.text, profile, prose=True) if profile else ex.text]
     parts.extend(detect_extra)
     for key in ("title", "author", "description", "keywords"):
         if ex.meta.get(key):

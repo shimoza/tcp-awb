@@ -31170,8 +31170,36 @@
    "name": "doc fetch: a source with the query of a redirect is taken, a broken query refused",
    "run": ".venv/bin/pytest tests/test_doc_source_query.py",
    "status": "passing"
+  },
+  {
+   "id": "ASK-7c7b-1127-1",
+   "phase": "ask",
+   "name": "a folder import carries the relative path of each file in the copy (- path:), wiped like the content, listed in the public report, kept as written in the private report and written again on --redo",
+   "run": ".venv/bin/pytest tests/test_import_relpath.py",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-7c7b-1127-3",
+   "phase": "ask",
+   "name": "a first name as a label or dash part of a host name and the account of a code-host address become tokens inside a kept host, web address or code span; common words, file names, pages of the code host and public organisations stay (B-117)",
+   "run": ".venv/bin/pytest tests/test_wipe_host_names.py",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-j5sy-1127-logins",
+   "phase": "ask",
+   "name": "logins of persons (first.last, DOMAIN\\\\login, profile folders, option values with a first name) become tokens; service users of a server, system users and code calls stay",
+   "run": ".venv/bin/pytest tests/test_wipe_logins.py",
+   "status": "passing"
+  },
+  {
+   "id": "ASK-overscrub-1127",
+   "phase": "ask",
+   "name": "a code tree with names in its prose still compiles after the import and the prose is wiped; keys, identifiers, SQL and regular expressions keep their words; SQL Server maintenance words and RDS stay",
+   "run": ".venv/bin/pytest tests/test_intake_code_overscrub.py",
+   "status": "passing"
   }
  ],
- "total_tests": 4447,
+ "total_tests": 4457,
  "checked": "2026-11-22"
 }

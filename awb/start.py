@@ -193,7 +193,8 @@ def start(p: config.Paths, kind: str, goal: str, customer: str | None = None, ta
             return EXIT_OK
         if from_dir:
             _say("%s: %d file(s) from the folder given with --from" % (code, len(taken)))
-            result = importcmd.run(p, code, taken, read=read, tty=tty, trusted=trusted)
+            result = importcmd.run(p, code, taken, read=read, tty=tty, trusted=trusted,
+                                   paths=importcmd.folder_files(Path(from_dir), taken))
         else:
             result = import_step(p, code, read=read, tty=tty)
     except (StartError, importcmd.ImportRefused, intake.IntakeError, register.RegisterError,
