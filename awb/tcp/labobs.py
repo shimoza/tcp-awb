@@ -412,7 +412,10 @@ def _target(svc, req: dict, project: str, customer: bool = False) -> tuple[str, 
         raise _refused("a bucket name reads like %s-lab-1" % project)
     if bucket in svc.exchange_buckets():
         raise _refused("the exchange buckets are reached through awb xchg only")
-    if not customer and not bucket.startswith(project + "-"):
+    holder = svc._bucket_holder(req.get("tenant"), bucket)
+    if holder is not None and holder != project:
+        raise _refused("refused: the bucket %s is granted to another project" % bucket)
+    if holder is None and not customer and not bucket.startswith(project + "-"):
         # on the shared lab tenants the project's own buckets only; a customer tenant in write mode holds the
         # customer's buckets under their own names (TW3)
         raise _refused("refused: a lab obs transfer reaches only a bucket named after the project (%s-...)" % project)

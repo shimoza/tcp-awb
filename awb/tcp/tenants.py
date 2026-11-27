@@ -11,6 +11,9 @@
     awb tenant remove ALIAS                                             owner side: forget a read-only tenant
     awb tenant grant ALIAS CODE, awb tenant revoke ALIAS CODE           owner side: a project reads a read-only tenant
     awb tenant mode ALIAS write|readonly [--note TEXT]                  owner side: a customer tenant to write and back
+    awb tenant bucket-grant TENANT BUCKET CODE --owner-word TEXT [--day YYYY-MM-DD]
+                                                                        owner side: one existing bucket to one project
+    awb tenant bucket-revoke TENANT BUCKET, awb tenant bucket-grants    owner side: take it back, list them
     awb tenant snapshot [ALIAS]...                                      owner side: list the tenant, GET only
     awb tenant list                                                     every tenant, what runs there now
     awb tenant now ALIAS                                                what runs there now, oldest first
@@ -56,6 +59,11 @@ Without --region it reads eu-de and eu-nl; `regions` changes the regions of a re
 login again and runs `awb keys unlock`. `projects` (a session of a granted project, or the owner) lists the region
 projects and sub-projects of the tenant's domain in its regions through the key service (GET /v3/auth/projects);
 `awb cloud call --tenant ALIAS --scope NAME GET ...` reads one of them.
+
+`bucket-grant` (awb/tcp/bucketgrant.py) gives one bucket the owner made under another name than <code>-... to one
+project alone, with his words and the day, in `<vault>/bucket-grants.json`: the key service then lets that project's
+sessions read it (`awb cloud call GET obs /BUCKET`) and move files with `awb lab obs`, and refuses it for every other
+project. It is refused for the work user; the desk runs it as the owner user on his word.
 
 `mode` (task TW, B-031) switches a customer tenant to write once the customer gave the owner a written OK, with the
 day and `--note` in the tenant_write line of keys.conf, after it checked by name that pass holds the write credential
@@ -1126,6 +1134,17 @@ def main(argv: list[str] | None = None) -> int:
     rv = sub.add_parser("revoke", help="take a project's grant of a read-only tenant away (owner side)")
     rv.add_argument("alias")
     rv.add_argument("code")
+    bg = sub.add_parser("bucket-grant", help="give one existing bucket of a tenant to one project alone, with the "
+                                             "owner's word (owner side)")
+    bg.add_argument("tenant", help="tcp-NNNNN (the old name test-NNNNN is taken)")
+    bg.add_argument("bucket")
+    bg.add_argument("code")
+    bg.add_argument("--owner-word", required=True, metavar="TEXT", help="his words, kept with the grant")
+    bg.add_argument("--day", default=None, help="the day of his word, YYYY-MM-DD (default: today)")
+    br = sub.add_parser("bucket-revoke", help="take the grant of a bucket back (owner side)")
+    br.add_argument("tenant")
+    br.add_argument("bucket")
+    sub.add_parser("bucket-grants", help="every bucket grant with the owner's word (owner side)")
     md = sub.add_parser("mode", help="switch a customer tenant to write after the customer's written OK, or back to "
                                      "readonly at once (owner side, his own terminal)")
     md.add_argument("alias")
@@ -1203,6 +1222,8 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(lines))
         elif args.command in ("add-readonly", "remove", "grant", "revoke", "regions"):
             return _readonly_command(p, args)
+        elif args.command in ("bucket-grant", "bucket-revoke", "bucket-grants"):
+            return _bucket_command(p, args)
         elif args.command == "mode":
             return _mode_command(args)
         elif args.command == "projects":
@@ -1349,6 +1370,33 @@ def _readonly_command(p: config.Paths, args) -> int:
         return 1
     except Exception as err:      # xchg.XchgError of a broken keys.conf line, an OS error
         print("awb tenant: %s" % (err if type(err).__name__ == "XchgError" else type(err).__name__), file=sys.stderr)
+        return 1
+    print("\n".join(lines))
+    return 0
+
+
+def _bucket_command(p: config.Paths, args) -> int:
+    """`awb tenant bucket-grant|bucket-revoke|bucket-grants` (awb/tcp/bucketgrant.py), owner side only."""
+    from awb.tcp import bucketgrant
+
+    say = lambda line: print(line, file=sys.stderr)   # noqa: E731
+    try:
+        if config.is_work_user():
+            raise bucketgrant.BucketGrantError("a bucket grant is the owner's: he runs it in his own terminal")
+        if args.command == "bucket-grant":
+            new = bucketgrant.grant(p, args.tenant, args.bucket, args.code, args.owner_word, args.day, say=say)
+            tenant = bucketgrant._tenant(args.tenant, say=lambda _line: None)
+            lines = ["%s owns %s on %s: %s" % (args.code, args.bucket, tenant, "granted" if new else "granted already")]
+        elif args.command == "bucket-revoke":
+            gone = bucketgrant.revoke(p, args.tenant, args.bucket, say=say)
+            lines = ["%s: %s" % (args.bucket, "revoked" if gone else "was not granted")]
+        else:
+            lines = bucketgrant.list_lines(p)
+    except bucketgrant.BucketGrantError as err:
+        print("awb tenant: %s" % err, file=sys.stderr)
+        return 1
+    except OSError as err:
+        print("awb tenant: %s" % type(err).__name__, file=sys.stderr)
         return 1
     print("\n".join(lines))
     return 0

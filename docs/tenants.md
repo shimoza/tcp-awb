@@ -78,6 +78,27 @@ the alias `keys.conf` and the register hold, so the host keeps its entries, keys
 until the owner renames them. An alias of another shape (`test-1`) is not touched. Customer tenant numbers stay in the
 vault only.
 
+### A bucket of the owner granted to one project
+
+On a test tenant a session reaches only the buckets named after its project (`tcp-q7m4-...`). A bucket the owner made
+before under another name and gave to one project alone gets a grant, written by the owner user (the desk runs it on
+his word, never the work user):
+
+```bash
+awb tenant bucket-grant tcp-10491 shared-images tcp-q7m4 --owner-word "the bucket shared-images belongs only to tcp-q7m4" --day 2026-11-27
+awb tenant bucket-grants                         # every grant with his word and the day
+awb tenant bucket-revoke tcp-10491 shared-images
+```
+
+The grant is one entry tenant, bucket, project, his words and the day in `<vault>/bucket-grants.json` (mode 600); the
+old tenant name `test-NNNNN` is taken and written as `tcp-NNNNN`. The key service then lets that project read the
+bucket (`awb cloud call GET obs /BUCKET`) and move files with `awb lab obs` get and put (an object a put writes is a
+leftover of the run, as always), and refuses the bucket for every other project, its tags included. A grant opens no
+OBS write of `awb cloud call` and does not widen a leased key (its IAM policy keeps `tcp-q7m4-*`). One bucket goes to one
+project: a second grant is refused until the first is revoked. A bucket named after a project and the exchange
+buckets take no grant. A missing file or one that does not parse grants nothing, and the command never overwrites a
+broken file.
+
 ### Lab runs of a project's own scripts (LR)
 
 A project session may test its own scripts on the lab tenants tcp-10491, tcp-10497 and tcp-10503 (since
