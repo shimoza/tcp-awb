@@ -40,7 +40,8 @@ from pathlib import Path
 from awb import config, devnote, safefile
 from awb.projects import (FX_AFTER_OLD, FX_HEADING_OLD, FX_PHRASE_OLD, FX_SCRIPT_LINE, KB_FIRST, LAB_LOGS,
                           LAB_RUN_RULE, LAB_RUN_RULE_HEAD, LAB_RUN_RULE_OLD_HEAD, LEVEL_2, LEVEL_2_RUN,
-                          OPEN_COMMAND_RULE, OWN_OUTPUT_RULE, PROJECT_LINE, PUT_KEY_RULE, REVIEW_L1, START_RULE)
+                          OPEN_COMMAND_RULE, OWN_OUTPUT_RULE, PROJECT_LINE, PUT_KEY_RULE, REVIEW_L1, SCRUB_REPORT_RULE,
+                          START_RULE)
 
 CLAUDE_FIXES = (
     # T6 (2026-10-27): the FX line named /opt/tcp-awb/workflows, a path no release creates
@@ -85,6 +86,9 @@ CLAUDE_FIXES = (
     # task LR (2026-10-28): the lab run rule joins the line of the kind project
     ("- " + PROJECT_LINE, "- " + PROJECT_LINE + " " + LAB_RUN_RULE),
 )
+CLAUDE_FIXES += tuple((old + " " + SCRUB_REPORT_RULE, new + " " + SCRUB_REPORT_RULE) for old, new in CLAUDE_FIXES
+                      if old.startswith("- Files from him come through the bucket inboxes"))
+"""The inbox fixes hold for a line that already ends with the scrub report rule (his rule of 2026-11-27)."""
 CLAUDE_ADD = (
     ("- Proof goes to evidence/, results to deliverables/, review records to reviews/.",
      "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/).",
@@ -110,9 +114,11 @@ CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, devnote.FILE_RULE, "he cannot open it"),
 CLAUDE_ADD += (("- " + OWN_OUTPUT_RULE, LAB_LOGS, "Logs of our own lab runs"),)
 """Task GT: the lab log line goes right after the line of P1, before the lines of DN."""
 CLAUDE_APPEND = (("- Files for him leave with `awb xchg put FILE`", "--kind WORD", PUT_KEY_RULE),
+                 ("- Files from him come through the bucket inboxes", "awb dev ask", SCRUB_REPORT_RULE),
                  ("- " + START_RULE, OPEN_COMMAND_RULE, OPEN_COMMAND_RULE))
 """(line start, marker, text): the text goes at the end of the line unless the line carries the marker. Task BK1
-(2026-11-06): the kind word and the language of a put join the put line (the template holds 30 lines at most)."""
+(2026-11-06): the kind word and the language of a put join the put line (the template holds 30 lines at most).
+His rule of 2026-11-27: the scrub report rule joins the inbox line."""
 CLAUDE_CUT = (
     ("- Files for him leave with `awb xchg put FILE`", ", after the name check and, for a customer project, the review",
      ""),
