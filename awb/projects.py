@@ -1440,15 +1440,26 @@ def _plain(text: str) -> str:
 
 def _owner_items(text: str) -> list[str]:
     """The dash items of OPEN.md that wait on the owner: every item under a ## heading that names the owner and an
-    item elsewhere that names him."""
+    item elsewhere that names him. Settled items are left out: those under a closed heading (the level rule of
+    `open_bullets`) and every item that starts with "[x]"."""
     out: list[str] = []
     owner_section = False
+    skip_level = 0                      # 0: not inside a closed section, else the level of its heading
     for line in text.splitlines():
+        m = re.match(r"(#{1,6})\s+(.*)$", line)
+        if m:
+            level = len(m.group(1))
+            if skip_level and level <= skip_level:
+                skip_level = 0
+            if not skip_level and CLOSED_HEADING.search(m.group(2)):
+                skip_level = level
         if line.startswith("## "):
             owner_section = "owner" in line.lower()
             continue
-        if line.startswith("- "):
+        if line.startswith("- ") and not skip_level:
             item = _plain(line[2:])
+            if item.lower().startswith("[x]"):
+                continue
             if owner_section or re.search(r"\bowner\b", item, re.IGNORECASE):
                 out.append(item)
     return out

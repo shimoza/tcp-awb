@@ -55,7 +55,8 @@ QUEUE_REL = Path("presentations/work-profile/queue.tsv")
 TEXT_MAX = 110
 PER_PROJECT = 5               # owner items shown per project; the others are counted
 FIRST = 3                     # items `awb` with no argument prints
-_DEV_START = ("owner (tooling)", "(tooling)", "steering:")
+_DEV_START = ("owner (tooling)", "(tooling)", "steering:", "allow documentation host", "allow the documentation host")
+_DEV_LEAD = re.compile(r"^(?:\[ \]\s*)?(?:[0-9]{4}-[0-9]{2}-[0-9]{2}\s+)?(?:owner:\s*)?", re.IGNORECASE)
 _DONE_STATES = ("stopped: by_owner", "stopped: success")
 _WAITING_STATE = re.compile(r"^\s*(waiting|asked)\b|\bwaits? on (him|you|the owner)\b", re.IGNORECASE)
 _SEPARATOR = re.compile(r"^\|?[\s:|-]+\|?$")
@@ -753,7 +754,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     items += online
     items += devask.status_items(p, view)
     for it in items:
-        if it.kind != "done" and it.text.lower().startswith(_DEV_START):
+        if it.kind != "done" and _DEV_LEAD.sub("", it.text.lower()).startswith(_DEV_START):
             it.kind = "dev"
     if record:
         global LAST_RECORD
