@@ -14,8 +14,7 @@ The instructions for a Claude Code session that works on this repository.
 - Runtime code is standard library plus the poppler tools. Tests may use python-docx, python-pptx, openpyxl, reportlab.
 - `build/tests.json` lists every test with its status: run the tests and continue with the first failing one. A test
   is never edited to make it pass.
-- Commits carry the owner as author and nothing else: no co-author line and no "generated with" line. The
-  commit-msg hook refuses a message that names an assistant as co-author.
+- Commits carry the owner as author; the README section Built with Claude Code says how the code is made.
 - A commit that adds or changes a command or a behaviour adds a line to this week's entry in `CHANGELOG.md` and
   fixes the README where it describes that part.
 - A note or answer that ends with `owner's word: "...", TIME` (written with `--owner-word`) is the owner's

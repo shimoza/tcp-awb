@@ -94,6 +94,21 @@ The rest of the numbers of STATS.json of 2026-11-27, with the command that recom
 - commits since 2026-09-28, 944: `git rev-list --count --since=2026-09-28 HEAD`
 - build tasks done and branch checks passed and refused: `awb build list`, on the owner's host only, so not in the file of a clone
 
+## Built with Claude Code
+
+The code of the Workbench is written by AI coding agents: Claude Code, and Codex for the web interface until
+2026-11-19. They work under the design, review and acceptance of the author.
+
+The author does these himself: the architecture, the rules the agents follow, the red teams of his own designs, the
+acceptance tests and every merge decision. An agent never merges its own work.
+
+A change is judged by the build queue ([docs/build-queue.md](docs/build-queue.md)). Its checks run without a model:
+the tests, the commit gate, the list of paths the task may touch and a check that no test was edited, skipped or
+hollowed out to make it pass. A change that fails one of them goes back.
+
+A commit carries the author as the person responsible for it, whoever or whatever wrote the lines. A commit message
+may name the agent or the review a change came from.
+
 ## Quick start
 
 No sealed host, no vault, no key service and no model needed. Python 3.12 or later and `git`; `gh` to fetch the facts.
