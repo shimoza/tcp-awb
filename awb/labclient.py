@@ -89,9 +89,11 @@ class LabClientError(Exception):
 
 def _tenant_name(alias):
     """The alias of --tenant as the work rules write it: test-10491 is the old name of tcp-10491 (one warning line
-    in its window, refused after it)."""
+    in its window, refused after it). The name given is kept: the key service maps it to the tenant it holds, and
+    the run log of a project keeps the name the run started under."""
     try:
-        return tenantname.canonical(alias)
+        tenantname.canonical(alias)
+        return alias
     except tenantname.OldNameRefused as err:
         raise LabClientError(str(err)) from None
 
