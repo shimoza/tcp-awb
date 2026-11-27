@@ -20,6 +20,9 @@ control), so a partner can switch on Track Changes and edit every line:
   SVG picture (the page's style rules go into it) with a PNG fallback drawn by `awb pdf` and poppler's pdftoppm,
   so Word 2016 and later show the SVG and an older reader the PNG; when no PNG can be drawn (no pdftoppm), the SVG
   part stands alone, which Word 2016 and later show and an older reader does not, and one stderr line says so.
+- a Markdown image `![alt](file)` in a paragraph is the same inline picture, the file relative to the .md and
+  inside its project folder (the rules of `awb pdf`: an absolute path, a path outside, a URL, another kind or a
+  missing file refuses with the path named, nothing written).
 - the caption (the alt text or figcaption) is a centred paragraph of the style Caption below its figure; the
   figure paragraph keeps with it.
 - tables (HTML tables, Markdown pipe tables) as Word tables with borders over the text width; a first row of th
@@ -830,7 +833,7 @@ def convert(path: Path, out: Path | None = None, title: str | None = None, start
         if kind == "html":
             blocks, found, skipped, css = parse_html(text, Path(os.path.abspath(path)).parent, start)
         else:
-            blocks, found = pdf.from_markdown(text)
+            blocks, found = pdf.from_markdown(text, Path(os.path.abspath(path)).parent, start)
         data, counts = render(blocks, title or found or path.stem, author, css, h1_page)
         pdf._publish(target, data)
         return target, counts, skipped

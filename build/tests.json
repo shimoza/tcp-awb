@@ -31149,6 +31149,13 @@
    "name": "awb career update drafts CV bullets only, no LinkedIn paragraph (career project correction 5)",
    "run": ".venv/bin/pytest tests/test_career.py",
    "status": "passing"
+  },
+  {
+   "id": "ASK-bj3o-1127-5",
+   "phase": "ask",
+   "name": "awb docx and awb pdf take a Markdown image ![alt](file) as a figure with its alt text as caption (PNG and JPEG); a path outside the project, an absolute path, a URL, another kind or a missing file refuses with the path named, nothing written",
+   "run": ".venv/bin/pytest tests/test_bj3o_md_images.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4447,

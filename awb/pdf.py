@@ -23,6 +23,13 @@ Input: the Markdown the Workbench writes (headings, paragraphs, lists, fenced co
 *italic*, [text](url)) or HTML such as `awb howto render` writes (h1 to h6, p, ul, ol, li, pre, code, a, table,
 strong, em, br; any other element as its text).
 
+Figures of a Markdown file (tcp-bj3o ask 2026-11-27-5): an image `![alt](file)` in a paragraph is a figure of a PNG
+or JPEG file, its path relative to the .md, with the alt text as the caption below it. The file must lie inside the
+same project folder (or session scratch folder) as the .md; an absolute path, a path that leaves that folder, a URL,
+another kind of file or a missing file refuses the document with the path named and nothing is written (refused
+rather than left out, so no deliverable goes out with a picture silently missing). An image inside a heading, a
+list item or a table stays its alt text.
+
 Figures of an HTML page (tcp-ui5o ask 2026-11-24-2; awb/pdffig.py): an img of a PNG or JPEG file (its src relative
 to the page, inside the project or scratch folder, no linked path component and no special file; a missing, linked,
 outside or interlaced image refuses) or of a `data:image/png` or `data:image/jpeg` URI is embedded as an image object,
@@ -985,18 +992,116 @@ def _align(sep: str) -> str:
     return "r" if sep.endswith(":") else "l"
 
 
-def from_markdown(text: str) -> tuple[list[Block], str]:
-    """(blocks, the text of the first h1 or "") of the Markdown the Workbench writes."""
+def _picture(img: "pdffig.Image", data: bytes, aw: float = 0.0, ah: float = 0.0) -> Block:
+    """The figure block of an image at its own size (1 px = 0.75 pt), or at a given width or height in points."""
+    w = img.width * pdffig.PX
+    h = img.height * pdffig.PX
+    if aw > 0 and ah > 0:
+        w, h = aw, ah
+    elif aw > 0:
+        w, h = aw, aw * img.height / img.width
+    elif ah > 0:
+        w, h = ah * img.width / img.height, ah
+    return Block("figure", figure=Picture(img, w, h, data=data))
+
+
+def _root_of(path: Path, start: Path | None = None) -> Path | None:
+    """The project folder (or the session scratch folder) that holds `path`, as `allowed` finds them."""
+    from awb import config
+
+    project = config.scope_root(Path(os.path.abspath(start or Path.cwd())), strict=True)
+    roots = [Path(os.path.abspath(SCRATCH % os.getuid()))]
+    if project is not None and not (project / "SCOPE.md").is_symlink():
+        roots.append(project)
+    path = Path(os.path.abspath(path))
+    inside = [r for r in roots if path != r and path.is_relative_to(r)]
+    return max(inside, key=lambda r: len(r.parts)) if inside else None
+
+
+class _MdImages:
+    """The image files of one Markdown document (bj3o ask 2026-11-27-5): `![alt](file)` is a figure of a PNG or
+    JPEG file, its path relative to the folder of the .md and inside the same project folder (or session scratch
+    folder) as the .md. An absolute path, a path that leaves that folder, a URL, another kind of file or a missing
+    file refuses the whole document (nothing written), so a deliverable never goes out with a picture silently
+    missing and nothing outside the project is ever read."""
+
+    def __init__(self, base: Path, start: Path | None = None) -> None:
+        self.base = Path(os.path.abspath(base))
+        self.root = _root_of(self.base / "x", start)
+        self.bytes = 0
+
+    def figure(self, target: str) -> Block:
+        target = target.strip()
+        if target.startswith("<"):
+            src = target[1:].split(">", 1)[0]
+        else:
+            src = target.split()[0] if target.split() else ""
+        if not src:
+            raise PdfError("refused: an image without a file")
+        if re.match(r"^[a-z][a-z0-9+.-]*:", src, re.I) or src.startswith("//"):
+            raise PdfError("refused: the image %s is a URL; only a file inside the project folder is taken" % src)
+        rel = unquote(src.split("#")[0].split("?")[0])
+        if rel.startswith(("/", "\\")) or os.path.isabs(rel):
+            raise PdfError("refused: the image %s is an absolute path; give it relative to the .md" % src)
+        path = Path(os.path.abspath(self.base / rel))
+        if self.root is None or path == self.root or not path.is_relative_to(self.root):
+            raise PdfError("refused: the image %s lies outside the project folder of the .md" % src)
+        if not rel.lower().endswith((".png", ".jpg", ".jpeg")):
+            raise PdfError("refused: the image %s is not a PNG or JPEG file (.png, .jpg, .jpeg)" % src)
+        try:
+            data = _read_bytes(path, "image")
+        except FileNotFoundError:
+            raise PdfError("the image %s does not exist (looked for %s)" % (src, path)) from None
+        except OSError:
+            raise PdfError("the image %s cannot be read: a link, a folder or no access" % src) from None
+        self.bytes += len(data)
+        if self.bytes > MAX_IMAGES:
+            raise PdfError("the images are larger than %d bytes in all" % MAX_IMAGES)
+        try:
+            img = pdffig.image(data)
+        except pdffig.FigureError as err:
+            raise PdfError("image %s: %s" % (src[:60], err)) from None
+        return _picture(img, data)
+
+
+def from_markdown(text: str, base: Path | None = None, start: Path | None = None) -> tuple[list[Block], str]:
+    """(blocks, the text of the first h1 or "") of the Markdown the Workbench writes. With `base`, the folder of
+    the .md, an image `![alt](file)` in a paragraph is a figure with its alt text as the caption (see _MdImages);
+    without it, and inside a heading, list item or table, the image stays its alt text."""
     lines = text.split("\n")
     blocks: list[Block] = []
     para: list[str] = []
     indents: list[int] = []          # the indents of the open list levels
     in_list = False
+    images = _MdImages(base, start) if base is not None else None
 
     def flush() -> None:
         if para:
             blocks.append(Block("p", runs=_runs(" ".join(para))))
             para.clear()
+
+    def paragraph(line: str) -> None:
+        """A paragraph line; each image in it at the top level ends the paragraph and stands as a figure."""
+        if images is None or "![" not in line:
+            para.append(line)
+            return
+        pos = 0
+        for m in _INLINE_RE.finditer(line):
+            if m.group("alt") is None:
+                continue
+            before = line[pos:m.start()].strip()
+            if before:
+                para.append(before)
+            flush()
+            target = m.group(0)[len(m.group("alt")) + 4:-1]
+            blocks.append(images.figure(target))
+            alt = " ".join(_plain_text(_runs(m.group("alt"))).split())
+            if alt:
+                blocks.append(Block("caption", runs=[(alt, "r", None)]))
+            pos = m.end()
+        rest = line[pos:].strip()
+        if rest:
+            para.append(rest)
 
     i = 0
     while i < len(lines):
@@ -1069,7 +1174,7 @@ def from_markdown(text: str) -> tuple[list[Block], str]:
         else:
             in_list = False
             stripped = line.strip()
-            para.append(stripped[1:].strip() if stripped.startswith(">") else stripped)
+            paragraph(stripped[1:].strip() if stripped.startswith(">") else stripped)
         i += 1
     flush()
     title = next((_plain_text(b.runs) for b in blocks if b.kind == "h1"), "")
@@ -1270,17 +1375,9 @@ class _Html(HTMLParser):
             img = pdffig.image(data)
         except pdffig.FigureError as err:
             raise PdfError("image %s: %s" % (src[:60] if not src.startswith("data:") else "data URI", err)) from None
-        w = img.width * pdffig.PX
-        h = img.height * pdffig.PX
         aw = pdffig.length(a.get("width"), 0.0, TEXT_W / pdffig.PX) * pdffig.PX if a.get("width") else 0.0
         ah = pdffig.length(a.get("height"), 0.0) * pdffig.PX if a.get("height") and "%" not in a["height"] else 0.0
-        if aw > 0 and ah > 0:
-            w, h = aw, ah
-        elif aw > 0:
-            w, h = aw, aw * img.height / img.width
-        elif ah > 0:
-            w, h = ah * img.width / img.height, ah
-        return Block("figure", figure=Picture(img, w, h, data=data))
+        return _picture(img, data, aw, ah)
 
     def end_svg(self) -> None:
         root = self.svg[0]
@@ -1589,7 +1686,7 @@ def convert(path: Path, out: Path | None = None, title: str | None = None, repla
                 (_plain_text(b.runs) for b in blocks if b.kind == "h1"), "")
             skipped = parsed.skipped
         else:
-            blocks, found = from_markdown(text)
+            blocks, found = from_markdown(text, Path(os.path.abspath(path)).parent, start)
         data = render(blocks, title or found or path.stem, author, fonts=fonts, h1_page=h1_page)
         _publish(target, data)
         if skipped:
