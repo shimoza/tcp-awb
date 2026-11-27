@@ -3,6 +3,8 @@
     awb inbox take WORDS... [--project CODE] [--customer CUST-XXXX]   the file the owner describes, from an inbox
                                                                       or the project's own folder in/
     awb inbox take --all | --id ID...                                 every file of both inboxes, or the ones named
+    awb inbox take --outbox                                           the copies of this project's own awb import
+                                                                      from <shared>/outbox/ into input/
     awb inbox list                                                    both inboxes: id, kind, size, time
     awb xchg put FILE [--kind WORD] [--lang XX] [--as NAME]       a result into <code>/from-session/<date>/<kind>/
                   [--image --reason TEXT]                         <code>-<kind>-<lang>-<HHMM>.<ext> (--as: the stem
@@ -681,6 +683,124 @@ def take(words: str | None = None, project: str | None = None, customer: str | N
     return "\n".join(lines), ok
 
 
+OUTBOX_NONE = "the outbox holds no copy of %s that is not in input/ already"
+
+
+def take_outbox() -> tuple[str, bool]:
+    """The copies `awb import` wrote to `<shared>/outbox/<CUST or code>/` for this project, into input/ (ask
+    2026-11-27-tcp-j5sy-1). Only the copies the input notices of this project name are taken (a customer's outbox
+    is shared by its projects; another project's copies stay), and for a project without a customer every copy of
+    its own folder outbox/<code>/. Each copy passes the name check of a lab take first; a copy with a hit stays in
+    the outbox and gets the one hold line. A taken copy leaves the outbox. A copy whose bytes are in input/ already
+    is not taken again; one that differs there replaces it only after `awb import --redo`. The public intake report
+    (intake-report.md) and the images/ folder stay where they are. Returns the lines and whether nothing was held."""
+    from awb import rulesync
+
+    root, code, customer = _project()
+    p = config.paths()
+    own = {code} | ({customer} if _CUST_RE.fullmatch(customer or "") else set())
+    wanted = {k: v for k, v in rulesync.project_copies(p, code).items() if k[0] in own}
+    try:
+        with _directory(p.outbox / code) as directory:
+            for name in os.listdir(directory):
+                if stat.S_ISREG(os.stat(name, dir_fd=directory, follow_symlinks=False).st_mode):
+                    wanted.setdefault((code, name), False)
+    except (XchgError, OSError):
+        pass                            # no folder of its own: a project of a customer
+    lines, ok, taken = [], True, 0
+    with _directory(root) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            for (cust, name), replaced in sorted(wanted.items()):
+                if name == _report_name() or not valid_name(name):
+                    continue
+                try:
+                    line = _take_copy(root, code, p.outbox / cust, name, replaced)
+                except XchgError as err:
+                    line = "%s not taken: %s" % (_public_text(name, "copy"), err)
+                except (OSError, ValueError, UnicodeError):
+                    line = "%s not taken: the copy cannot be read or saved safely" % _public_text(name, "copy")
+                if line is None:
+                    continue
+                if " taken into " in line or " replaced in " in line:
+                    taken += 1
+                else:
+                    ok = False
+                lines.append(line)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+    if not lines:
+        return OUTBOX_NONE % code, True
+    if taken:
+        lines.append("%d copy(ies) from the outbox in input/; the intake report stays in the outbox" % taken)
+    return "\n".join(lines), ok
+
+
+def _report_name() -> str:
+    from awb import report
+
+    return report.PUBLIC_NAME
+
+
+def _take_copy(root: Path, code: str, box: Path, name: str, replaced: bool) -> str | None:
+    """One outbox copy into input/ (input/opaque/ for a file the gate cannot read). None when there is nothing new:
+    no copy any more, or its bytes are in input/ already (the copy then leaves the outbox)."""
+    from awb import gate, projects
+
+    shown = _public_text(name, "copy")
+    with contextlib.ExitStack() as stack:
+        try:
+            directory = stack.enter_context(_directory(box))
+        except XchgError:
+            return None                 # no outbox folder: nothing waits
+        try:
+            os.stat(name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            return None                 # taken before
+        with tempfile.TemporaryDirectory(prefix="awb-outbox-") as tmp:
+            local = Path(tmp) / name
+            with _regular(directory, name) as source:
+                opened = os.fstat(source.fileno())
+                with open(local, "xb") as target:
+                    shutil.copyfileobj(source, target)
+            problems = check_problems(local, mirror_image=True)
+            if problems:
+                return "%s held in the outbox: %s. %s" % (shown, "; ".join(problems), hold_line(code))
+            data = local.read_bytes()
+            opaque = gate.is_opaque(name, data)
+            folder = projects.OPAQUE_DIR if opaque else "input"
+            if opaque:
+                _ignore_opaque(root)
+            line = "%s taken into %s/" % (shown, folder)
+            with _directory(root / folder, create=True) as tdir:
+                try:
+                    os.stat(name, dir_fd=tdir, follow_symlinks=False)
+                except FileNotFoundError:
+                    present = None
+                else:
+                    with _regular(tdir, name) as old:
+                        present = old.read()
+                if present is not None and present != data:
+                    if not replaced:
+                        return ("%s not taken: %s/ holds another file of that name and no awb import --redo "
+                                "replaced it" % (shown, folder))
+                    os.unlink(name, dir_fd=tdir)
+                    line = "%s replaced in %s/ (awb import --redo)" % (shown, folder)
+            if present != data:
+                with open(local, "rb") as source:
+                    _copy_input(root, folder, name, source)
+            else:
+                line = None
+        # Do not remove a replacement installed while the copy was read.
+        try:
+            current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) == (opened.st_dev, opened.st_ino):
+                os.unlink(name, dir_fd=directory)
+        except OSError:
+            pass                        # the copy stays; the next take finds its bytes in input/
+        return line
+
+
 def inbox_list() -> list[str]:
     _, code, _ = _project()
     a = _ok(_call({"op": "inbox_find", "project": code}))
@@ -901,6 +1021,8 @@ def main_inbox(argv: list[str] | None = None) -> int:
                                             "several ways of saying it")
     t.add_argument("--id", dest="ids", action="append", default=[], help="a file awb inbox list showed (repeat)")
     t.add_argument("--all", dest="take_all", action="store_true", help="every file of both inboxes")
+    t.add_argument("--outbox", action="store_true", help="the copies of this project's own awb import from the "
+                                                         "outbox into input/")
     t.add_argument("--project", default=None)
     t.add_argument("--customer", default=None, help="the customer code; it only has to agree with the project's "
                                                     "customer")
@@ -916,6 +1038,12 @@ def main_inbox(argv: list[str] | None = None) -> int:
     if refused is not None:
         return refused
     try:
+        if args.command == "take" and args.outbox:
+            if args.words or args.ids or args.take_all or args.project or args.customer:
+                raise XchgError("--outbox takes no words, --id, --all, --project or --customer")
+            text, ok = take_outbox()
+            print(text)
+            return 0 if ok else 1
         if args.command == "take":
             text, ok = take(" ".join(args.words), args.project, args.customer, args.ids, args.take_all)
             print(text)

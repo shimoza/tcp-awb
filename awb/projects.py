@@ -504,7 +504,7 @@ def _claude(code: str, kind: str, customer: str, winlab_offer: bool = False) -> 
         "- Codes only (%s). Never write a real name, not even in a note or a commit.\n"
         "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
         "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
-        "\"new input\" when they come): move them into input/.\n"
+        "\"new input\" when they come): `awb inbox take --outbox` takes them into input/ with the name check.\n"
         "- Never open an original or the vault.\n"
         "- Proof goes to evidence/, results to deliverables/, review records to reviews/.\n"
         "- Files for him leave with `awb xchg put FILE` (the lab bucket, from-session/<date>/). Name every "

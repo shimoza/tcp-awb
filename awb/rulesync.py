@@ -69,6 +69,19 @@ CLAUDE_FIXES = (
      "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
      "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
      "\"new input\" when they come): move them into input/."),
+    # ask 2026-11-27-tcp-j5sy-1: the outbox copies are taken with a command, not moved by hand
+    ("- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
+     "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
+     "\"new input\" when they come): move them into input/.",
+     "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
+     "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
+     "\"new input\" when they come): `awb inbox take --outbox` takes them into input/ with the name check."),
+    ("- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
+     "<his words>`, never look in the vault. Copies of his own `awb intake` wait in the outbox: `awb inbox take "
+     "--outbox` takes them into input/ with the name check.",
+     "- Files from him come through the bucket inboxes: when he says a file is in the inbox, run `awb inbox take "
+     "<his words>`, never look in the vault. Copies of his own `awb import` wait in the outbox (the prompt says "
+     "\"new input\" when they come): `awb inbox take --outbox` takes them into input/ with the name check."),
     # task LR (2026-10-28): the lab run rule joins the line of the kind project
     ("- " + PROJECT_LINE, "- " + PROJECT_LINE + " " + LAB_RUN_RULE),
 )
@@ -472,9 +485,9 @@ def _rules_changed(p: config.Paths, session_id: str, root: Path | None) -> str |
 
 # --------------------------------------------------------------------------- new input (awb import)
 
-INPUT = "new input: %d copies in the outbox of %s, report intake-report.md"
-REPLACED = ("replaced: %d copies in the outbox of %s under the file ids they had, report intake-report.md; move them "
-            "into input/ over the earlier ones")
+INPUT = "new input: %d copies in the outbox of %s, report intake-report.md; awb inbox take --outbox takes them"
+REPLACED = ("replaced: %d copies in the outbox of %s under the file ids they had, report intake-report.md; awb inbox "
+            "take --outbox takes them into input/ over the earlier ones")
 _NOTICE_RE = re.compile(r"input-[0-9TZ-]+-[0-9a-f]{8}\.json")
 _FILE_ID_RE = re.compile(r"F-[A-Z2-7]{4}|(?:mail|transcript|table|paste)-\d{4}-\d{2}-\d{2}-\d+\.(?:md|csv)", re.ASCII)
 """A file id of an imported copy (F-ABCD) or the name of the copy of a paste (mail-2026-10-12-1.md)."""
@@ -523,6 +536,32 @@ def _waiting(path: Path) -> bool:
             return True
     except (OSError, ValueError):
         return False
+
+
+def project_copies(p: config.Paths, code: str) -> dict[tuple[str, str], bool]:
+    """The copies the input notices of project `code` name (its own imports, never another project's): (outbox
+    folder, file name) -> whether a notice of an `awb import --redo` replaced it. The outbox folder is the
+    customer code or, for a project without a customer, the project code. Used by `awb inbox take --outbox`."""
+    out: dict[tuple[str, str], bool] = {}
+    try:
+        with _directory(notices_dir(p)) as parent:
+            names = sorted(n for n in os.listdir(parent) if _NOTICE_RE.fullmatch(n))
+    except OSError:
+        return out
+    for name in names:
+        f = notices_dir(p) / name
+        if f.is_symlink():
+            continue
+        data = _read_mark(f)
+        cust, proj, ids = data.get("customer"), data.get("project"), data.get("ids") or []
+        if proj != code or not _notice_codes(cust, proj) or not isinstance(ids, list):
+            continue
+        replaced = data.get("replaced") is True
+        for i in ids:
+            if isinstance(i, str) and _FILE_ID_RE.fullmatch(i):
+                key = (cust, i if "." in i else "%s.md" % i)
+                out[key] = out.get(key, False) or replaced
+    return out
 
 
 def _project_customer(p: config.Paths, code: str) -> str | None:
