@@ -14,4 +14,4 @@ import os
 
 __path__[0] = os.path.realpath(__path__[0])  # noqa: F821 - the package's own search path
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"

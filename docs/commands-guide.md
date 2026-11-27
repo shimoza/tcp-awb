@@ -28,7 +28,7 @@ sessions are refused. There is no upload or model call.
 
 Today's pack is replaced on a second run. `--keep N` keeps the newest N dated directories (default 6, minimum 1)
 and leaves every other name, file and symbolic link alone. The optional owner user timer in `tools/` runs Sunday
-03:00 UTC with `Persistent=true`. See the [README installation lines](README.md#local-recovery-pack); it is not
+03:00 UTC with `Persistent=true`. See the [installation lines](docs/operations.md#local-recovery-pack); it is not
 installed automatically.
 
 ## The doors

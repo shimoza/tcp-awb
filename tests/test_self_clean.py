@@ -30,7 +30,9 @@ NAME_ALLOWED = re.compile(r"tests/(?:fixtures|test_\w+)\.py")
 
 # Documentation that shows no fixture name. It is scanned like any other file and must be clean in every class
 # (test_documentation_scans_clean).
-DOCS = ("CLAUDE.md", "INTERFACES.md", "README.md", "COMMANDS.md")
+DOCS = ("CLAUDE.md", "INTERFACES.md", "README.md", "COMMANDS.md", "docs/architect-guide.md", "docs/build-queue.md",
+        "docs/console.md", "docs/dataset.md", "docs/design.md", "docs/dmz.md", "docs/exchange.md", "docs/install.md",
+        "docs/operations.md", "docs/owner-guide.md", "docs/tenants.md")
 DOCS_PENDING: dict[str, set[str]] = {}
 
 # ordinary German words and technical words that stand next to each other in test texts, plus two nonsense words

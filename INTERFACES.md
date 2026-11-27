@@ -299,7 +299,7 @@ and blocklist (and opaque, attribution, too-large); `EXIT_FREE` (identifier) is 
 flag (the deploy and the runner's check 6 call it inside). `ask_repo` and `ASK_CLASSES` are gone: an ask project is a
 project. `hooks/pre-commit` and `hooks/commit-msg` (executable, sh, `--inside`) refuse a commit of this repository only
 for `INSIDE_KEPT`, `hooks/pre-push` runs the exit check; `hooks-build/` passes `--inside --no-register`;
-`install_hook` writes the three hooks of another repository (a project is inside by itself).
+`install_hook` writes the three git hooks of another repository (a project is inside by itself).
 `rules/allow-domains.txt`, `rules/stop-words.txt` are data files read by patterns and intake.
 
 ## `awb/projects.py`
@@ -626,7 +626,7 @@ translate prompt starts at the folder of the file. `review` and `pricebook` rais
   are API paths, read as text, T7); a refusal is one line on stderr and one line in `<shared>/sessions/guard.log`;
   `hooks.refusals(p, code, day)` counts them, `questions.record_refusals` writes `<shared>/english/refused.tsv`
   from the stop hook; `hooks.selftest() -> list[str]` and `awb hook selftest`.
-- `projects.spawn` writes `<project>/.claude/settings.json` with these six hooks, using `sys.executable -m awb hook
+- `projects.spawn` writes `<project>/.claude/settings.json` with these seven hooks, using `sys.executable -m awb hook
   NAME` as the command, so projects get them before the seal exists.
 
 ## `awb/kb.py`: the knowledge base (T-30 to T-36)
@@ -1014,7 +1014,7 @@ Recorded here so that the next builder works against them. Each module keeps `ma
   `.git/hooks/pre-commit`; refuses a repository with core.hooksPath and, without `force`, a hook of another tool.
   Command line: `awb gate --install [--kb] [--force] [--repo PATH]`.
 - `hooks/pre-commit` of the Workbench repository: the self-test first, then `--staged`.
-- `hooks.hook_pre_write(data) -> int`; `hooks.client_settings` carries six hooks (PreToolUse twice: pre-write and pre-tool); `hooks.HOOKS` adds `selftest`.
+- `hooks.hook_pre_write(data) -> int`; `hooks.client_settings` carries seven hooks on six events (PreToolUse twice: pre-write and pre-tool); `hooks.HOOKS` adds `selftest`.
 - `kb.verify_text(text, name, register_path) -> list[str]`: the checks of `add` over one entry file (form, fields,
   expiry, tags, the text checks, negatives), without the near-duplicate scan.
 - `kb.verify(files=(), *, staged_repo=None, register_path=None) -> list[tuple[str, str]]`: (file, reason); a staged

@@ -319,7 +319,8 @@ def test_the_internal_image_flag_is_the_owners_alone(tmp_path, monkeypatch):
 
 def test_the_generated_docs_do_not_say_the_console_reference_holds_screenshots():
     root = Path(__file__).resolve().parent.parent
-    for name in ("README.md", "COMMANDS.md", "docs/commands-guide.md"):
+    for name in ("README.md", "COMMANDS.md", "docs/commands-guide.md", "docs/architect-guide.md",
+                 "docs/console.md"):
         for n, line in enumerate((root / name).read_text(encoding="utf-8").splitlines(), start=1):
             low = line.lower()
             if "howto" in low or "mirror console" in low or "console reference" in low:

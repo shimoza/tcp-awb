@@ -130,7 +130,7 @@ awb keys status
 
 ### The Claude Code plugin (optional)
 
-Do not install the plugin on a sealed host. The seal already installs the six hooks for the work user and the plugin would run them twice. The plugin is for a host without the seal:
+Do not install the plugin on a sealed host. The seal already installs the seven hooks for the work user and the plugin would run them twice. The plugin is for a host without the seal:
 
 ```bash
 claude plugin marketplace add shimoza/tcp-awb
@@ -241,7 +241,7 @@ Folders and files:
 | `/etc/awb` | `root:awb`, 751 | the host folder |
 | `/etc/awb/paths.conf` | `root:awb`, 640 | the paths of the owner, the work user, the vault, the egress mode and the build side |
 | `/etc/awb/blocklist.txt` | `root:awb`, 640 | your local blocklist, if you made one |
-| `/etc/claude-code/managed-settings.d/awb-workbench.json` | root, 644 | the six hooks as managed settings |
+| `/etc/claude-code/managed-settings.d/awb-workbench.json` | root, 644 | the seven hooks as managed settings |
 | `/etc/needrestart/conf.d/awb.conf` | root, 644 | keeps a package upgrade from restarting the vault daemon and the key service |
 | `/var/lib/awb-egress/` | written by root | the resolved addresses, the counts per class and the status |
 | `/run/awb/check.sock` | the owner, group awb | the name check socket |

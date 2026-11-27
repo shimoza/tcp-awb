@@ -103,7 +103,7 @@ The platform of a project (tcp or hcs, which decides whether vendor names block 
 the prefix of its project code, the name of its folder. A line in SCOPE.md cannot change it.
 
 The build user of the self-build (config.is_build_user, presentations/self-build) is the second guarded uid. Its
-hooks are pre-tool, pre-write and post-write; the other three exit 0 for it (the runner checks the prompt and the
+hooks are pre-tool, pre-write and post-write; the other four exit 0 for it (the runner checks the prompt and the
 commits, a task has no project files). Its pre-tool keeps every call inside its own clone, the folder under
 <build_root>/wt that the session started in: the clone, the suite's venv (read only) and /tmp pass, every other
 place is refused with its class, and no clone folder refuses every call. Its post-write checks the secret classes

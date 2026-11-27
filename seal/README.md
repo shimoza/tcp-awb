@@ -45,7 +45,7 @@ The seal keeps the register of names away from every working session. It uses tw
   it and passes only the Workbench's own `workflows/review.js`, `workflows/request-check.js` and
   `workflows/final-check.js` by their scriptPath.
 - `work-claude/CLAUDE.md`: the instructions of the work user, at most 60 lines.
-- `work-claude/managed-settings.json`: the six hooks once more, installed as a managed drop-in of the client.
+- `work-claude/managed-settings.json`: the seven hooks once more, installed as a managed drop-in of the client.
 - `awb-buildd.service`: the runner of the build queue, as the owner with the group `awb`, `NoNewPrivileges=no` (it
   calls `sudo -n systemd-run`) and `UMask=0022`. `setup.sh` installs it and does not enable it: the steering
   session starts it by hand for the first trial task and enables it on his word. A deploy never starts it and
@@ -208,7 +208,7 @@ that `awb egress status`, `awb seal check` and `awb deploy status` read; never t
    (the client keeps its login and history there), so without the flag it could rename them and put its own
    files in their place. A later run takes the flag off, installs the new copy and sets it again.
 10. Installs `work-claude/managed-settings.json` as `/etc/claude-code/managed-settings.d/awb-workbench.json`: the
-   six hooks as managed settings of the client. No user or project file can switch managed hooks off (a
+   seven hooks as managed settings of the client. No user or project file can switch managed hooks off (a
    project file with `disableAllHooks` can switch off the hooks of the user settings). Managed settings apply to
    every user of the host, so `awb hook` exits 0 at once for every user but `work_user` of `/etc/awb/paths.conf`:
    the owner's own sessions are not checked. The deny rules (the connectors and the tools the guard does not
@@ -241,11 +241,11 @@ The build user `awb-build` and what it needs, set up by `setup.sh` (and `--updat
 - `/opt/claude-build`: a root owned copy of the client in the version `setup.sh` pins, taken from the owner's native
   install only when its sha256 is the pinned one; `bin/claude` runs it with the updater and the auto memory off.
 - The build settings deny `mcp__*`, `WebFetch`, `WebSearch` and every tool the work user's settings deny, switch the
-  auto memory and the commit attribution off and run three hooks: `pre-tool`, `pre-write`, `post-write`. For the
+  auto memory and the commit attribution off and run three of the seven hooks: `pre-tool`, `pre-write`, `post-write`. For the
   build user `pre-tool` keeps every call inside its own clone under `wt/`: the clone, the venv (read only), `/tmp`
   and the device paths pass, everything else is refused with its class, and a session in no clone is refused
   outright. `post-write` checks secrets and the bidi override; the names are the runner's, checked with the register
-  on `main.git`. The other three hooks of the managed settings exit 0 for the build user.
+  on `main.git`. The other hooks of the managed settings exit 0 for the build user.
 - `hooks-build/pre-commit` and `commit-msg` run the installed gate with `--no-register` by
   `/opt/tcp-awb/venv/bin/python3`, never code or a `.venv` of the clone.
 
