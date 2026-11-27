@@ -57,6 +57,9 @@ PER_PROJECT = 5               # owner items shown per project; the others are co
 FIRST = 3                     # items `awb` with no argument prints
 _DEV_START = ("owner (tooling)", "(tooling)", "steering:", "allow documentation host", "allow the documentation host")
 _DEV_LEAD = re.compile(r"^(?:\[ \]\s*)?(?:[0-9]{4}-[0-9]{2}-[0-9]{2}\s+)?(?:owner:\s*)?", re.IGNORECASE)
+_CHANNEL_WORDS = re.compile(r"\b(?:console|mail|terminal|call|meeting)s?\b", re.IGNORECASE)
+_BACKTICKED = re.compile(r"`[^`\n]+`")
+UNCLEAR_MARK = "(unclear, the project rewrites it)"
 _DONE_STATES = ("stopped: by_owner", "stopped: success")
 _WAITING_STATE = re.compile(r"^\s*(waiting|asked)\b|\bwaits? on (him|you|the owner)\b", re.IGNORECASE)
 _SEPARATOR = re.compile(r"^\|?[\s:|-]+\|?$")
@@ -84,6 +87,7 @@ class Item:
     extra: str = ""       # the tenant of a kept create
     item: int | None = None  # original projects._owner_items index, before filtering
     has_default: bool = False
+    unclear: bool = False  # an owner item with no Default, no backticked command and no channel word: the project rewrites it
     app: str = ""
     source: str = ""      # the full text of the item: the key of its wait history (awb/ownerwaits.py), never serialized
     waited: float | None = None  # hours since the wait history first saw the item (awb/ownerwaits.py), when recorded
@@ -140,6 +144,12 @@ def _short(text: str) -> str:
     return text if len(text) <= TEXT_MAX else text[:TEXT_MAX - 3].rstrip() + "..."
 
 
+def is_unclear(item: str, has_default: bool) -> bool:
+    """An owner item he cannot act on: no Default:, no backticked command and none of the words console, mail,
+    terminal, call or meeting."""
+    return not (has_default or _BACKTICKED.search(item) or _CHANNEL_WORDS.search(item))
+
+
 def open_items(p: config.Paths) -> tuple[list[Item], int]:
     """(owner items of every active project's OPEN.md, count of parked projects)."""
     from awb import codes, projects
@@ -163,8 +173,9 @@ def open_items(p: config.Paths) -> tuple[list[Item], int]:
         for index, item in enumerate(projects._owner_items(text)):
             cmd = projects.item_command(item)
             parts = re.split(r"\bDefault:\s*", item.replace("**", "").replace("`", ""), maxsplit=1, flags=re.I)
+            has_default = len(parts) == 2 and bool(parts[1].strip())
             out.append(Item(r.code, _short(item), WHERE_TERMINAL if cmd else WHERE_SESSION, cmd, "owner",
-                            item=index, has_default=len(parts) == 2 and bool(parts[1].strip()), app=app,
+                            item=index, has_default=has_default, unclear=is_unclear(item, has_default), app=app,
                             source=item))
     return out, parked
 
@@ -756,6 +767,7 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
     for it in items:
         if it.kind != "done" and _DEV_LEAD.sub("", it.text.lower()).startswith(_DEV_START):
             it.kind = "dev"
+            it.unclear = False
     if record:
         global LAST_RECORD
         LAST_RECORD = record_waits(p, items, online, now)
@@ -763,10 +775,12 @@ def collect(p: config.Paths | None = None, queue: Path | None = None, runs: Path
 
 
 def waiting(items: list[Item], skip: list[Item] = ()) -> list[Item]:
-    """The items the wait history measures: no tooling or steering item, no task that ended and no line of a lab
-    machine that is online (a probe the hourly timer cannot make, so it would open and close every hour)."""
+    """The items the wait history measures: no tooling or steering item, no task that ended, no unclear owner item
+    (the project rewrites it, the wait is not his) and no line of a lab machine that is online (a probe the hourly
+    timer cannot make, so it would open and close every hour)."""
     leave = {id(it) for it in skip}
-    return [it for it in items if it.kind not in ("done", "dev", "more") and id(it) not in leave and it.label]
+    return [it for it in items if it.kind not in ("done", "dev", "more") and not it.unclear
+            and id(it) not in leave and it.label]
 
 
 def record_waits(p: config.Paths, items: list[Item], skip: list[Item] = (),
@@ -803,10 +817,11 @@ def render(items: list[Item], parked: int, note_lines: list[str] | tuple = ()) -
         if it.kind in ("more", "dev-overdue"):
             lines.append(it.text)
             continue
+        text = "%s  %s" % (it.text, UNCLEAR_MARK) if it.unclear else it.text
         if it.kind == "export":
-            line = "%s: %s  [%s]" % (it.label, it.text, it.where)
+            line = "%s: %s  [%s]" % (it.label, text, it.where)
         else:
-            line = "%s  %s  [%s]" % (it.label, it.text, it.where) if it.where else "%s: %s" % (it.label, it.text)
+            line = "%s  %s  [%s]" % (it.label, text, it.where) if it.where else "%s: %s" % (it.label, text)
         if it.waited is not None:
             from awb import ownerwaits
 
@@ -850,7 +865,12 @@ def mail(p: config.Paths | None = None, send=None, queue: Path | None = None, ru
         return "empty"
     if send is None:
         return "not sent: no mail path"      # `awb owner status --mail` (awb/tcp/owner.py) passes the key service's
-    body = fit(render(items, parked, note_lines))
+    lines = render(items, parked, note_lines)
+    unclear = sum(1 for it in items if it.unclear)
+    if unclear:
+        lines.insert(1, "%d unclear item%s, the project rewrites %s" % (
+            unclear, "" if unclear == 1 else "s", "it" if unclear == 1 else "them"))
+    body = fit(lines)
     subject = ("Workbench: %d item%s wait on you" % (count(items), "" if count(items) == 1 else "s") if items
                else "Workbench: nothing waits on you, %d note%s" % (len(note_lines), "" if len(note_lines) == 1 else "s"))
     try:
