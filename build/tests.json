@@ -31135,6 +31135,13 @@
    "name": "project and side session settings carry the installed workflows folder: a spawn writes it, sync adds it to an old project and keeps every hook, a side worktree of an unsynced project has it",
    "run": ".venv/bin/pytest tests/test_project_workflows_dir.py",
    "status": "passing"
+  },
+  {
+   "id": "ASK-s2z5-1127",
+   "phase": "ask",
+   "name": "billed: dashboard stamps in UTC with Z are read in Berlin time (23:00Z of the day before is the first hour); a stamp without offset or outside the period stays broken data",
+   "run": ".venv/bin/pytest tests/test_billed_utc_dates.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4447,

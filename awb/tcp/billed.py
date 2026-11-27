@@ -159,6 +159,20 @@ def field(row, key, nullable=False):
     return value
 
 
+def local_start(value):
+    """The consumption date of a row in Berlin time: a bare day stays as it is; a stamp with an offset (since
+    2026-11-26 the dashboard sends UTC with Z, before that +01:00) becomes the same instant in Europe/Berlin, so
+    23:00Z of the day before is 00:00 of the day it bills (ask 2026-11-27-tcp-s2z5-2). A stamp without an offset is
+    broken data."""
+    if len(value) == 10:
+        day_value(value)
+        return value
+    stamp = dt.datetime.fromisoformat(value.replace("Z", "+00:00") if value.endswith("Z") else value)
+    if stamp.utcoffset() is None:
+        raise ValueError
+    return stamp.astimezone(BERLIN).isoformat()
+
+
 def bucket():
     return {"amount": ZERO, "quantities": {}}
 
@@ -169,10 +183,10 @@ def add(target, row):
     target["quantities"][unit] = target["quantities"].get(unit, ZERO) + number(row["quantity"])
 
 
-def aggregate(data, row):
+def aggregate(data, row, start=None):
     product = field(row, "product")
     description = field(row, "product_description")
-    day = field(row, "consumption_date")[:10]
+    day = (start or local_start(field(row, "consumption_date")))[:10]
     for dimension, key in (("days", day), ("products", product), ("regions", field(row, "region")),
                            ("consumption_types", field(row, "consumption_type")),
                            ("projects", field(row, "project_id", True))):
@@ -238,7 +252,7 @@ def _pull(p, alias, period, hourly):
                 if row_contract != contract:
                     data["dropped_contract_rows"] += 1
                     continue
-                start = field(row, "consumption_date")
+                start = local_start(field(row, "consumption_date"))
                 day_value(start[:10])
                 if not start.startswith(period):
                     raise ValueError
@@ -259,7 +273,7 @@ def _pull(p, alias, period, hourly):
                     target.append({"start": start, "quantity": str(quantity), "quantity_type": unit,
                                    "amount": str(amount)})
                 else:
-                    aggregate(data, row)
+                    aggregate(data, row, start)
                 data["rows"] += 1
                 data["statuses"][status] = data["statuses"].get(status, 0) + 1
         except (KeyError, TypeError, ValueError, InvalidOperation):
