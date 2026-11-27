@@ -31121,8 +31121,15 @@
    "name": "lab obs link signs an opaque object without the name check; a text object keeps the exit check",
    "run": ".venv/bin/pytest tests/test_lab_link_opaque.py",
    "status": "passing"
+  },
+  {
+   "id": "B-115",
+   "phase": "B",
+   "name": "career feed: records with every field and stable ids, a status change listed, a registered name stops the file, no linkedin-line, no code",
+   "run": ".venv/bin/pytest tests/test_career_feed.py",
+   "status": "passing"
   }
  ],
- "total_tests": 4446,
+ "total_tests": 4447,
  "checked": "2026-11-22"
 }

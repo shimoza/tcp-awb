@@ -145,6 +145,7 @@ One line each; the docs page next to it has the details and [COMMANDS.md](COMMAN
 | `awb review init`, `claims`, `l0`, `pass` | the review of a deliverable before it leaves | [architect guide](docs/architect-guide.md) |
 | `awb side start NAME --brief FILE` | side work (a report, research) in a headless session of its own | [architect guide](docs/architect-guide.md) |
 | `awb dataset build` | the dataset TCP Facts from the knowledge base | [dataset](docs/dataset.md) |
+| `awb career feed` | the weekly evidence file for a CV: one record per piece of work, each number with the command that counts it, codes and names never in it | [commands](COMMANDS.md) |
 | `awb gate --selftest` | the commit gate checks itself | [customer data](docs/dmz.md) |
 
 ## Documentation

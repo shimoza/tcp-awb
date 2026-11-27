@@ -751,6 +751,7 @@ gate, the gate over what it carries and `awb kb verify --staged`, so a file writ
 | `awb career add --title "..." --role "..." --stack "..." --outcome "..." --cv-line "..."` | one career entry, no customer reference at all. `--tag T` sets the tags (default: the words of the stack that are tags) and `--date` the date |
 | `awb career update --since 2026-06-01` | CV bullets and a LinkedIn paragraph as a draft |
 | `awb career due` | days since the last update (exit 1 after 90) |
+| `awb career feed [--since 2026-11-01] [--out FILE]` | as the work user, every Friday: the weekly evidence file `cv-evidence-DATE.md` for the career project, by default in `career-feed/` of the shared side. On top "Changes since the last feed" (new ids, changed statuses, changed counts, from `career-feed/state.json`), then one record per item of the ledger (a project or an entry without one), the public dataset release, the repository and the build queue: `## ev-NNN` and the lines answers, claim, status (production, PoC, research, proposal, planned, cancelled or ongoing), period, numbers, evidence, measured, cv-line, note, id, verify, scope, sector (the `Sector:` line of the project's STATE.md, else "not recorded"), role, changed, counted-by and target (1 trainings, 2 playbooks handed over, 3 pricing, 4 security, 5 tenders). The id stays the same from feed to feed. Codes, tenants, addresses, host names and amounts become words; a registered name, a secret or a home path stops the file with the record and the field named (exit 1, nothing written). Numbers are never summed, a count by another method is never shown as growth and there is no LinkedIn line |
 
 ## Review of a deliverable (inside a project)
 
@@ -1406,6 +1407,12 @@ draft CV bullets and a LinkedIn paragraph
 ### `awb career due`
 
 days since the last update, exit 1 when over 90
+
+### `awb career feed [--since DATE] [--out FILE]`
+
+the weekly evidence file cv-evidence-DATE.md for the career project, as the work user
+- `--since DATE`: first date of the ledger entries (ISO, default all)
+- `--out FILE`: where to write the file (default <shared>/career-feed/cv-evidence-DATE.md)
 
 ### `awb write check FILE [--mode MODE] [--scope SCOPE] [--request REQUEST]`
 

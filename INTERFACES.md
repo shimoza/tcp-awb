@@ -680,6 +680,10 @@ Career: `<shared>/career.jsonl`. `awb career add --title --role --stack --outcom
 content check inside; the candidates of the ledger show a code as "a customer" or "a project"). `awb career update [--since D]`: a Markdown
 draft with CV bullets grouped by theme (tags) and one LinkedIn paragraph, then `writing.check_text` over it; the date
 of the run is stored in `<shared>/career-updated`. `awb career due`: days since the last update, exit 1 when over 90.
+`awb career feed [--since DATE] [--out FILE]` (B-115): `<shared>/career-feed/cv-evidence-DATE.md` (or FILE) and
+`<shared>/career-feed/state.json` (`ids`: item to `ev-NNN`, `records`: id to status and numbers with their method,
+`day`, `next`); `career.feed(p, since, out, day, repo, qdir, runs) -> Feed`, `FeedStopped` (a `CareerError`, exit 1)
+when `exit_check` finds something, `scrub(text)`, `compare(records, state)`, `RECORD_FIELDS`, `STATUSES`.
 
 ## `awb/writing.py` (T-50 to T-56)
 
