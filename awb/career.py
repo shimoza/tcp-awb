@@ -286,6 +286,22 @@ def draft(entries: list[Entry], day: date, since: date | None) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+DATASET_STATS = "STATS.json"
+"""The file of the numbers of a built dataset release (awb/tcp/dataset.py STATS_FILE); named here so this core
+module, which the hooks load, imports nothing of the platform package."""
+DATASET_REPO = "shimoza/tcp-facts"
+"""The public repository of the dataset (awb/tcp/dataset.py GITHUB_REPO)."""
+
+
+def _build_module():
+    """awb.build for the queue record, loaded only when the feed runs: a static import would pull the build modules
+    into every unit that loads the hooks (awb/deploy.py)."""
+    try:
+        return importlib.import_module("awb.build")
+    except Exception:
+        return None
+
+
 def _writing_module():
     try:
         mod = importlib.import_module("awb.writing")
@@ -711,10 +727,9 @@ def _raw_check(repo: str, key: str, value: int) -> str:
 def dataset_record(p: config.Paths, day: date) -> Record | None:
     """The public dataset: STATS.json of its newest built release."""
     from awb import kbreview
-    from awb.tcp import dataset
 
     folder = kbreview.latest(p)
-    stats = _read_json(folder / dataset.STATS_FILE) if folder is not None else None
+    stats = _read_json(folder / DATASET_STATS) if folder is not None else None
     numbers = _stats_numbers(stats, ("facts", "facts_tested_live", "services_orderable")) if stats else []
     if not numbers:
         return None
@@ -722,8 +737,8 @@ def dataset_record(p: config.Paths, day: date) -> Record | None:
     return Record(
         key="dataset", claim="Built the public dataset of checked facts on T Cloud Public, one release a week",
         status="production", period=released, numbers=numbers,
-        evidence="STATS.json of the release of %s in %s" % (released, dataset.GITHUB_REPO), measured=released,
-        weekly=True, note="", verify=_raw_check(dataset.GITHUB_REPO, "facts", numbers[0].value), scope="tool",
+        evidence="STATS.json of the release of %s in %s" % (released, DATASET_REPO), measured=released,
+        weekly=True, note="", verify=_raw_check(DATASET_REPO, "facts", numbers[0].value), scope="tool",
         sector="not recorded", role="built", targets=[], changed_on=day.isoformat())
 
 
@@ -745,8 +760,9 @@ def repository_record(repo: Path | None, day: date) -> Record | None:
 
 def queue_record(day: date, qdir: Path | None = None, runs: Path | None = None) -> Record | None:
     """The build queue: its tasks whose last run is done and the others. None without a queue this user can read."""
-    from awb import build
-
+    build = _build_module()
+    if build is None:
+        return None
     try:
         tasks, _ = build.read_queue(qdir)
     except OSError:

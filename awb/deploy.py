@@ -165,6 +165,8 @@ DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/cli.py", "status_lines"): ("awb.tcp.keys",),
     ("awb/cli.py", "preflight_checks"): ("awb.tcp.tenanttags",),
     ("awb/career.py", "_writing_module"): ("awb.writing",),
+    # awb career feed reads the build queue in the owner's terminal only; no unit runs the feed
+    ("awb/career.py", "_build_module"): (),
     ("awb/review.py", "_writing_tells"): ("awb.writing",),
     ("awb/extract/__init__.py", "_call_reader"): ("awb.extract.archive", "awb.extract.mail", "awb.extract.office",
                                                   "awb.extract.pdf", "awb.extract.text"),
