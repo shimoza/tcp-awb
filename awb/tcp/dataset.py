@@ -31,8 +31,10 @@ people who read PDF), facts.md (every fact on one line, grouped by topic, small 
 latest service description lists and what it does not offer), tcp-facts.mcpb (the same bytes as the
 tcp-facts-<date>.mcpb beside the folder, the release asset with a stable name), tcp_facts_mcp.py (a read-only MCP server over these files, copied from the template beside this module, under the Apache License 2.0 with its header),
 LICENSE-CODE (the text of that licence, copied from the LICENSE of this repository; the facts stay CC BY 4.0) and
-MANIFEST.json (counts, dates, the sha256 of every file). The public repository gets README.md, facts.md, facts.jsonl,
-services.md, topics/, tcp_facts_mcp.py and LICENSE-CODE; MANIFEST.json, HOW-TO.pdf, the zip and the .mcpb are release
+MANIFEST.json (counts, dates, the sha256 of every file) and STATS.json (B-114: the numbers of the first screen of the
+README, each with `counted_by`, the command that counts it again; `stats` computes them once and the README reads
+them from there). The public repository gets README.md, facts.md, facts.jsonl,
+services.md, STATS.json, topics/, tcp_facts_mcp.py and LICENSE-CODE; MANIFEST.json, HOW-TO.pdf, the zip and the .mcpb are release
 assets, so the README names only these files and calls the others release assets (B-110).
 
 The first screen of README.md (B-110): one sentence what it is and for whom, the three ways to use it (attach
@@ -376,6 +378,13 @@ JQ_LIVE = "jq -s 'map(select(.grade == \"live\")) | length' facts.jsonl"
 JQ_SERVICES = "jq -Rn '[inputs | select(test(\"^- [0-9]\"))] | length' services.md"
 JQ_WEEKLY = "jq -s 'map(select(.level == \"V4\")) | length' facts.jsonl"
 JQ_DUE = "jq -c 'select(.recheck_due) | {id, checked}' facts.jsonl"
+JQ_DUE_COUNT = "jq -s 'map(select(.recheck_due)) | length' facts.jsonl"
+JQ_DATE = "jq -r 'select(.dataset) | .date' facts.jsonl"
+COUNTED_COVERED = ("services.md lines whose service a stable, positive fact of facts.jsonl opens with by name (awb "
+                   "dataset build, plain_service_facts): no jq expression, the match uses the service names")
+COUNTED_LICENCE_DATA = "head -n 1 LICENSE: the licence of the facts"
+COUNTED_LICENCE_CODE = "grep SPDX-License-Identifier tcp_facts_mcp.py: the licence of the code"
+STATS_FILE = "STATS.json"
 GH_RELEASES = "gh release list --repo %s --limit 1000 --json tagName --jq length" % GITHUB_REPO
 CLAUDE_CODE_ADD = 'claude mcp add tcp-facts -- python3 "$PWD/%s"' % MCP_FILE
 
@@ -402,12 +411,38 @@ def example_fact(records: list[dict]) -> dict:
     return min(records, key=lambda r: (rank.get(r.get("level", ""), len(rank)), r["id"]))
 
 
-def first_screen(day: str, records: list[dict], grades: dict, n_services: int, n_plain: int, revision: str,
+def _stat(value, counted_by: str) -> dict:
+    if not counted_by.strip():
+        raise DatasetError("a number of %s without counted_by is refused" % STATS_FILE)
+    return {"value": value, "counted_by": counted_by}
+
+
+def stats(day: str, records: list[dict], grades: dict, n_services: int, n_plain: int, revision: str) -> dict:
+    """The numbers of the first screen and of STATS.json (B-114), computed once: each with `counted_by`, the command
+    that counts it again in a clone of the dataset. The README reads its numbers from this dict."""
+    return {"dataset": NAME, "service_description": revision,
+            "released": _stat(day, JQ_DATE),
+            "facts": _stat(len(records), JQ_FACTS),
+            "facts_tested_live": _stat(grades.get("live", 0), JQ_LIVE),
+            "services_covered": _stat(n_plain, COUNTED_COVERED),
+            "services_orderable": _stat(n_services, JQ_SERVICES),
+            "facts_weekly_check": _stat(weekly_count(records), JQ_WEEKLY),
+            "facts_recheck_due": _stat(sum(1 for r in records if r.get("recheck_due")), JQ_DUE_COUNT),
+            "licence_data": _stat(LICENCE, COUNTED_LICENCE_DATA),
+            "licence_code": _stat(CODE_LICENCE, COUNTED_LICENCE_CODE)}
+
+
+def stats_text(st: dict) -> str:
+    return json.dumps(st, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+def first_screen(day: str, records: list[dict], st: dict, revision: str,
                  releases: list[str] | None) -> list[tuple[str, str]]:
     """The README below its header (B-110): the three ways to use it, "What this proves" with the command that checks
-    each number, one example fact, the freshness line, the release date and the licence line. `releases` are the
-    release dates up to this one, None when the build has no clone to count them in."""
-    due = sum(1 for r in records if r.get("recheck_due"))
+    each number, one example fact, the freshness line, the release date and the licence line. The numbers are the
+    values of `st` (`stats`), the ones STATS.json holds. `releases` are the release dates up to this one, None when
+    the build has no clone to count them in."""
+    due = st["facts_recheck_due"]["value"]
     if releases:
         released = "- **%d weekly releases** since %s, this one of %s: `%s`" % (len(releases), releases[0], day,
                                                                                   GH_RELEASES)
@@ -427,13 +462,15 @@ def first_screen(day: str, records: list[dict], grades: dict, n_services: int, n
               "documentation: `%s`\n"
               "- **%d services** of the service description of %s, each offered or not in services.md, %d of them "
               "with a plain fact: `%s`\n%s"
-              % (len(records), JQ_FACTS, grades.get("live", 0), JQ_LIVE, n_services, revision, n_plain, JQ_SERVICES,
+              % (st["facts"]["value"], JQ_FACTS, st["facts_tested_live"]["value"], JQ_LIVE,
+                 st["services_orderable"]["value"], revision, st["services_covered"]["value"], JQ_SERVICES,
                  released)),
         ("p", "Example fact, as facts.md holds it (`jq -c 'select(.id == \"%s\")' facts.jsonl` shows its source):\n%s"
               % (ex["id"], fact_line(ex))),
         ("p", "Freshness: %d of the %d facts wait for a recheck and are used with their check date: `%s`. %s"
-              % (due, len(records), JQ_DUE, cadence(records))),
-        ("p", "Released %s. %s" % (day, CODE_LICENCE_LINE)),
+              % (due, st["facts"]["value"], JQ_DUE, cadence(records))),
+        ("p", "Released %s. %s Every number above is in %s with the command that counts it."
+              % (st["released"]["value"], CODE_LICENCE_LINE, STATS_FILE)),
     ]
 
 
@@ -1146,10 +1183,11 @@ def _write(root: Path, p: config.Paths, day: str, best_before: str, fetched: str
     (root / "HOW-TO.pdf").write_bytes(pdf_bytes(blocks, "%s %s: how to use it" % (NAME, day)))
     # B-110: the first screen, then what PROMPT.md says too; no table of fact ids and no name of a file that is
     # neither in the public repository nor a release asset (PROMPT.md is only in the zip)
+    st = stats(day, records, grades, len(svc), len(plain_service_facts(records, orderable)), revision)
+    (root / STATS_FILE).write_text(stats_text(st), encoding="utf-8")
     (root / "README.md").write_text(blocks_to_markdown(
         readme_header(day, best_before, len(records))
-        + first_screen(day, records, grades, len(svc), len(plain_service_facts(records, orderable)), revision,
-                       release_dates(p, day))
+        + first_screen(day, records, st, revision, release_dates(p, day))
         + [("p", "Build of %s. A later build of the same day replaces this one under the same name; the manifest "
                  "carries the build time." % built_at)]
         + blocks[1:4] + cover + levels + WARNING + MCP_CLIENTS + blocks[blocks.index(("h2", "Files")):]),
@@ -1282,7 +1320,8 @@ def put(c: obs.Client, folder: Path, *, replace: bool = False) -> list[str]:
 # --------------------------------------------------------------------------- the public repository (owner side)
 
 # into the root, README.md over the one there; LICENSE is the repository's own, the put never touches it
-GITHUB_FILES = ("README.md", "facts.md", "facts.jsonl", "services.md", "topics", MCP_FILE, CODE_LICENCE_FILE)
+GITHUB_FILES = ("README.md", "facts.md", "facts.jsonl", "services.md", STATS_FILE, "topics", MCP_FILE,
+                CODE_LICENCE_FILE)
 STALE_PRICES = "prices"                     # a folder of an older release; the put removes it from the repository
 GITHUB_ASSETS = ("HOW-TO.pdf", "MANIFEST.json")                                    # with the zip, on the release
 PERSON_ENV = "AWB_DATASET_AUTHOR"           # the old settings: gone, but a value still set is searched for

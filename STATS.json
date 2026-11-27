@@ -1,0 +1,35 @@
+{
+ "agents": {
+  "counted_by": "git ls-files -- 'plugin/agents/*.md' | wc -l",
+  "value": 2
+ },
+ "commands": {
+  "counted_by": "sed -n '/^## Reference of every command and option/,$p' COMMANDS.md | grep -c '^### `awb '",
+  "value": 274
+ },
+ "commits": {
+  "counted_by": "git rev-list --count --since=2026-09-28 HEAD",
+  "value": 944
+ },
+ "date": {
+  "counted_by": "date -I",
+  "value": "2026-11-27"
+ },
+ "lines_awb": {
+  "counted_by": "git ls-files -z -- 'awb/*.py' | xargs -0 cat | wc -l (lines of the tracked Python files of awb/, comments and blanks included)",
+  "value": 124411
+ },
+ "modules": {
+  "counted_by": "git ls-files -- 'awb/*.py' | grep -v '/__init__.py$' | wc -l",
+  "value": 199
+ },
+ "repository": "tcp-awb",
+ "skills": {
+  "counted_by": "git ls-files -- 'plugin/skills/*/SKILL.md' | wc -l",
+  "value": 7
+ },
+ "test_functions": {
+  "counted_by": "git grep -hE '^[[:space:]]*(async[[:space:]]+)?def test_' -- 'tests/*.py' | wc -l (a def, a parametrized test counts once)",
+  "value": 6278
+ }
+}

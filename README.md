@@ -68,6 +68,9 @@ quick start below needs none of that. The full picture is in [docs/design.md](do
 ## What this proves
 
 Each number can be checked with the command next to it, in a clone of this repository or of the dataset.
+[STATS.json](STATS.json) holds the numbers of this repository, each with `counted_by`, the command that counts it
+again: `python3 tools/stats.py` writes it (`--pytest` counts the tests by collection). The dataset carries the same
+kind of file, STATS.json beside its facts.jsonl.
 
 | what | number | check |
 |---|---|---|
@@ -79,6 +82,17 @@ Each number can be checked with the command next to it, in a clone of this repos
 | services of the service description, each offered or not | 79 (revision of 18.11.2026) | `awb service list \| head -1` |
 | hooks a session runs | 7 | `jq '[.hooks[][].hooks[]] \| length' plugin/hooks/hooks.json` |
 | weekly releases of the dataset | one every Monday | `gh release list --repo shimoza/tcp-facts --limit 1000 --json tagName --jq length` |
+
+The rest of the numbers of STATS.json of 2026-11-27, with the command that recomputes each (`jq -r 'to_entries[] | select(.value | type == "object") | "\(.key): \(.value.counted_by)"' STATS.json` lists them all):
+
+- lines of Python in `awb/`, 124,411: `git ls-files -z -- 'awb/*.py' | xargs -0 cat | wc -l`
+- modules in `awb/`, 199: `git ls-files -- 'awb/*.py' | grep -v '/__init__.py$' | wc -l`
+- test functions, 6,278: `git grep -hE '^[[:space:]]*(async[[:space:]]+)?def test_' -- 'tests/*.py' | wc -l`; `python3 tools/stats.py --pytest` counts by collection
+- commands in the reference, 274: ``sed -n '/^## Reference of every command and option/,$p' COMMANDS.md | grep -c '^### `awb '``
+- skills of the plugin, 7: `git ls-files -- 'plugin/skills/*/SKILL.md' | wc -l`
+- agents of the plugin, 2: `git ls-files -- 'plugin/agents/*.md' | wc -l`
+- commits since 2026-09-28, 944: `git rev-list --count --since=2026-09-28 HEAD`
+- build tasks done and branch checks passed and refused: `awb build list`, on the owner's host only, so not in the file of a clone
 
 ## Quick start
 

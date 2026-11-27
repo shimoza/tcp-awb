@@ -23,7 +23,10 @@ the three ways to use it (attach `facts.md`, the one-click `tcp-facts.mcpb`, `cl
 clone, each with the jq or gh command that checks it), one example fact, one freshness line (the facts with a recheck
 due and the jq command that lists them, the facts with a weekly automated check, level V4, and the check periods of
 the rest), the release date and the licence line. It holds no table of fact ids, names only files of the repository
-and calls `MANIFEST.json`, `HOW-TO.pdf` and the `.mcpb` release assets. The facts are CC BY 4.0; `tcp_facts_mcp.py`
+and calls `MANIFEST.json`, `HOW-TO.pdf` and the `.mcpb` release assets. `STATS.json` (B-114), written beside
+`facts.jsonl` and published with it, holds those numbers (release date, facts, facts tested live, services covered and
+orderable, facts with a weekly automated check, facts whose recheck is due, the licence of data and code), each with
+`counted_by`, the command that counts it again; the README reads its numbers from the same values. The facts are CC BY 4.0; `tcp_facts_mcp.py`
 carries an Apache-2.0 header and every build carries `LICENSE-CODE`, the Apache License 2.0 of this repository.
 Its README, PROMPT.md and HOW-TO.pdf also carry "What the facts cover", counted from the facts at each build: how
 many orderable services per section of the service description have a plain fact that says what the service is and
