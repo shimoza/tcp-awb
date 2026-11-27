@@ -692,7 +692,57 @@ def _settings() -> str:
         prefix = _hooks.command_prefix()
     except _hooks.ForeignPrefix as err:
         raise ProjectError("%s; nothing was created" % err) from None
-    return json.dumps(_hooks.client_settings(prefix), indent=2) + "\n"
+    data = _hooks.client_settings(prefix)
+    data["permissions"] = {"additionalDirectories": [WORKFLOWS_INSTALLED]}
+    return json.dumps(data, indent=2) + "\n"
+
+
+def add_workflows_dir(folder: Path) -> bool:
+    """WORKFLOWS_INSTALLED in permissions.additionalDirectories of the client settings of the project (or side
+    worktree) `folder` (B-118, ask 2026-11-27-tcp-bj3o-3): the Workflow tool takes a scriptPath only in a folder the
+    session can read, so without it no review level 1 or 2 starts. Every other key and every hook stays. True when
+    it changed. Raises OSError for a missing file, a link on the way or a file with a second name, ValueError for
+    settings of another shape."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    top = os.open(os.path.abspath(folder), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        sub = os.open(".claude", flags, dir_fd=top)
+    finally:
+        os.close(top)
+    try:
+        fd = os.open("settings.json", os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=sub)
+    finally:
+        os.close(sub)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise OSError("the settings file is no single regular file")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        raw = b""
+        while piece := os.read(fd, 65536):
+            raw += piece
+            if len(raw) > 1024 * 1024:
+                raise OSError("the settings file is too large")
+        data = json.loads(raw.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("the settings are no object")
+        perms = data.setdefault("permissions", {})
+        if not isinstance(perms, dict):
+            raise ValueError("permissions is no object")
+        dirs = perms.setdefault("additionalDirectories", [])
+        if not isinstance(dirs, list):
+            raise ValueError("additionalDirectories is no list")
+        if WORKFLOWS_INSTALLED in dirs:
+            return False
+        dirs.append(WORKFLOWS_INSTALLED)
+        out = (json.dumps(data, indent=2) + "\n").encode("utf-8")
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.ftruncate(fd, 0)
+        while out:
+            out = out[os.write(fd, out):]
+        return True
+    finally:
+        os.close(fd)
 
 
 OPAQUE_DIR = "input/opaque"

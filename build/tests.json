@@ -10783,8 +10783,8 @@
   {
    "id": "pd23-14",
    "phase": "pd23",
-   "name": "spawn writes client settings whose tool guard takes the Workflow tool and whose PreCompact runs compact (Q-0006; the shell tools test and the test without PreCompact replaced)",
-   "run": ".venv/bin/pytest tests/test_projects.py::test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool_and_compact",
+   "name": "spawn writes client settings with the hooks (tool guard takes the Workflow tool, PreCompact runs compact) and the installed workflows folder in additionalDirectories (B-118; the Q-0006 test replaced)",
+   "run": ".venv/bin/pytest tests/test_projects.py::test_spawn_writes_client_settings_with_the_hooks_and_the_installed_workflows_folder",
    "status": "passing"
   },
   {
@@ -31127,6 +31127,13 @@
    "phase": "B",
    "name": "career feed: records with every field and stable ids, a status change listed, a registered name stops the file, no linkedin-line, no code",
    "run": ".venv/bin/pytest tests/test_career_feed.py",
+   "status": "passing"
+  },
+  {
+   "id": "B-118",
+   "phase": "B",
+   "name": "project and side session settings carry the installed workflows folder: a spawn writes it, sync adds it to an old project and keeps every hook, a side worktree of an unsynced project has it",
+   "run": ".venv/bin/pytest tests/test_project_workflows_dir.py",
    "status": "passing"
   }
  ],

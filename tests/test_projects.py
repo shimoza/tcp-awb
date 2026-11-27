@@ -596,14 +596,16 @@ def _settings(pr) -> dict:
     return json.loads((Path(pr.path) / ".claude" / "settings.json").read_text(encoding="utf-8"))
 
 
-def test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool_and_compact(home, register_path):
-    """Replaces test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool (Q-0006, 2026-11-20):
-    the settings of a new project carry PreCompact as well, which runs `compact` (the pinned block of STATE.md).
-    Kept from the replaced test: the place guard (pre-tool) takes every file tool, both shell tools and the
-    Workflow tool."""
+def test_spawn_writes_client_settings_with_the_hooks_and_the_installed_workflows_folder(home, register_path):
+    """Replaces test_spawn_writes_client_settings_whose_tool_guard_takes_the_workflow_tool_and_compact (B-118, ask
+    2026-11-27-tcp-bj3o-3): the settings of a new project carry permissions.additionalDirectories with the installed
+    workflows folder as well, since the Workflow tool takes a scriptPath only in a folder the session can read. Kept
+    from the replaced test: PreCompact runs `compact` (Q-0006) and the place guard (pre-tool) takes every file tool,
+    both shell tools and the Workflow tool."""
     pr = _spawn(home, register_path)
     settings = _settings(pr)
-    assert set(settings) == {"hooks"}
+    assert set(settings) == {"hooks", "permissions"}
+    assert settings["permissions"] == {"additionalDirectories": [projects.WORKFLOWS_INSTALLED]}
     assert set(settings["hooks"]) == set(HOOK_EVENTS) | {"PreCompact"}
     got = {event: [(e.get("matcher"), h["type"], h["command"].rsplit(" -m awb hook ", 1)[-1])
                    for e in entries for h in e["hooks"]] for event, entries in settings["hooks"].items()}

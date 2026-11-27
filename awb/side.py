@@ -364,6 +364,12 @@ def start(name: str, brief: str, model: str = DEFAULT_MODEL, effort: str = DEFAU
             rulesync.sync_project(p["wt"])
         except Exception:  # the start guard names the rules then
             pass
+        try:  # B-118: a side session runs the review too; a project not synced yet lacks the folder at HEAD
+            from awb import projects
+
+            projects.add_workflows_dir(p["wt"])
+        except Exception:
+            pass
         _write(root, prompt, PREAMBLE.format(code=root.name, name=name, result=RESULT) + text)
         basefd = os.open(p["base"], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         fds.append(basefd)

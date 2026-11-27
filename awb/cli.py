@@ -690,6 +690,11 @@ def _cmd_projects_sync(args, p: config.Paths) -> int:
         if state != "current":
             print("%s: .git/info/exclude %s" % (code, "keeps disk images out of git now" if state == "added"
                                                 else "cannot be written: the disk image lines are missing"))
+    for code, state in rulesync.sync_settings(p, args.codes or None):
+        if state != "current":
+            print("%s: .claude/settings.json %s" % (code, "lets the Workflow tool read the installed workflows now"
+                                                    if state == "added" else
+                                                    "cannot be written: the installed workflows folder is missing"))
     paths = {r.code: r.path for r in projects.load(p)}
     for code, _files in done:
         try:
