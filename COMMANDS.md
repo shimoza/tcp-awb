@@ -2045,19 +2045,19 @@ raise, check, write the evidence and always tear down; awb lab run start|end|sta
 - `--param K=V`
 
 ### `awb lab run start --tenant TENANT [--note NOTE] [--project PROJECT]`
-- `--tenant TENANT`: test-10491, test-10497, test-10503 or a granted customer tenant in write mode (end: default the one open run)
+- `--tenant TENANT`: test-10001, test-10002, test-10003 or a granted customer tenant in write mode (end: default the one open run)
 - `--note NOTE`: a short note of what the run tests
 - `--project PROJECT`: default: the code of this folder's project
 
 ### `awb lab run keep ITEM --reason REASON [--tenant TENANT] [--project PROJECT]`
 - `ITEM`: the number of the recorded create (awb lab run status) or its id
 - `--reason REASON`: why it stays, one line
-- `--tenant TENANT`: test-10491, test-10497, test-10503 or a granted customer tenant in write mode (end: default the one open run)
+- `--tenant TENANT`: test-10001, test-10002, test-10003 or a granted customer tenant in write mode (end: default the one open run)
 - `--project PROJECT`: default: the code of this folder's project
 
 ### `awb lab run end [--keep NAME[,NAME...]] [--tenant TENANT] [--project PROJECT]`
 - `--keep NAME[,NAME...]`: OBS bucket names of the run that stay (the kept list of the project); any other kind is refused before a delete
-- `--tenant TENANT`: test-10491, test-10497, test-10503 or a granted customer tenant in write mode (end: default the one open run)
+- `--tenant TENANT`: test-10001, test-10002, test-10003 or a granted customer tenant in write mode (end: default the one open run)
 - `--project PROJECT`: default: the code of this folder's project
 
 ### `awb lab run status [--project PROJECT]`
@@ -2066,12 +2066,12 @@ raise, check, write the evidence and always tear down; awb lab run start|end|sta
 ### `awb lab obs put FILE obs://BUCKET/KEY [--tenant TENANT]`
 - `FILE`
 - `obs://BUCKET/KEY`
-- `--tenant TENANT`: test-10491, test-10497, test-10503 or a granted customer tenant in write mode (default: the one open run)
+- `--tenant TENANT`: test-10001, test-10002, test-10003 or a granted customer tenant in write mode (default: the one open run)
 
 ### `awb lab obs get obs://BUCKET/KEY FILE [--tenant TENANT]`
 - `obs://BUCKET/KEY`
 - `FILE`
-- `--tenant TENANT`: test-10491, test-10497, test-10503 or a granted customer tenant in write mode (default: the one open run)
+- `--tenant TENANT`: test-10001, test-10002, test-10003 or a granted customer tenant in write mode (default: the one open run)
 
 ### `awb lab obs status [JOB]`
 - `[JOB]`

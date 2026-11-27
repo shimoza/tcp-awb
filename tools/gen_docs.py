@@ -12,6 +12,7 @@ tests/test_generated_docs.py checks that the committed files equal the generated
 from __future__ import annotations
 
 import argparse
+import re
 import contextlib
 import io
 import json
@@ -147,7 +148,20 @@ def commands_text() -> str:
     out: list[str] = []
     for path, text, parser in _parsers():
         _walk(path, text, parser, out)
-    return NOTICE + GUIDE.read_text(encoding="utf-8").rstrip("\n") + "\n" + REFERENCE_HEAD + "\n".join(out).lstrip("\n").join(("\n", "\n"))
+    reference = _invented_tenants("\n".join(out).lstrip("\n"))
+    return NOTICE + GUIDE.read_text(encoding="utf-8").rstrip("\n") + "\n" + REFERENCE_HEAD + reference.join(("\n", "\n"))
+
+
+def _invented_tenants(text: str) -> str:
+    """The help of a command names the lab tenants of this host (test-10491 and so on, B-112 keeps them in the
+    help); the public reference names invented ones in the order they first appear (test-10001, test-10002, ...), as
+    the guide does."""
+    seen: dict[str, str] = {}
+
+    def swap(m: re.Match) -> str:
+        return seen.setdefault(m.group(1), "test-%d" % (10001 + len(seen)))
+
+    return re.sub(r"(?<![\w-])test-(\d{5,6})(?!\d)", swap, text)
 
 
 def hook_text(prefix: str, with_deny: bool) -> str:
