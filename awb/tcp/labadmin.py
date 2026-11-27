@@ -1188,7 +1188,7 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
                                    query, None, {}, scope, None, None)
             absent = st == 404
         status, rh, raw, expanded = _send(svc, signer, run["id"], method, service, path, query, body, extra, scope,
-                                          held_token, held_cred, foreign)
+                                          held_token, held_cred, **({"foreign": True} if foreign else {}))
     except LabAdminError as err:
         if with_key:
             svc.note_keyed(alias, region, body, None)
