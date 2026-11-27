@@ -31114,8 +31114,15 @@
    "name": "report kpi: awb clean report brings both files",
    "run": ".venv/bin/pytest tests/test_report_kpi.py::test_kpi_awb_clean_report_brings_both_files",
    "status": "passing"
+  },
+  {
+   "id": "ASK-bytg-1127",
+   "phase": "ask",
+   "name": "lab obs link signs an opaque object without the name check; a text object keeps the exit check",
+   "run": ".venv/bin/pytest tests/test_lab_link_opaque.py",
+   "status": "passing"
   }
  ],
- "total_tests": 4445,
+ "total_tests": 4446,
  "checked": "2026-11-22"
 }

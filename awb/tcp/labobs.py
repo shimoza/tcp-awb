@@ -1477,7 +1477,8 @@ def _run_wrote(run: dict, bucket: str, key: str) -> bool:
 def _exit_check(svc, o, bucket: str, key: str, head: dict) -> list[str]:
     """The classes the exit check finds in an object (a registered name, a secret, a private key, a token): the
     gate's scan of a push with the identifier class left out (EXIT_FREE, B-087). An object over TEXT_LIMIT (an image
-    for a reader) is not read: the gate cannot scan it either. `head` is the answer of the HEAD of the object.
+    for a reader) and an opaque object (a NUL byte in its first bytes, the magic or the suffix of an archive, an
+    installer or an image) are not read: the gate cannot scan them either. `head` is the answer of the HEAD of the object.
     Raises _refused when the size is not known or the name check cannot run."""
     from awb import gate, labsecrets, register
 
@@ -1489,6 +1490,11 @@ def _exit_check(svc, o, bucket: str, key: str, head: dict) -> list[str]:
     status, _rh, raw = o.small("GET", "/%s/%s" % (bucket, key))
     if status != 200:
         raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
+    if gate.is_opaque(key, raw[:gate.BINARY_PROBE]):
+        # an installer, an archive or an image (ask 2026-11-27-tcp-bytg-1): the gate reads no text in it, like an
+        # object over TEXT_LIMIT; its decoded bytes asked the name check thousands of times and ran into the rate
+        # limit of the vault daemon on every try
+        return []
     try:
         matcher = gate._load_matcher(svc.paths_fn().vault / "register.tsv")
         found = gate._scan_decoded("obs://%s/%s" % (bucket, key), raw, matcher,
