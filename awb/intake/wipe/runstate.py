@@ -275,9 +275,24 @@ def _person_like_run(value: str) -> bool:
     return all(not _known_word(w, suffix=False) and not _generic_word(w) for w in words)
 
 
-def _learn(state: WipeState, cls: str, value: str, key: tuple[str, str], unknown_only: bool = False) -> None:
+_WEAK_RULES = frozenset(("label", "Last, First", "speaker label", "lone line before a company or role line"))
+"""The rules that read a value by its place alone (after a label, before a comma, before a colon, on a line of its
+own): a known word they find is no name, so it teaches no learned form (B-117)."""
+
+
+def _weak_seed(span: Span, value: str) -> bool:
+    """A value of a weak rule of one word, or of known words only (Lizenzen, Bestimmungen): its known words are
+    not learned. A value with a first name or an unknown word next to a known one (Thomas Lang) is a name."""
+    if span.form not in _WEAK_RULES:
+        return False
+    words = [w for w in re.split(r"[\s,]+", value) if w]
+    return len(words) == 1 or all(_known_word(w) and w.casefold() not in _FIRST_NAMES for w in words)
+
+
+def _learn(state: WipeState, cls: str, value: str, key: tuple[str, str], unknown_only: bool = False,
+           weak: bool = False) -> None:
     before = set(state.learned.words)
-    state.learned.learn(cls, value, key, unknown_only=unknown_only)
+    state.learned.learn(cls, value, key, unknown_only=unknown_only, weak=weak)
     for w in set(state.learned.words) - before:
         state.sources[w] = value
 
@@ -307,7 +322,7 @@ def learn(state: WipeState, text: str, names: list[Span], structured: list[Span]
                 _learn(state, "unknown", value, ("unknown", _canon(value)))
                 continue
         if s.cls in ("person", "company"):
-            _learn(state, s.cls, value, (s.cls, _canon(value)))
+            _learn(state, s.cls, value, (s.cls, _canon(value)), weak=_weak_seed(s, value))
         elif s.cls == "unknown" and _person_like_run(value):
             # a run that looks like a person (a first name first, or unknown words only): its words are learned
             # with the run's token, so the surname of a full name is wiped where it stands alone later
