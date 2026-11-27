@@ -31163,6 +31163,13 @@
    "name": "images release: the img folder and pictures take the group of the project folder with group read",
    "run": ".venv/bin/pytest tests/test_images_release_group.py",
    "status": "passing"
+  },
+  {
+   "id": "ASK-j5sy-2-1127",
+   "phase": "ask",
+   "name": "doc fetch: a source with the query of a redirect is taken, a broken query refused",
+   "run": ".venv/bin/pytest tests/test_doc_source_query.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4447,

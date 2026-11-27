@@ -1017,7 +1017,9 @@ def _fetch_cmd(args) -> int:
             pass
     source, fetched = answer.get("url") or args.url, answer.get("fetched") or "?"
     try:
-        check_url(source)
+        # the service follows a redirect whose target may carry a query (B-082), so the source it names may too
+        # (ask 2026-11-27-tcp-j5sy-2: learn.microsoft.com answers with ?view=...)
+        _check_url(source, None, allow_query=True)
         if not isinstance(fetched, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC|\?", fetched):
             raise DocError("invalid date")
         if answer.get("kind") == "pdf" and (type(answer.get("pages")) is not int or
