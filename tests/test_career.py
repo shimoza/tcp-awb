@@ -169,12 +169,10 @@ def sections(draft: str) -> dict[str, list[str]]:
     return out
 
 
-def linkedin(draft: str) -> list[str]:
-    part = draft.split("## LinkedIn", 1)[1]
-    return [line for line in part.splitlines() if line.strip()]
-
-
-def test_update_groups_by_theme_and_writes_the_date(home, capsys, monkeypatch, today):
+def test_update_groups_by_theme_writes_the_date_and_no_linkedin_paragraph(home, capsys, monkeypatch, today):
+    """Replaces test_update_groups_by_theme_and_writes_the_date (the career project's answer of 2026-11-26,
+    correction 5: no LinkedIn line of any kind): the draft has no LinkedIn section. Kept from the replaced test: the
+    themes and their bullets, the heading with the date, the stored date and the writing check."""
     calls = fake_writing(monkeypatch)
     add_themed(home)
     code, out, err = run(["career", "update"], capsys)
@@ -186,17 +184,16 @@ def test_update_groups_by_theme_and_writes_the_date(home, capsys, monkeypatch, t
     assert got["Cloud migration"] == ["Moved 120 virtual machines to the cloud in six weeks."]
     assert got["Security"] == ["Designed the access model for a regulated platform."]
     assert got["Other"] == ["Ran a private cloud readiness check."]
-    para = linkedin(out)
-    assert len(para) == 1
-    assert "5 pieces of work" in para[0] and "Work of 2026-09-10: Outcome of 2026-09-10." in para[0]
-    assert "in cloud migration, automation and security." in para[0]
+    assert "linkedin" not in out.lower()
     assert out.startswith("# Career update 2026-09-22")
     assert (home.shared / "career-updated").read_text(encoding="utf-8") == "2026-09-22\n"
     assert calls == [(out, "doc", "tcp")]
     assert career.days_since_update(home) == 0
 
 
-def test_update_since_takes_only_the_later_entries(home, capsys, monkeypatch, today):
+def test_update_since_takes_only_the_later_entries_and_counts_them(home, capsys, monkeypatch, today):
+    """Replaces test_update_since_takes_only_the_later_entries (correction 5 of 2026-11-26): the count of the later
+    entries is read from the line of the draft, no longer from the LinkedIn paragraph. Kept: the themes and bullets."""
     fake_writing(monkeypatch)
     add_themed(home)
     code, out, err = run(["career", "update", "--since", "2026-08-01"], capsys)
@@ -204,7 +201,8 @@ def test_update_since_takes_only_the_later_entries(home, capsys, monkeypatch, to
     got = sections(out)
     assert list(got) == ["Cloud migration", "Automation", "Other"]
     assert got["Automation"] == ["Automated the patch cycle of 300 servers with Ansible."]
-    assert "3 pieces of work" in linkedin(out)[0]
+    assert "Entries from 2026-08-" in out and ": 3." in out
+    assert "linkedin" not in out.lower()
 
 
 def test_a_blocking_writing_tell_gives_exit_1_and_the_date_is_still_stored(home, capsys, monkeypatch, today):
@@ -244,10 +242,13 @@ def test_the_draft_is_plain(home, capsys, monkeypatch, today):
     assert "- Redesigned the backup, fast and cheap." in out
 
 
-def test_the_draft_withholds_a_text_with_a_name_registered_later(home, capsys, monkeypatch, today):
+def test_the_draft_shows_a_cv_line_with_a_name_registered_later(home, capsys, monkeypatch, today):
+    """Replaces test_the_draft_withholds_a_text_with_a_name_registered_later (correction 5 of 2026-11-26): the
+    outcome stood only in the LinkedIn paragraph, which is gone, so the later-registered word now stands in the
+    cv-line. Kept: the draft prints it and withholds nothing."""
     fake_writing(monkeypatch)
-    career.add("Site network", "Built", "VPC", "Linked the office in %s" % fixtures.CONTROL_UNREGISTERED,
-               "Built a site network", day="2026-09-01", p=home)
+    career.add("Site network", "Built", "VPC", "Linked the office",
+               "Built a site network in %s" % fixtures.CONTROL_UNREGISTERED, day="2026-09-01", p=home)
     register.add(home.register, fixtures.CUSTOMER_CODE + "-SITE-2", "SITE", fixtures.CONTROL_UNREGISTERED)
     code, out, err = run(["career", "update"], capsys)
     assert code == 0, err

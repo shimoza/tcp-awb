@@ -31142,6 +31142,13 @@
    "name": "billed: dashboard stamps in UTC with Z are read in Berlin time (23:00Z of the day before is the first hour); a stamp without offset or outside the period stays broken data",
    "run": ".venv/bin/pytest tests/test_billed_utc_dates.py",
    "status": "passing"
+  },
+  {
+   "id": "CAR-nolinkedin-1127",
+   "phase": "career",
+   "name": "awb career update drafts CV bullets only, no LinkedIn paragraph (career project correction 5)",
+   "run": ".venv/bin/pytest tests/test_career.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4447,

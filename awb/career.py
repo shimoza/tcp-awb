@@ -11,8 +11,8 @@ code or secret check inside) and the candidates from the ledger show a register 
 code as "a project". Tags come from `rules/tags.txt`; without --tag they are taken from the words of the stack that are tags.
 
 `awb career update` prints a Markdown draft: CV bullets grouped by theme (each entry goes to the first theme of
-`THEMES` that one of its tags belongs to, else to "Other"), newest first inside a theme, then one LinkedIn
-paragraph. The draft is written in plain style (no em-dash, no comma before "and" or "or") and then run through
+`THEMES` that one of its tags belongs to, else to "Other"), newest first inside a theme. There is no LinkedIn
+paragraph (the career project asked for none, 2026-11-26). The draft is written in plain style (no em-dash, no comma before "and" or "or") and then run through
 `writing.check_text`; the tells go to standard error and a blocking tell gives exit 1. When `awb.writing` is not
 there the step is skipped with a note. The date of the run goes to `<shared>/career-updated`.
 
@@ -70,7 +70,6 @@ THEMES: tuple[tuple[str, frozenset[str]], ...] = (
 )
 OTHER = "Other"
 
-_STACK_SPLIT_RE = re.compile(r"[,;/]|\band\b|\bor\b", re.IGNORECASE)
 
 
 class CareerError(Exception):
@@ -227,36 +226,9 @@ def _sentence(text: str) -> str:
     return text + "." if text else ""
 
 
-def _join(items: list[str]) -> str:
-    """a, b and c (no comma before the last "and")."""
-    items = [i for i in items if i]
-    if len(items) <= 1:
-        return "".join(items)
-    return "%s and %s" % (", ".join(items[:-1]), items[-1])
-
-
-def _stack_words(entries: list[Entry], limit: int = 8) -> list[str]:
-    """The distinct parts of the stacks, newest entry first."""
-    out: list[str] = []
-    for e in reversed(entries):
-        for part in _STACK_SPLIT_RE.split(e.stack):
-            part = part.strip().rstrip(".").strip()
-            if part and part.lower() not in (o.lower() for o in out):
-                out.append(part)
-    return out[:limit]
-
-
-def _pieces(n: int) -> str:
-    return "%d %s of work" % (n, "piece" if n == 1 else "pieces")
-
-
-def _lower_theme(t: str) -> str:
-    """"Cloud migration" -> "cloud migration", "AI and data" stays."""
-    return t if t[:2].isupper() else t[:1].lower() + t[1:]
-
-
 def draft(entries: list[Entry], day: date, since: date | None) -> str:
-    """The Markdown draft: CV bullets grouped by theme, then one LinkedIn paragraph. Plain style."""
+    """The Markdown draft: CV bullets grouped by theme. Plain style. No LinkedIn paragraph: the career project writes
+    its own wording and asked for none (its answer of 2026-11-26, correction 5)."""
     lines = ["# Career update %s" % day.isoformat(), ""]
     if not entries:
         lines.append("No career entries%s." % (" since %s" % since.isoformat() if since else ""))
@@ -273,16 +245,6 @@ def draft(entries: list[Entry], day: date, since: date | None) -> str:
         for e in sorted(by_theme[t], key=lambda e: e.date, reverse=True):
             lines.append("- %s" % _sentence(ledger.plain(e.cv_line)))
         lines.append("")
-    newest = sorted(entries, key=lambda e: e.date, reverse=True)[:5]
-    named = [_lower_theme(t) for t in themes if t != OTHER]
-    para = ["From %s to %s I finished %s in %s." % (first, last, _pieces(len(entries)),
-                                                   _join(named) if named else "several areas")]
-    for e in newest:
-        para.append("%s: %s" % (_sentence(ledger.plain(e.title))[:-1], _sentence(ledger.plain(e.outcome))))
-    stack = _stack_words(entries)
-    if stack:
-        para.append("Main tools: %s." % _join(stack))
-    lines += ["## LinkedIn", "", ledger.plain(" ".join(para)), ""]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
@@ -979,7 +941,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--tag", action="append", default=[], help="a tag of rules/tags.txt (default: from the stack)")
     s.add_argument("--date", type=ledger.iso_date, default=None, metavar="D", help="the date (ISO, default today)")
     s.set_defaults(func=_cmd_add)
-    s = sub.add_parser("update", help="draft CV bullets and a LinkedIn paragraph")
+    s = sub.add_parser("update", help="draft CV bullets")
     s.add_argument("--since", type=ledger.iso_date, default=None, metavar="D", help="first date (ISO)")
     s.set_defaults(func=_cmd_update)
     s = sub.add_parser("due", help="days since the last update, exit 1 when over %d" % DUE_DAYS)
