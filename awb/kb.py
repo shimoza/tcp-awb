@@ -52,6 +52,12 @@ KEEP. `renew ID --source URL` records that a standing entry still holds where it
 the new source, the grade kept. `expired --days N` adds the entries that expire in the next N days. All three run
 the checks of `amend`. The dataset build leaves a merged entry out like every retired one.
 
+`purge ID... --owner-word TEXT` removes retired entries of another scope than tcp for good (the owner's word of
+2026-11-26: no HCS, HCI or HCE knowledge on the TCP side). An active entry or a tcp entry is refused and nothing is
+removed. The ids go into entries/PURGED with the date and his word, so `add` never draws a purged id, INDEX.md is
+written again and the command commits exactly these paths. The pre-commit check lets a deletion of an entry file
+pass only when that list of the same commit names its id.
+
 `find` prints the first FIND_TOP entries (`--top N`, `--all`).
 
 Nothing here prints, logs or raises with a refused value: messages carry field names, counts, ids and dates. What
@@ -73,6 +79,7 @@ name still hits.
     awb kb bench [--top N] FILE
     awb kb retire --why TEXT ID
     awb kb merge [--why TEXT] [--source TEXT] KEEP DROP
+    awb kb purge --owner-word TEXT ID...     retired entries of another scope than tcp, removed and committed
     awb kb renew --source URL [--checked D] ID
     awb kb find [--scope S] [--top N | --all] WORDS...
     awb kb show ID
@@ -92,7 +99,7 @@ name still hits.
                                                release, with source and grade; writes the mark `awb dataset put`
                                                needs (awb/kbreview.py, G6 of the threat model)
 
-Exit codes: 0 ok, 1 refused (add, amend, retire, merge, renew) or expired entries found (expired), 2 usage or error.
+Exit codes: 0 ok, 1 refused (add, amend, retire, merge, renew, purge) or expired entries found (expired), 2 usage or error.
 """
 from __future__ import annotations
 
@@ -104,12 +111,13 @@ import os
 import re
 import secrets
 import stat
+import subprocess
 import sys
 import unicodedata
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace as _replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -156,6 +164,10 @@ def expected(value: str) -> dict[int, set[int]]:
 _RECIPE_CALL_RE = re.compile(r"recipe ([a-z0-9][a-z0-9-]{0,63})((?: [a-z_][a-z0-9_]*=\S+)*)")
 ENTRIES = "entries"
 INDEX = "INDEX.md"
+PURGED = "PURGED"
+"""The list of ids `awb kb purge` removed for good, in the entries folder: one line per id, `KB-XXXX DATE` and the
+owner's word. A new entry never takes an id of the list, and a commit may delete an entry file only together with
+its line in this list."""
 TAGS_FILE = patterns.RULES_DIR / "tags.txt"
 SYNONYMS_FILE = patterns.RULES_DIR / "kb-synonyms.txt"
 SYNONYM_WEIGHT = 0.5
@@ -177,6 +189,7 @@ _PINNED: ContextVar[dict[str, int]] = ContextVar("kb_directories", default={})
 ID_RE = re.compile(codes.KB)
 _FILE_RE = re.compile(codes.KB + r"\.md")
 _DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_PURGED_RE = re.compile(r"(%s) ([0-9]{4}-[0-9]{2}-[0-9]{2})(?: |$)" % codes.KB)
 _MERGED_RE = re.compile(r"merged into (%s)(?![A-Za-z0-9])" % codes.KB)
 """The reason `merge` writes into the entry it retires: `merged into KB-XXXX`, then `: ` and the reason given."""
 FIND_TOP = 20
@@ -901,10 +914,33 @@ def get(kb_id: str, where=None) -> Entry:
     try:
         text = _read_text(path)
     except FileNotFoundError:
+        gone = purged(where).get(kb_id)
+        if gone:
+            raise KBError("%s was purged on %s and is gone for good" % (kb_id, gone)) from None
         raise KBError("there is no entry %s" % kb_id) from None
     except (OSError, UnicodeDecodeError) as err:
         raise KBError("%s cannot be read (%s)" % (kb_id, type(err).__name__)) from None
     return parse(text, kb_id, path)
+
+
+def purged_in(text: str) -> dict[str, str]:
+    """{id: date} of the lines of a PURGED list; a line that does not start with an id and a date is skipped."""
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        m = _PURGED_RE.match(line)
+        if m:
+            out.setdefault(m.group(1), m.group(2))
+    return out
+
+
+def purged(where=None) -> dict[str, str]:
+    """{id: date} of the entries `awb kb purge` removed. No list, no id."""
+    try:
+        return purged_in(_read_text(root(where) / ENTRIES / PURGED))
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeDecodeError) as err:
+        raise KBError("the list of purged ids cannot be read (%s)" % type(err).__name__) from None
 
 
 def _write_atomic(path: Path, text: str, *, overwrite: bool = True) -> None:
@@ -948,9 +984,10 @@ def _locked(folder: Path):
 def _new_id(folder: Path) -> str:
     with _directory(folder / ENTRIES) as fd:
         taken = set(os.listdir(fd))
+    gone = purged(folder)
     for _ in range(1000):
         kb_id = "KB-" + "".join(secrets.choice(codes.ALPHABET) for _ in range(4))
-        if kb_id + ".md" not in taken:
+        if kb_id + ".md" not in taken and kb_id not in gone:
             return kb_id
     raise KBError("could not find a free knowledge base id")
 
@@ -1311,6 +1348,110 @@ def retire(kb_id: str, why: str, *, where=None, register_path: Path | None = Non
         return _save(folder, entries, _replace(old, retired=today.isoformat(), why=why), today, reg)
 
 
+def _kb_git(folder: Path, *args: str) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(["git", "-C", str(folder), *args], capture_output=True, text=True, check=False,
+                              timeout=120)
+    except (OSError, subprocess.SubprocessError) as err:
+        raise KBError("git cannot be run (%s)" % type(err).__name__) from None
+
+
+def purge(ids: Sequence[str], owner_word: str, *, where=None, register_path: Path | None = None,
+          today: date | None = None, now: datetime | None = None) -> list[str]:
+    """Remove retired entries of another scope than tcp for good (the owner's word of 2026-11-26: no HCS, HCI or
+    HCE knowledge on the TCP side). Every id must be an entry that is retired and does not have scope tcp, or
+    nothing is removed. The ids go into entries/PURGED with the date and the owner's word, the files are deleted,
+    INDEX.md is written again and the knowledge base repository gets one commit of exactly these paths. When the
+    commit fails (the pre-commit check, git) the files are back as they were. Returns the ids purged.
+    Raises Refused or KBError."""
+    from awb import ownerword
+
+    today = today or date.today()
+    now = now or datetime.now(timezone.utc)
+    folder = root(where)
+    wanted = list(dict.fromkeys(i.strip() if isinstance(i, str) else i for i in ids))
+    reasons: list[str] = []
+    if not wanted:
+        raise Refused(["give at least one entry id"])
+    for kb_id in wanted:
+        if not isinstance(kb_id, str) or not ID_RE.fullmatch(kb_id):
+            reasons.append("the argument is not a knowledge base id (KB-XXXX)")
+    try:
+        stamp = ownerword.stamp(owner_word, now)
+    except ownerword.WordError as err:
+        reasons.append(str(err))
+    if reasons:
+        raise Refused(reasons)
+    reg = register_of(register_path)
+    with _locked(folder):
+        entries = load(folder)
+        by_id = {e.id: e for e in entries}
+        for kb_id in wanted:
+            e = by_id.get(kb_id)
+            if e is None:
+                reasons.append("there is no entry %s" % kb_id)
+            elif not e.is_retired:
+                reasons.append("%s is not retired; only a retired entry is purged, an active one is withdrawn "
+                               "with awb kb retire" % kb_id)
+            elif e.scope == "tcp":
+                reasons.append("%s has scope tcp; only an entry of another scope (hcs, hci, hce) is purged" % kb_id)
+        if reasons:
+            raise Refused(reasons)
+        top = _kb_git(folder, "rev-parse", "--show-toplevel")
+        if top.returncode != 0:
+            raise Refused(["the knowledge base is not a git repository, so the purge cannot be committed"])
+        names = [ENTRIES + "/" + kb_id + ".md" for kb_id in wanted]
+        tracked = _kb_git(folder, "ls-files", "--error-unmatch", "--", *names)
+        if tracked.returncode != 0:
+            raise Refused(["an entry to purge is not committed in the knowledge base yet; nothing was removed"])
+        listed = _kb_git(folder, "ls-files", "--", INDEX).stdout.strip() != ""
+        paths = names + [ENTRIES + "/" + PURGED] + ([INDEX] if listed else [])
+
+        list_path = folder / ENTRIES / PURGED
+        try:
+            before = _read_text(list_path)
+        except FileNotFoundError:
+            before = None
+        texts = {e.id: _read_text(folder / ENTRIES / (e.id + ".md")) for e in entries if e.id in wanted}
+        try:
+            index_before = _read_text(folder / INDEX)
+        except FileNotFoundError:
+            index_before = None
+        added = "".join("%s %s %s\n" % (kb_id, today.isoformat(), stamp) for kb_id in wanted)
+
+        def restore() -> None:
+            for kb_id, text in texts.items():
+                _write_atomic(folder / ENTRIES / (kb_id + ".md"), text)
+            with _directory(list_path.parent) as parent:
+                if before is None:
+                    try:
+                        os.unlink(PURGED, dir_fd=parent)
+                    except FileNotFoundError:
+                        pass
+                else:
+                    _write_atomic(list_path, before)
+                if index_before is not None:
+                    _write_atomic(folder / INDEX, index_before)
+
+        try:
+            _write_atomic(list_path, (before or "") + ("" if not before or before.endswith("\n") else "\n") + added)
+            with _directory(list_path.parent) as parent:
+                for kb_id in wanted:
+                    os.unlink(kb_id + ".md", dir_fd=parent)
+            _index_file(folder, [e for e in entries if e.id not in wanted], today, reg)
+            for step in (("add", "--", *[p for p in paths if p not in names]),
+                         ("commit", "-q", "-m", "kb purge: %s removed for good" % ", ".join(wanted), "--", *paths)):
+                done = _kb_git(folder, *step)
+                if done.returncode != 0:
+                    detail = " ".join((done.stderr or done.stdout).split())[-300:]
+                    raise KBError("git %s refused the purge%s" % (step[0], ": " + detail if detail else ""))
+        except BaseException:
+            _kb_git(folder, "reset", "-q", "--", *paths)
+            restore()
+            raise
+    return wanted
+
+
 def _joined(first: Sequence[str], second: Sequence[str]) -> tuple[str, ...]:
     """The items of both, each once (compared without case and extra spaces), the first ones first."""
     seen: set[str] = set()
@@ -1545,7 +1686,9 @@ def verify(files: Sequence[Path] = (), *, staged_repo: Path | None = None,
            register_path: Path | None = None) -> list[tuple[str, str]]:
     """(file, reason) for every entry file that would not pass `kb add`: the files given and, with
     `staged_repo`, every entry a commit of that repository carries. A staged deletion of an entry is a reason
-    too: a wrong fact is withdrawn with `awb kb retire`, which keeps its file, its history and its id.
+    too: a wrong fact is withdrawn with `awb kb retire`, which keeps its file, its history and its id. A deletion
+    passes only when entries/PURGED of the same commit lists its id (`awb kb purge` writes it); a staged entry
+    that takes a purged id is a reason too.
     Raises KBError when the name check cannot run."""
     reg = register_of(register_path)
     items: list[tuple[str, str | None]] = []
@@ -1563,6 +1706,15 @@ def verify(files: Sequence[Path] = (), *, staged_repo: Path | None = None,
             modes = {rel: mode for rel, mode, _ in gate._staged_entries(gate._toplevel(staged_repo))}
         except gate.GateError:
             raise KBError("the staged entries cannot be read") from None
+        listed: dict[str, str] = {}
+        for rel, data in staged:
+            if rel == ENTRIES + "/" + PURGED and data is not None and len(data) <= MAX_FILE_BYTES:
+                listed = purged_in(data.decode("utf-8", "replace"))
+        try:
+            old_list = purged_in(gate._git(gate._toplevel(staged_repo), "show", "HEAD:%s/%s" % (ENTRIES, PURGED))
+                                 .decode("utf-8", "replace"))
+        except gate.GateError:
+            old_list = {}
         for rel, data in staged:
             if rel.startswith(ENTRIES + "/") and rel.endswith(".md"):
                 try:
@@ -1570,9 +1722,12 @@ def verify(files: Sequence[Path] = (), *, staged_repo: Path | None = None,
                 except UnicodeDecodeError:
                     text = None
                 items.append((rel, text if modes.get(rel) in ("100644", "100755") else None))
+                if Path(rel).stem in listed or Path(rel).stem in old_list:
+                    problems.append((rel, "the id was purged and is never taken again"))
         for rel in deleted:
-            if rel.startswith(ENTRIES + "/") and rel.endswith(".md"):
-                problems.append((rel, "the entry is deleted; withdraw a wrong fact with awb kb retire instead"))
+            if rel.startswith(ENTRIES + "/") and rel.endswith(".md") and Path(rel).stem not in listed:
+                problems.append((rel, "the entry is deleted; withdraw a wrong fact with awb kb retire instead "
+                                      "(awb kb purge removes a retired entry of another scope than tcp)"))
     for label, text in items:
         if text is None:
             problems.append((label, "the file cannot be read as text"))
@@ -2077,6 +2232,19 @@ def _cmd_retire(args, today: date) -> int:
     return 0
 
 
+def _cmd_purge(args, today: date) -> int:
+    try:
+        ids = purge(args.ids, args.owner_word, today=today)
+    except Refused as ref:
+        for why in ref.reasons:
+            print(why)
+        print("nothing was purged")
+        return 1
+    print("purged %s: the files are removed and committed, the ids are in %s/%s and are never used again"
+          % (", ".join(ids), ENTRIES, PURGED))
+    return 0
+
+
 def _merged_lines(words: Sequence[str], today: date) -> list[str]:
     """For every id among the words of a find that was merged: where it went, and the entry that stands."""
     out: list[str] = []
@@ -2290,6 +2458,11 @@ def _parser():
     s.add_argument("--why", required=True, help="why it is withdrawn, one line")
     s.add_argument("id")
     s.set_defaults(func=_cmd_retire)
+
+    s = sub.add_parser("purge", help="remove retired entries of another scope than tcp for good, and commit")
+    s.add_argument("--owner-word", required=True, metavar="TEXT", help="his words, written into the list of purged ids")
+    s.add_argument("ids", nargs="+", metavar="ID", help="a retired entry of scope hcs, hci or hce")
+    s.set_defaults(func=_cmd_purge)
 
     s = sub.add_parser("merge", help="merge a duplicate: DROP is retired into KEEP, KEEP takes the sources of both")
     s.add_argument("--why", default=None, help="why they are one fact, one line (optional)")
