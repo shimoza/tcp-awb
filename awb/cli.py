@@ -460,6 +460,14 @@ def _cmd_close(args, p: config.Paths) -> int:
             for name in kept:
                 print("awb lab kept drop %s" % name, file=sys.stderr)
             return EXIT_ERROR
+        from awb.tcp import bucketgrant
+        grants = bucketgrant.close_lines(p, args.code)
+        if grants:
+            print("awb: %s still holds %d bucket grant(s); revoke them or close with --force:"
+                  % (args.code, len(grants)), file=sys.stderr)
+            for line in grants:
+                print(line, file=sys.stderr)
+            return EXIT_ERROR
     items = projects.open_items(before.path) if before else 0
     live = projects.live_resources(before.path) if before else 0
     if before is not None and before.state in projects.LIVE_STATES and (args.force or not (items or live)):

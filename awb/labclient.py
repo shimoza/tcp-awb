@@ -715,7 +715,7 @@ LINK_RE = re.compile(r"https?://[A-Za-z0-9.:-]+/[A-Za-z0-9%._~/@:=+-]+\?AccessKe
 
 @_boundary
 def obs_link(bucket: str, key: str, *, minutes: int | None = None, tenant: str | None = None, run: str | None = None,
-             start: Path | None = None) -> dict:
+             start: Path | None = None, owner_word: str | None = None) -> dict:
     """A time-limited GET link to obs://BUCKET/KEY in a bucket the open run made, signed by the key service:
     {"url", "expires", "minutes", "bucket", "key", "key_sha256", "run"}. The URL is in this answer only: the run
     log gets the bucket, the key hash, the minutes and the expiry."""
@@ -725,6 +725,8 @@ def obs_link(bucket: str, key: str, *, minutes: int | None = None, tenant: str |
         raise LabClientError("refused: minutes is a whole number")
     req = {"op": "lab_obs", "action": "link", "tenant": tenant, "run": run, "project": _code(root),
            "bucket": bucket, "key": key, "minutes": minutes}
+    if owner_word is not None:
+        req["owner_word"] = owner_word      # a binary or large object is signed only with the owner's word (G4)
     answer = _request(req, root)
     if not answer.get("ok"):
         log(root, run, ["## %s obs link refused" % _stamp(), "refused: %s" % _service_error(answer)])
@@ -804,6 +806,9 @@ def _obs_parser(action: str) -> argparse.ArgumentParser:
         ap.add_argument("bucket", metavar="BUCKET")
         ap.add_argument("key", metavar="KEY")
         ap.add_argument("--minutes", type=int, default=None, help="how long the link works: 1 to 720 (default 60)")
+        ap.add_argument("--owner-word", default=None, metavar="TEXT",
+                        help="the owner's words that allow a link to a binary or large object the service cannot "
+                             "read (an installer); quote him exactly")
     elif action == "status":
         ap.add_argument("job", metavar="JOB", nargs="?", default=None)
     else:
@@ -848,7 +853,8 @@ def obs_main(argv: list[str]) -> int:
                 " in %d parts" % a["parts"] if a.get("parts") else "", a["job"]))
             return EXIT_OK
         if action == "link":
-            a = obs_link(args.bucket, args.key, minutes=args.minutes, tenant=args.tenant)
+            a = obs_link(args.bucket, args.key, minutes=args.minutes, tenant=args.tenant,
+                         owner_word=args.owner_word)
             _print("GET link to obs://%s/%s, %s min, until %s; shown once, not logged:" % (
                 a["bucket"], a["key"], a["minutes"], a["expires"]), file=sys.stderr)
             print(a["url"])         # whole: the screen of _print would shorten its signature and token

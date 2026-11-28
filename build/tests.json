@@ -31303,8 +31303,15 @@
    "name": "awb images release goes to the outbox for a customer with a closed project alone, a parked one still takes them, --project of a closed project is refused",
    "run": ".venv/bin/pytest tests/test_images_release_closed.py",
    "status": "passing"
+  },
+  {
+   "id": "G4-G11-wiring-1128",
+   "phase": "lab",
+   "name": "awb close is refused while the project holds a bucket grant (--force closes), awb lab obs link --owner-word hands the words to the key service",
+   "run": ".venv/bin/pytest tests/test_review_1128_wiring.py",
+   "status": "passing"
   }
  ],
- "total_tests": 4472,
+ "total_tests": 4473,
  "checked": "2026-11-22"
 }
