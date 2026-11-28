@@ -20,7 +20,10 @@ customer data out of the model as far as it can:
   A word of the German or English lists (`rules/known-words-de.txt`, `rules/known-words.txt`, `rules/common-words.txt`)
   and a product or vendor name (`rules/vendor-names.txt`, `rules/source-platforms.txt`, `rules/tech-terms.txt`) is
   never a learned form and a guessed name matches whole words only: a letter of any script, a digit or a hyphen next to
-  it makes it part of a word, so `Grafikkarte` stays whole (B-090, ask 2026-11-26-tcp-6edq-2). In a text whose language
+  it makes it part of a word, so `Grafikkarte` stays whole (B-090, ask 2026-11-26-tcp-6edq-2). A learned form of a
+  person or company with five letters or more that no list knows and that the run never writes as a lower-case word is
+  also found next to a hyphen, a digit or a change of case (`NAME-Umgebung`, `srv-name-01`, `NameNet`; G8 of the review
+  of 2026-11-28). In a text whose language
   is German a run of capitalised words needs a first name of `rules/first-names.txt` in it, every German noun being
   capitalised (a run that opens with an organisation word such as `Stadt` or `Landkreis` is still a name). A BIC needs a
   country code of ISO 3166 at its positions 5 and 6 and is no dictionary word, so a chapter title in capitals is none.
@@ -29,7 +32,9 @@ customer data out of the model as far as it can:
   use the same class words (person, company, place, name; the report says registered for a registered form).
   A folder given to `awb import CODE DIR` (and `awb start --from DIR`) is a tree: each copy carries the path of its
   file below the folder in the line `- path:` under the kind, wiped like the content (a piece that is a name becomes its
-  token, a registered form its code), and `intake-report.md` lists the paths under `## Paths`. The private report keeps
+  token, a registered form its code) and then word by word: a learned form glued into a piece and a capitalised word
+  that no list knows become tokens (G6 of the review of 2026-11-28), and `intake-report.md` lists the paths under
+  `## Paths`. The private report keeps
   the path as written and `--redo` writes the same path again; a path in which the final check still finds something
   reads `withheld, see the private report` (ask 2026-11-27-tcp-7c7b-1).
   Inside a kept host name or web address, and inside a backtick span, two forms still become tokens (ask
@@ -44,6 +49,10 @@ customer data out of the model as far as it can:
   comments, docstrings and string literals that read like text. A key, an identifier, a column list, a SQL statement, a
   regular expression or a property name keeps its words; a registered form, a mail address and a name the import
   learned from prose, written capitalised as a word of its own, still go there. So the copy of a code file still runs.
+  A literal is a SQL statement only with a second keyword or a mark of a statement ("Update for Herr NAME" is a
+  sentence), a quoted value inside a statement is prose, a placeholder (`${name}`, `%(name)s`) cuts a literal and the
+  sentence around it is read, and the private report says `left in data: N guessed name(s)` for a code file in whose
+  data literals the rules still read a name (G7 of the review of 2026-11-28).
   `awb images release CUST-XXXX FILEID N... [--project CODE]` puts a released picture into `input/FILEID-img/` of the
   project and the take note says so; the commit gate of a project checks no content (DMZ 3), so it can be committed. A
   script line that only reads or sets a variable (`pm.environment.set("token", pm.response.json().access_token)`,
