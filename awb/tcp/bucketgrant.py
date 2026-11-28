@@ -16,6 +16,15 @@ and a leased key (lease_policy) keeps its policy of `<code>-*` buckets: that is 
 which this grant does not widen. An ungranted bucket keeps the old rule. A missing file, a file that does not parse
 or one entry that is not well formed grants nothing at all.
 
+The granted bucket is one the owner made before, and nothing checks what it holds: `awb lab obs get` brings its
+objects into the project with no entry check, an entry beside `awb import`. The grant says so in one line
+(ENTRY_LINE) and his word is given with that in mind: a bucket that ever held customer files is not granted. A
+grant writes nothing to OBS itself; the granted project does, with `awb lab obs put` and a lab call of its open run
+(G11 of the attacker review of 2026-11-28: the two were said apart).
+
+A grant has an end: `close_lines` names the grants a project still holds with the revoke command of each, for
+`awb close` to print and refuse on, so a closed code keeps no line here.
+
 A grant is refused for the exchange buckets, for a bucket named after a project (that bucket is already the
 project's own, or another project's) and for a bucket granted to another project already (revoke it first).
 """
@@ -40,6 +49,10 @@ _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\Z")
 FIELDS = ("tenant", "bucket", "project", "word", "day")
 
 REFUSED_LINE = "refused: the bucket %s is granted to another project"
+ENTRY_LINE = ("note: nothing checks what %s holds: awb lab obs get brings its objects into %s with no entry check, "
+              "beside awb import, and awb lab obs put writes into it; grant only a bucket that never held customer "
+              "files")
+CLOSE_LINE = "%s still holds the owner's grant of the bucket %s on %s: awb tenant bucket-revoke %s %s"
 
 
 class BucketGrantError(Exception):
@@ -177,7 +190,20 @@ def grant(p: config.Paths, alias, bucket, code, word, day: str | None = None, sa
         return False
     data.append({"tenant": tenant, "bucket": bucket, "project": code, "word": words, "day": day})
     _save(p, data)
+    if say is not None:
+        say(ENTRY_LINE % (bucket, code))
     return True
+
+
+def of_project(p: config.Paths, code) -> list[dict]:
+    """The grants the project `code` holds, by tenant and bucket."""
+    return sorted((e for e in load(p) if e["project"] == code), key=lambda e: (e["tenant"], e["bucket"]))
+
+
+def close_lines(p: config.Paths, code) -> list[str]:
+    """One line for each grant the project still holds, with the revoke command of the owner; [] when it holds
+    none. `awb close` prints them and refuses without --force: a closed code keeps no grant."""
+    return [CLOSE_LINE % (code, e["bucket"], e["tenant"], e["tenant"], e["bucket"]) for e in of_project(p, code)]
 
 
 def revoke(p: config.Paths, alias, bucket, say=None) -> bool:

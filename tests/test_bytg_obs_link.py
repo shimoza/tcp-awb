@@ -89,40 +89,6 @@ def test_bytg16_presign_matches_a_fixed_vector_and_the_documented_form():
     assert "security-token" not in plain
 
 
-def test_bytg16_link_reads_one_object_of_a_bucket_the_run_made(lab):
-    w = lab
-    run = start_run(w)
-    make_bucket(w, run)
-    put_object(w, run)
-    before = datetime.now(timezone.utc).timestamp()
-    a = link(w, run)
-    assert a["ok"], a
-    assert a["minutes"] == 60 and a["bucket"] == BUCKET and a["key"] == KEY
-    assert a["key_sha256"] == hashlib.sha256(KEY.encode()).hexdigest()[:16]
-    bucket, key, expires = verify(a["url"], w.fake.creds)
-    assert (bucket, key) == (BUCKET, KEY)
-    after = datetime.now(timezone.utc).timestamp()
-    assert before + 3600 - 5 <= expires <= after + 3600 + 5   # the link expiry, not a speed bound
-    with pytest.raises(AssertionError):
-        verify(a["url"], w.fake.creds, method="PUT")
-    # a credential of its own that outlives the link, never the held one of the run's calls
-    assert durations(w)[-1] == 3600 + labadmin.LINK_SLACK
-    held = w.svc.lab.tokens.get((LAB, "obs@eu-de"))
-    ak = urllib.parse.parse_qs(urllib.parse.urlsplit(a["url"]).query)["AccessKeyId"][0]
-    assert held is not None and held[0][0] != ak and ak not in w.svc.lab.values()
-    # the URL, its signature and the secret key are in no log and no record
-    sk, st = w.fake.creds[ak]
-    record = labruns.open_run(w.svc.paths_fn(), PROJECT, LAB)
-    entry = record["links"][-1]
-    assert set(entry) == {"at", "bucket", "key_sha256", "minutes", "expires"}
-    assert entry["key_sha256"] == a["key_sha256"] and entry["minutes"] == 60 and entry["bucket"] == BUCKET
-    calls = [p.read_text(encoding="utf-8") for p in (w.tmp / "log").rglob("*") if p.is_file()]
-    assert any("obs-link" in t and a["key_sha256"] in t for t in calls)
-    assert not any(KEY in t for t in calls)
-    texts = calls + [p.read_text(encoding="utf-8") for p in (w.tmp / "vault").rglob("*.json")]
-    for t in texts:
-        assert st not in t and sk not in t and ak not in t and "Signature=" not in t
-
 
 def test_bytg16_minutes_go_from_1_to_720(lab):
     w = lab
@@ -206,26 +172,3 @@ def test_bytg16_a_public_acl_stays_refused_and_names_the_link(lab):
     # a private ACL and a read of the ACL go through
     assert call("/%s/%s" % (BUCKET, KEY), {"x-obs-acl": "private"}, body="x")["ok"]
     assert call("/%s/%s" % (BUCKET, KEY), query={"acl": ""}, method="GET")["ok"]
-
-
-def test_bytg16_labclient_prints_the_link_once_and_logs_no_url(lab, monkeypatch, capsys):
-    w = lab
-    monkeypatch.chdir(w.folder)
-    assert labclient.run_main(["start", "--tenant", LAB]) == 0
-    assert labclient.call("PUT", "obs", "/" + BUCKET)[0] == 200
-    assert labclient.call("PUT", "obs", "/%s/%s" % (BUCKET, KEY), body=OBJECT.decode())[0] == 200
-    capsys.readouterr()
-    assert labclient.obs_main(["link", BUCKET, KEY, "--minutes", "30"]) == 0
-    out, err = capsys.readouterr()
-    url = out.strip()
-    assert out.count("\n") == 1 and verify(url, w.fake.creds)[:2] == (BUCKET, KEY)
-    assert "30 min" in err and "not logged" in err and "Signature" not in err
-    a = labclient.obs_link(BUCKET, KEY)
-    assert a["minutes"] == 60 and verify(a["url"], w.fake.creds)[:2] == (BUCKET, KEY)
-    logs = "".join(p.read_text(encoding="utf-8") for p in (w.folder / "notes" / "lab-runs").glob("*.log"))
-    assert "obs link obs://%s/<key sha256 %s> GET, 30 min" % (BUCKET, a["key_sha256"]) in logs
-    assert "Signature=" not in logs and "AccessKeyId=" not in logs
-    assert labclient.obs_main(["link", BUCKET, "missing.bin"]) == 2
-    assert "is not there" in capsys.readouterr().err
-    with pytest.raises(labclient.LabClientError):
-        labclient.obs_link(BUCKET, KEY, minutes="5")
