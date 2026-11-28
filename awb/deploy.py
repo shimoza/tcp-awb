@@ -162,6 +162,7 @@ SUBCOMMAND = "subcommand"
 DYNAMIC: dict[tuple[str, str], object] = {
     ("awb/cli.py", "_delegate"): SUBCOMMAND,
     ("awb/cli.py", "_exchange_leftovers"): ("awb.tcp.xchg",),
+    ("awb/cli.py", "_cmd_close"): ("awb.tcp.bucketgrant",),
     ("awb/cli.py", "status_lines"): ("awb.tcp.keys",),
     ("awb/cli.py", "preflight_checks"): ("awb.tcp.tenanttags",),
     ("awb/career.py", "_writing_module"): ("awb.writing",),
