@@ -628,7 +628,17 @@ _COMMENT_STARTS = ("#", "//", "--", "/*", "<#", "::", "rem ", "REM ")
 _TRIPLE = ("'" * 3, '"' * 3)
 _SQL_START_RE = re.compile(r"(?is)\A[\s(]*(?:select|insert|update|delete|create|alter|drop|with|merge|exec|execute|"
                            r"grant|revoke|truncate|backup|restore|dbcc|declare|use|set)\b")
-_REGEX_SHAPE_RE = re.compile(r"\(\?P?<|\\[dswbDSWB]|\[\^|\(\?:|\$\{|%\(\w+\)[sd]")
+_SQL_SECOND_RE = re.compile(r"(?i)(?<![\w-])(?:from|into|set|table|where|values|database|index|view|procedure|"
+                            r"function|trigger|schema|join|select|union)(?![\w-])")
+"""A statement is SQL only with a second keyword after its first word (G7): "Update for Herr NAME" is a sentence."""
+_SQL_MARK_RE = re.compile(r"@@?\w|;\s*\Z|\w\(|\[\w+\]|=\s*[\w'@?:%$]|\b[A-Z]{2,}_[A-Z_]+\b")
+"""What a short statement without a second keyword still shows (USE [db]; EXEC dbo.sp_x @p = 1; SET NOCOUNT_ON)."""
+_SQL_VALUE_RE = re.compile(r"'(?:[^'\n]|'')+'|\"[^\"\n]+\"")
+"""A quoted value inside a SQL statement: text for a person, the statement around it is data (G7)."""
+_REGEX_SHAPE_RE = re.compile(r"\(\?P?<|\\[dswbDSWB]|\[\^|\(\?:")
+_PLACEHOLDER_RE = re.compile(r"\$\{[^{}\n]*\}?|%\(\w+\)[sd]")
+"""A placeholder of a template (${name}, %(name)s) is a piece of code inside a literal: it cuts the literal and does
+not make data of the sentence around it (G7)."""
 _PROSE_WORDS_RE = re.compile(r"[^\W\d_][\w'’.-]*(?:[ \t]+[^\W\d_][\w'’.-]*)+")
 _IDENT_PIECE_RE = re.compile(r"(?<![\w-])(?:--[A-Za-z][\w-]*|[A-Za-z]\w*_\w+|\w+_[A-Za-z]\w*|"
                              r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?=\())(?![\w-])")
@@ -655,11 +665,53 @@ def _fstring_fields(piece: str) -> list[tuple[int, int]]:
     return out
 
 
+def _sql_statement(content: str) -> bool:
+    """A SQL statement: one of its opening words and then a second keyword (FROM, INTO, SET, TABLE, WHERE, VALUES
+    and the like) or, for the short ones (USE, EXEC, DECLARE, SET, DBCC), a mark only a statement carries."""
+    m = _SQL_START_RE.match(content)
+    if not m:
+        return False
+    rest = content[m.end():]
+    if _SQL_SECOND_RE.search(rest) or _SQL_MARK_RE.search(rest):
+        return True
+    # one word after it (USE master) or all of it in capitals (SET NOCOUNT ON, DBCC CHECKDB): a statement
+    return not _PROSE_WORDS_RE.search(rest.strip()) or not any(c.islower() for c in content)
+
+
 def _reads_as_prose(content: str) -> bool:
-    """A string literal that reads like text for a person: two words or more side by side, no SQL statement, no
-    regular expression or format template."""
-    return bool(_PROSE_WORDS_RE.search(content)) and not _SQL_START_RE.match(content) \
+    """A string literal that reads like text for a person: two words or more side by side, no SQL statement and no
+    regular expression. A placeholder (${name}, %(name)s) does not count: the words around it are read."""
+    return bool(_PROSE_WORDS_RE.search(_PLACEHOLDER_RE.sub("\x00", content))) and not _sql_statement(content) \
         and not _REGEX_SHAPE_RE.search(content)
+
+
+def _sql_values(piece: str, quoted: bool) -> list[tuple[int, int]]:
+    """The quoted values of a SQL statement in `piece` ((start, end) inside it, without their quotes); `quoted`: the
+    piece is a string literal with its own quotes, which are no value."""
+    inner = piece.strip()
+    if quoted and len(inner) >= 2:
+        lead = len(piece) - len(piece.lstrip()) + 1
+        body, shift = inner[1:-1], lead
+    else:
+        body, shift = piece, 0
+    if not _sql_statement(body):
+        return []
+    return [(shift + m.start() + 1, shift + m.end() - 1) for m in _SQL_VALUE_RE.finditer(body)
+            if any(c.isalpha() for c in m.group(0))]
+
+
+def _cut(a: int, b: int, cuts: list[tuple[int, int, str]], rest: str) -> list[tuple[int, int, str]]:
+    """The piece a..b as (start, end, kind) pieces: the `cuts` (positions inside the piece) with their kinds and
+    `rest` between them."""
+    out, pos = [], 0
+    for x, y, k in sorted(cuts):
+        if x > pos:
+            out.append((a + pos, a + x, rest))
+        out.append((a + x, a + y, k))
+        pos = y
+    if a + pos < b:
+        out.append((a + pos, b, rest))
+    return out
 
 
 def literal_pieces(text: str, profile: str) -> list[tuple[int, int, str]]:
@@ -667,7 +719,8 @@ def literal_pieces(text: str, profile: str) -> list[tuple[int, int, str]]:
     is the code between the literals, "prose" a comment, a docstring, a here-document or a string literal that reads
     like text (`_reads_as_prose`), "data" every other literal: a key, an identifier, a column list, a SQL statement, a
     regular expression, a property name. Inside a prose literal an identifier piece (a_b, --css-name, obj.call() )
-    is data and the fields of an f-string ({r.name}) are code. Names are guessed in prose only; data gets the
+    is data and the fields of an f-string ({r.name}) and the placeholders of a template (${name}, %(name)s) are
+    code. Inside a SQL statement a quoted value is prose (G7). Names are guessed in prose only; data gets the
     registered forms, the structured data and the learned forms that stand as a capitalised word of their own."""
     out: list[tuple[int, int, str]] = []
     for a, b, literal in code_segments(text, profile):
@@ -679,8 +732,12 @@ def literal_pieces(text: str, profile: str) -> list[tuple[int, int, str]]:
         quoted = head[:1] in ("'", '"', "`") and not head.startswith(_TRIPLE)
         if profile == "json":
             after = text[b:b + 40].lstrip(" \t")
-            kind = "data" if after.startswith(":") or not _reads_as_prose(piece[1:-1]) else "prose"
-            out.append((a, b, kind))
+            key = after.startswith(":")
+            kind = "data" if key or not _reads_as_prose(piece[1:-1]) else "prose"
+            if kind == "prose":
+                out += _cut(a, b, [(m.start(), m.end(), "code") for m in _PLACEHOLDER_RE.finditer(piece)], "prose")
+            else:
+                out += _cut(a, b, [] if key else [(x, y, "prose") for x, y in _sql_values(piece, True)], "data")
             continue
         if not quoted:
             if head.startswith(_COMMENT_STARTS) or head.startswith(_TRIPLE) or profile not in ("yaml", "bat"):
@@ -690,21 +747,16 @@ def literal_pieces(text: str, profile: str) -> list[tuple[int, int, str]]:
         else:
             kind = "prose" if _reads_as_prose(piece[1:-1]) else "data"
         if kind == "data":
-            out.append((a, b, "data"))
+            out += _cut(a, b, [(x, y, "prose") for x, y in _sql_values(piece, quoted)], "data")
             continue
         cuts: list[tuple[int, int, str]] = []
         if profile == "py" and quoted and _FSTRING_PREFIX_RE.search(text[max(0, a - 3):a]):
             cuts += [(x, y, "code") for x, y in _fstring_fields(piece)]
+        cuts += [(m.start(), m.end(), "code") for m in _PLACEHOLDER_RE.finditer(piece)
+                 if not any(x < m.end() and m.start() < y for x, y, _ in cuts)]
         cuts += [(m.start(), m.end(), "data") for m in _IDENT_PIECE_RE.finditer(piece)
                  if not any(x < m.end() and m.start() < y for x, y, _ in cuts)]
-        pos = 0
-        for x, y, k in sorted(cuts):
-            if x > pos:
-                out.append((a + pos, a + x, "prose"))
-            out.append((a + x, a + y, k))
-            pos = y
-        if pos < len(piece):
-            out.append((a + pos, b, "prose"))
+        out += _cut(a, b, cuts, "prose")
     return out
 
 
@@ -728,6 +780,13 @@ def mask_code(text: str, profile: str, prose: bool = False) -> str:
         out.append(piece if keep else _WORD_RE.sub(
             lambda m: m.group(0) if encoded_word(m.group(0)) else " " * len(m.group(0)), piece))
     return "".join(out)
+
+
+def data_literals(text: str, profile: str) -> str:
+    """The data literals of a code file alone, everything else blanked (same length, line breaks kept): what the
+    final check reads to count the guessed names the wipe left in data (G7)."""
+    return "".join(text[a:b] if kind == "data" else _WORD_RE.sub(lambda m: " " * len(m.group(0)), text[a:b])
+                   for a, b, kind in literal_pieces(text, profile))
 
 
 def extract_text(path: Path, kind: str = "text") -> Extraction:

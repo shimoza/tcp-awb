@@ -31233,6 +31233,27 @@
    "name": "awb import --redo-list and --redo N redo an older import of the customer",
    "run": ".venv/bin/pytest tests/test_import_redo_older.py",
    "status": "passing"
+  },
+  {
+   "id": "WIPE-G6-1128",
+   "phase": "import",
+   "name": "G6: a name glued into a file or folder name of a folder import reaches no copy and no public report; technical words of a path stay; --trusted guesses nothing; the words of a piece",
+   "run": ".venv/bin/pytest tests/test_review_1128_wipe.py -k g6",
+   "status": "passing"
+  },
+  {
+   "id": "WIPE-G7-1128",
+   "phase": "import",
+   "name": "G7: a sentence that opens like SQL or carries a placeholder is prose in json, yaml, sh and py; a quoted SQL value is wiped; statements, keys and templates stay data; the private report counts what stays in data",
+   "run": ".venv/bin/pytest tests/test_review_1128_wipe.py -k g7",
+   "status": "passing"
+  },
+  {
+   "id": "WIPE-G8-1128",
+   "phase": "import",
+   "name": "G8: a learned form no list knows is found at a hyphen, a digit and a case change, never inside a plain word; technical words, a known-word surname and a lower-case word of the run stay (one dmz entry test replaced)",
+   "run": ".venv/bin/pytest tests/test_review_1128_wipe.py -k g8",
+   "status": "passing"
   }
  ],
  "total_tests": 4460,

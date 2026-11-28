@@ -150,13 +150,9 @@ def test_a_learned_form_never_matches_a_dictionary_word_or_a_vendor_name(value):
     assert state.learned.find(text, lambda a, b: False) == []
 
 
-def test_a_learned_surname_still_matches_as_a_whole_word_only():
-    state = wipe.WipeState()
-    state.learned.learn("person", fx.PLANTED_PERSON, ("person", "1"))
-    surname = fx.PLANTED_PERSON.split()[1]
-    text = "Mail an %s und %sstraße, %s-Verfahren, %s2 und Ex%s und %s." % ((surname,) * 6)
-    found = [text[s.start:s.end] for s in state.learned.find(text, lambda a, b: False)]
-    assert found == [surname, surname]
+# test_a_learned_surname_still_matches_as_a_whole_word_only is replaced by
+# test_g8_a_learned_surname_matches_at_a_hyphen_a_digit_and_a_case_change_but_never_inside_a_plain_word of
+# tests/test_review_1128_wipe.py (finding G8 of the review of 2026-11-28)
 
 
 def _classes(text: str) -> list[str]:

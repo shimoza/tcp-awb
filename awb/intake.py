@@ -63,6 +63,7 @@ the one door every caller imports."""
 from awb.intake import wipe  # noqa: E402
 from awb.intake.engine import FILE_ID_RE, IntakeError, _Engine, _body_hits  # noqa: E402
 from awb.intake.keep import load_keep  # noqa: E402
+from awb.matcher import Span  # noqa: E402
 
 NEW = "new"
 
@@ -239,14 +240,69 @@ def _relative_path(value) -> str:
     return "/".join(pieces)
 
 
+_PATH_KEPT_RE = re.compile(r"\[[a-z]+(?: [a-z]+)*(?: \d+)?\]|(?<![^\W_])[A-Z]{1,6}-[A-Z2-7]{4}(?:-[A-Z]+-\d+)*(?![^\W_])")
+"""What a wiped piece of a path already carries and the word pass leaves alone: a token and a code."""
+_PATH_RUN_RE = re.compile(r"[^\W\d_]+")
+_PATH_ACRONYM_MAX = 5
+
+
+def _path_words(piece: str) -> list[tuple[int, int]]:
+    """The words of one piece of a path: its runs of letters, cut again at a change of case (NameBackup: Name,
+    Backup; XMLExport: XML, Export). Underscores, hyphens, dots, digits and spaces stand between them."""
+    out = []
+    for m in _PATH_RUN_RE.finditer(piece):
+        run, start = m.group(0), m.start()
+        last = 0
+        for i in range(1, len(run)):
+            if run[i].isupper() and (run[i - 1].islower() or run[i + 1:i + 2].islower()):
+                out.append((start + last, start + i))
+                last = i
+        out.append((start + last, start + len(run)))
+    return out
+
+
+def _wipe_path_words(engine: _Engine, piece: str, where: str) -> str:
+    """A piece of a path wiped word by word (G6). A piece is one word with no sentence around it: the candidate
+    rules have nothing to read and a learned form glued to its neighbours is not found (Angebot-NAME-2026.docx,
+    NAMEBackup). So every word of the piece that is a learned form of the run becomes its token, with no
+    neighbour rule, and a capitalised word that no list knows becomes a name token: a file name carries names far
+    more often than terms, and the copy is found by its file id. `awb import --trusted` guesses nothing, here too.
+    Tokens, codes, lower-case words and short acronyms stay."""
+    from awb.intake.wipe.lexicon import _dictionary_word, _known_word, _letters
+    state = engine.wipe
+    kept = [m.span() for m in _PATH_KEPT_RE.finditer(piece)]
+    keep_words = {w.casefold() for k in engine.keep for w in k.split()}
+    out, last = [], 0
+    for a, b in _path_words(piece):
+        if any(x < b and a < y for x, y in kept):
+            continue
+        word = piece[a:b]
+        key = None if state.trusted else state.learned.key_of_word(word)
+        if key is not None:
+            span = Span(a, b, key[0], "L:%s:%s" % key)
+        elif (not state.trusted and word[:1].isupper() and _letters(word) >= 3 and word.casefold() not in keep_words
+              and not (word.isupper() and len(word) <= _PATH_ACRONYM_MAX)
+              and not _known_word(word) and not _dictionary_word(word)):
+            span = Span(a, b, "unknown", None, "path word")
+        else:
+            continue
+        token = engine.token_for(span, word)
+        engine.record(where, span, word, token)
+        out += [piece[last:a], token]
+        last = b
+    return "".join(out) + piece[last:]
+
+
 def _public_path(engine: _Engine, path: str, where: str) -> str:
     """The relative path with every piece wiped like the content (registered forms, structured data, candidates
-    and learned forms of the run, secrets, the gate classes). A path in which the final check still finds something
-    is withheld: the copy says so and the private report keeps the path."""
+    and learned forms of the run, secrets, the gate classes) and then word by word (`_wipe_path_words`). A path in
+    which the final check still finds something is withheld: the copy says so and the private report keeps the
+    path."""
     out = []
     for piece in path.split("/"):
         counts: Counter = Counter()
         clean, _ = engine.sanitize(cleanlogs.wipe_secrets(piece, counts), where)
+        clean = _wipe_path_words(engine, clean, where)
         clean = gate.wipe_gate_classes(clean)[0]
         if not clean or "/" in clean or "\n" in clean:
             return PATH_WITHHELD
@@ -1005,6 +1061,10 @@ def _write_outputs(rec, extractions, engine: _Engine, outdir: Path, outputs: lis
             progress("file %d of %d: %s, %.1f s" % (number, len(rec.files), fr.file_id, time.monotonic() - started))
 
 
+LEFT_IN_DATA = "left in data: %d guessed name(s) in the data literals of the code, not wiped"
+"""The note of the private report on a code file whose keys, identifiers or statements still read like a name."""
+
+
 def _sanitize_code(engine: _Engine, text: str, profile: str, where: str) -> tuple[str, Counter]:
     """A code file with its string literals and comments sanitised; the code between them stays byte for byte. A
     comment, a docstring and a literal that reads like text are sanitised like prose; a key, an identifier, a SQL
@@ -1070,6 +1130,12 @@ def _write_one(rec, extractions, engine: _Engine, outdir: Path, outputs: list[Pa
         part.counts.update(counts)
         for note in part.notes:
             part.public_notes.append(_clean_note(engine, note, "%s note" % part.part_id))
+        if pex.code:
+            # the trade of the code wipe, measured (G7): what the candidate rules and the learned forms would still
+            # take in the data literals, which stay as written so that the file runs; the private report alone
+            left = len(_body_hits(engine, _extract_text.data_literals(body, pex.code)))
+            if left:
+                part.notes.append(LEFT_IN_DATA % left)
     if not any(b.strip() for b in bodies.values()):
         fr.reasons.append("no text to write, no output")
         return

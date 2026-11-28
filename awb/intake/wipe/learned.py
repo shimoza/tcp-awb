@@ -77,7 +77,28 @@ _ESCAPES = ("\\n", "\\r", "\\t")
 """A backslash and a letter in front of a form is a line break or a tab written out (an ics or a json string), no word."""
 _WORD_BEFORE = r"(?<![^\W_])(?<!-)"
 _WORD_AFTER = r"(?![^\W_])(?!-)"
-"""A learned form is a whole word: no letter of any script, digit or hyphen stands next to it (B-090)."""
+"""A learned form is a whole word: no letter of any script, digit or hyphen stands next to it (B-090). A form of
+`_Learned.glue` is the exception (G8)."""
+MIN_GLUE_LETTERS = 5
+"""A learned form of this many letters, of a person or company seed, that no list knows and that the run never writes
+as a lower-case word, is also found next to a hyphen, a digit or a change of case (G8)."""
+
+
+def _glued_in_a_word(text: str, a: int, b: int, glue: bool) -> bool:
+    """A letter, a digit or a hyphen next to text[a:b] makes it part of a word (B-090). For a form that may glue
+    (G8) a hyphen, a digit and a change of case are a border of the name: NAME-Umgebung, srv-name-01, NameNet,
+    name01. A letter of the same case next to it stays part of a word (Namestraße)."""
+    left = text[a - 1] if a > 0 else " "
+    right = text[b] if b < len(text) else " "
+    if left.isalnum() and text[a - 2:a] in _ESCAPES:
+        left = " "
+    if not glue:
+        return left.isalnum() or right.isalnum() or "-" in (left, right)
+    if left.isalpha() and not (left.islower() and text[a].isupper()):
+        return True
+    if right.isalpha() and not (text[b - 1].islower() and right.isupper()):
+        return True
+    return False
 
 
 class _Learned:
@@ -89,6 +110,7 @@ class _Learned:
         self.caps_only: dict[str, bool] = {}   # a dictionary word that is a surname: only when capitalised
         self.weak: dict[str, bool] = {}   # learned only from one value of a weak rule (label, Last-First, ...)
         self.guarded: dict[str, bool] = {}   # a known word: capitalised only and only where it stands as a name
+        self.glue: dict[str, bool] = {}   # also found next to a hyphen, a digit or a change of case (G8)
         self.version = 0
         self.matcher: Matcher | None = None
         self.short_res: list[tuple[re.Pattern, tuple[str, str], bool, str]] = []
@@ -173,8 +195,10 @@ class _Learned:
         pairs: list[tuple[str, str]] = []
         self.short_res, self.cyr_res = [], []
         self.guarded = {}
+        self.glue = {}
         for low, (word, key) in self.words.items():
-            if self._common(low):
+            common = self._common(low)
+            if common:
                 if not self.strong.get(low) or self.weak.get(low):
                     continue   # a word the run writes in lower case, taught by a weak rule alone: a common word
                 if _known_word(word, suffix=False) or low in _CORPUS or low in _GERMAN_ADJ:
@@ -184,6 +208,11 @@ class _Learned:
             # stands as a name: not at a sentence, line or cell start and not before the dot of an abbreviation,
             # unless a title or another wiped name stands next to it (B-117)
             self.guarded[low] = bool(self.caps_only.get(low)) or _known_word(word)
+            # a name no list knows and the run never writes as a lower-case word: German glues it into compounds
+            # and admins into host names; every false hit B-117 fixed was a known or a lower-case word (G8)
+            self.glue[low] = (bool(self.strong.get(low)) and not self.weak.get(low) and not common
+                              and not self.guarded[low] and _letters(word) >= MIN_GLUE_LETTERS
+                              and not _dictionary_word(low))
             code = "L:%s:%s" % key
             if _CYRILLIC_RE.match(word):
                 low = word.casefold()
@@ -241,10 +270,15 @@ class _Learned:
                 if not re.fullmatch(r"[^\W\d_]+(?:['’-][^\W\d_]+)*", matched) and letters < 8 \
                         and not (letter_spaced and strong):
                     continue   # spread out or broken by marks: only a long or a strong learned form is read that way
-                left = text[a - 1] if a > 0 else " "
-                right = text[b] if b < len(text) else " "
-                if (left.isalnum() and text[a - 2:a] not in _ESCAPES) or right.isalnum() or "-" in (left, right):
-                    continue   # never inside a word: a letter, a digit or a hyphen next to it makes it part of a word
+                glue = bool(self.glue.get(word))
+                if _glued_in_a_word(text, a, b, glue):
+                    # never inside a word; a strong form no list knows also at a hyphen, digit or case change. An
+                    # ending that took the first letter of the next piece (NameNet read as Namen) is given back
+                    base = a + len(word)
+                    if not (glue and base < b and text[a:base].casefold() == word
+                            and not _glued_in_a_word(text, a, base, True)):
+                        continue
+                    b = base
                 if not taken(a, b):
                     (guarded if self.guarded.get(word) else out).append(
                         Span(a, b, key[0], "L:%s:%s" % (key[0], key[1])))
@@ -275,6 +309,20 @@ class _Learned:
                 if not _opening_position(text, s.start, s.end) or _stands_as_name(text, s, names, taken):
                     out.append(s)
         return out
+
+    def key_of_word(self, word: str) -> tuple[str, str] | None:
+        """The token key of one word that stands alone, with no text around it (a piece of a path, G6): the learned
+        form it is, with or without an ending, in any case; a known word that is a name here (Klein) only
+        capitalised. No neighbour rule: the caller has cut the word out at its borders."""
+        self.build()
+        low = self._word_of(word.casefold())
+        if low not in self.guarded:   # never learned, or a common word of the run that `build` dropped
+            return None
+        if self.guarded[low] and not word[:1].isupper():
+            return None
+        if low != word.casefold() and _dictionary_word(word):
+            return None
+        return self.words[low][1]
 
     def _word_of(self, low_key: str) -> str:
         """The learned word a matched form (with its ending) comes from."""
