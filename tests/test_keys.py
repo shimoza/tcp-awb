@@ -680,42 +680,6 @@ class _Minted:
                         "")
 
 
-def test_a_lease_mints_a_temporary_key_with_iam_and_the_exchange_buckets_denied(svc, monkeypatch, tmp_path):
-    """Replaces test_a_lease_mints_a_temporary_key_of_the_lab_key_with_iam_denied (finding 1 of the review of
-    2026-10-10): the policy no longer allows obs:*:* on every bucket. OBS is allowed only on the buckets of the
-    project (<code>-...) and only with a project code, every action on the two exchange buckets and every IAM
-    action is denied; a lease of the bucket tenant's lab key is refused."""
-    from awb.tcp import cloud
-
-    load(svc)
-    minted = _Minted()
-    monkeypatch.setattr(cloud.Client, "request", minted.method())
-    a = keys.request(svc.call_path, {"op": "lease", "tenant": "test-1", "minutes": 60})
-    assert a["ok"] and (a["ak"], a["sk"], a["token"]) == ("TMPAKX7Q9", "tmp-secret-value", "tmp-token-value")
-    ak, method, service, path, body = minted.sent[0]
-    assert (ak, method, service, path) == (LAB_AK, "POST", "iam", "/v3.0/OS-CREDENTIAL/securitytokens")
-    identity = body["auth"]["identity"]
-    assert identity["methods"] == ["token"] and identity["token"] == {"duration_seconds": 3600}
-    exchange = ["obs:*:*:bucket:awb", "obs:*:*:object:awb/*", "obs:*:*:bucket:awb-lab-eu-de",
-                "obs:*:*:object:awb-lab-eu-de/*"]
-    allow, iam, buckets = identity["policy"]["Statement"]
-    assert allow == {"Effect": "Allow", "Action": ["%s:*:*" % s for s in keys.TF_SERVICES if s != "obs"]}
-    assert iam == {"Effect": "Deny", "Action": ["iam:*:*"]}
-    assert buckets == {"Effect": "Deny", "Action": ["obs:*:*"], "Resource": exchange}
-    log = "".join(p.read_text() for p in (tmp_path / "log").glob("*.tsv"))
-    assert "LEASE" in log and "TMPA" in log and "TMPAKX7Q9" not in log and "tmp-secret" not in log
-    statements = svc.lease_policy(PROJECT)["Statement"]
-    assert {"Effect": "Allow", "Action": ["obs:*:*"], "Resource": ["obs:*:*:bucket:%s-*" % PROJECT,
-                                                                   "obs:*:*:object:%s-*/*" % PROJECT]} in statements
-    assert statements[-1]["Effect"] == "Deny" and statements[-1]["Resource"] == exchange
-    svc.settings["tf_services"] = "vpc, iam ,ecs"
-    assert [s["Action"] for s in svc.lease_policy(PROJECT)["Statement"]] == [["vpc:*:*", "ecs:*:*"], ["iam:*:*"],
-                                                                             ["obs:*:*"]]
-    svc.settings["bucket_tenant"] = "test-1"
-    a = keys.request(svc.call_path, {"op": "lease", "tenant": "test-1", "minutes": 60})
-    assert not a["ok"] and "exchange buckets" in a["error"] and len(minted.sent) == 1
-
-
 @pytest.mark.parametrize("req, error", [
     ({"minutes": 10}, "15 to 60 minutes"), ({"minutes": 90}, "15 to 60 minutes"), ({"minutes": True}, "15 to 60"),
     ({"minutes": 30, "tenant": "test-2"}, "no lab key"), ({"minutes": 30, "tenant": "test-9"}, "no tenant"),

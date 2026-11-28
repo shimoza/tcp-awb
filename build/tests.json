@@ -31233,6 +31233,27 @@
    "name": "awb import --redo-list and --redo N redo an older import of the customer",
    "run": ".venv/bin/pytest tests/test_import_redo_older.py",
    "status": "passing"
+  },
+  {
+   "id": "G1-lease-reads-1128",
+   "phase": "review",
+   "name": "G1: every lease denies the reads of a server that answer its user data; a v1 create with a job answer or a suffixed name stays noted; two tests of the old statement list replaced",
+   "run": ".venv/bin/pytest tests/test_keys_g1_lease_reads.py tests/test_keys_g1_lease_conf.py",
+   "status": "passing"
+  },
+  {
+   "id": "G2-keyed-server-1128",
+   "phase": "review",
+   "name": "G2: a server create with user_data_script takes only the listed fields, the drawn password, count 1 and a public image; the recipe's server still gets the script",
+   "run": ".venv/bin/pytest tests/test_keys_g2_keyed_server.py",
+   "status": "passing"
+  },
+  {
+   "id": "G5-token-fence-1128",
+   "phase": "review",
+   "name": "G5: an exchange op of a session without a token that names a project is refused; a query project is named by its folder token; a put is refused before its bytes",
+   "run": ".venv/bin/pytest tests/test_keys_g5_token_fence.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4460,
