@@ -235,3 +235,15 @@ def test_g7_the_private_report_counts_what_the_wipe_left_in_data_literals(home, 
     assert "left in data: 1 guessed name(s)" in private
     public = (home.outbox / fx.CUSTOMER_CODE / "intake-report.md").read_text(encoding="utf-8")
     assert "left in data" not in public
+
+
+def test_g7_a_first_name_and_an_unknown_word_joined_in_an_identifier_of_a_data_literal_are_a_person():
+    """The pack case tf-ident-known-first-suffix-surname: an identifier in a string of a tf file is data, and a
+    first name of the list with a surname behind an underscore is still a person there."""
+    first, last = fx.LISTED_FIRST, fx.MEETING_LASTS[0]
+    src = ('locals {\n  job1 = "%s_%s_export"\n  job2 = "Max_Connections"\n  job3 = "max_cu"\n'
+           '  job4 = "Backup_Server_export"\n}\n' % (first, last))
+    out = _wipe_code(src, "tf")
+    assert last not in out and '_export"' in out
+    for kept in ('"Max_Connections"', '"max_cu"', '"Backup_Server_export"'):
+        assert kept in out, kept
