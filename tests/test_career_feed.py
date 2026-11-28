@@ -127,9 +127,13 @@ def test_a_status_change_is_listed_with_its_id_and_changed_is_filled(planted):
     assert all(dict(f)["changed"] == "no" for rid, f in recs.items() if rid != lab_id)
 
 
-def test_a_ledger_line_with_a_registered_name_stops_the_file_with_the_field_named(planted, capsys, monkeypatch):
+def test_a_ledger_line_with_a_registered_name_stops_the_file_and_keeps_the_state_beside_the_folder(planted, capsys,
+                                                                                                    monkeypatch):
+    """Replaces test_a_ledger_line_with_a_registered_name_stops_the_file_with_the_field_named (G13 of the review of
+    2026-11-28): the state of the feed is `<shared>/career-state.json` now, outside the folder that is handed over.
+    The asserts are the same."""
     run_feed(planted, FIRST)
-    state = (planted.shared / "career-feed" / "state.json").read_text(encoding="utf-8")
+    state = (planted.shared / "career-state.json").read_text(encoding="utf-8")
     ledger.add("inquiry", "Answered a question of %s on storage" % fixtures.CUSTOMER_FORMS[1], day="2026-12-07",
                p=planted)
     with pytest.raises(career.FeedStopped) as err:
@@ -138,7 +142,7 @@ def test_a_ledger_line_with_a_registered_name_stops_the_file_with_the_field_name
     assert "field claim" in msg and "name" in msg
     fixtures.assert_no_fixture_name(msg, "the message")
     assert not (planted.shared / "career-feed" / "cv-evidence-2026-12-11.md").exists()
-    assert (planted.shared / "career-feed" / "state.json").read_text(encoding="utf-8") == state
+    assert (planted.shared / "career-state.json").read_text(encoding="utf-8") == state
 
     monkeypatch.setattr(career, "today", lambda: SECOND)
     monkeypatch.setattr(career, "REPO_ROOT", None)
@@ -161,8 +165,10 @@ def test_no_line_starts_with_linkedin_line_and_no_code_tenant_or_name_appears(pl
     assert "—" not in text and not re.search(r", (?:and|or)\b", text)
 
 
-def test_the_command_writes_the_file_from_the_ledger_the_dataset_release_and_the_repository(planted, capsys,
-                                                                                            monkeypatch):
+def test_the_command_writes_the_file_and_the_state_beside_the_feed_folder(planted, capsys, monkeypatch):
+    """Replaces test_the_command_writes_the_file_from_the_ledger_the_dataset_release_and_the_repository (G13 of the
+    review of 2026-11-28): the state is `<shared>/career-state.json`, never a file of `career-feed/`. The other
+    asserts are the same."""
     from awb import kbreview
     from awb.tcp import dataset
 
@@ -186,7 +192,8 @@ def test_the_command_writes_the_file_from_the_ledger_the_dataset_release_and_the
     assert ds["measured"].startswith("2026-11-30, changes weekly yes, CV form: over 410 facts, 96 facts tested live")
     _, repo = by_claim(recs, "command line tool")
     assert repo["counted-by"].startswith("commits: git rev-list --count")
-    assert (planted.shared / "career-feed" / "state.json").is_file()
+    assert (planted.shared / "career-state.json").is_file()
+    assert not (planted.shared / "career-feed" / "state.json").exists()
 
 
 def test_the_build_queue_gives_one_record_with_done_and_not_done_apart(home, tmp_path):
@@ -239,3 +246,33 @@ def test_weekly_counts_carry_their_method_and_another_method_is_never_growth(hom
     text = career.feed(home, day=date(2026, 12, 18), repo=repo).path.read_text(encoding="utf-8")
     assert "- ev-001: commands is counted by another method now, the two numbers are not compared" in changes(text)
     assert "280 to 300" not in text
+
+
+def test_no_file_of_the_feed_folder_holds_a_project_code(planted):
+    """G13 of the attacker review of 2026-11-28: whoever takes `career-feed/` takes no map from ev-NNN to a project
+    code with it. The state lives beside the folder and still gives the same ids to the next feed."""
+    first = run_feed(planted, FIRST)
+    folder = planted.shared / "career-feed"
+    files = [f for f in folder.rglob("*") if f.is_file()]
+    assert first.path in files
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        assert not codes.PROJECT_CODE_RE.search(text) and LAB not in text and BACKUP not in text, f.name
+    assert LAB in (planted.shared / "career-state.json").read_text(encoding="utf-8")
+    ids = set(records(first.path.read_text(encoding="utf-8")))
+    second = run_feed(planted, SECOND)
+    assert set(records(second.path.read_text(encoding="utf-8"))) == ids
+    assert "new:" not in changes(second.path.read_text(encoding="utf-8"))
+
+
+def test_a_state_of_before_the_move_is_read_once_and_leaves_the_feed_folder(planted):
+    """G13: a host that fed before 2026-11-28 has `career-feed/state.json`. The next feed keeps its ids and removes
+    the file from the folder."""
+    first = run_feed(planted, FIRST)
+    ids = set(records(first.path.read_text(encoding="utf-8")))
+    new, old = planted.shared / "career-state.json", planted.shared / "career-feed" / "state.json"
+    new.rename(old)
+    second = run_feed(planted, SECOND)
+    assert set(records(second.path.read_text(encoding="utf-8"))) == ids
+    assert "new:" not in changes(second.path.read_text(encoding="utf-8"))
+    assert new.is_file() and not old.exists()

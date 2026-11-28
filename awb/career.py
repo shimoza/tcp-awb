@@ -21,7 +21,7 @@ it counts from the oldest entry; with no update and no entry nothing is due.
 
 `awb career feed` (B-115), run as the work user once a week, writes cv-evidence-DATE.md for the career project (default
 `<shared>/career-feed/`): "Changes since the last feed" on top (new ids, changed statuses, changed counts, against
-`<shared>/career-feed/state.json`), then one record per item: the entries of one project of the ledger, one ledger
+`<shared>/career-state.json`), then one record per item: the entries of one project of the ledger, one ledger
 entry without a project, the newest built release of the public dataset (its STATS.json), the repository (STATS.json
 at its root) and the build queue. A record carries the fields of `RECORD_FIELDS`, its id stays the same from feed to
 feed (`ev-NNN`, the item behind it kept in the state file only). Codes, tenants, addresses, host names and amounts are
@@ -399,7 +399,8 @@ def due(p: config.Paths | None = None, day=None) -> tuple[int | None, bool]:
 
 
 FEED_DIR = "career-feed"
-FEED_STATE = "state.json"
+FEED_STATE = "career-state.json"
+OLD_FEED_STATE = "state.json"
 FEED_NAME = "cv-evidence-%s.md"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PUBLIC_REPO = "shimoza/tcp-awb"
@@ -531,7 +532,14 @@ def feed_dir(p: config.Paths) -> Path:
 
 
 def feed_state_file(p: config.Paths) -> Path:
-    return feed_dir(p) / FEED_STATE
+    """The state of the feed maps each id to its project code, so it lives beside the feed folder and never in it
+    (G13 of the review of 2026-11-28): the folder is what the career project takes."""
+    return p.shared / FEED_STATE
+
+
+def old_feed_state_file(p: config.Paths) -> Path:
+    """Where the state was until 2026-11-28, inside the feed folder; read once and removed by the next feed."""
+    return feed_dir(p) / OLD_FEED_STATE
 
 
 def scrub(text: str) -> str:
@@ -747,7 +755,9 @@ def queue_record(day: date, qdir: Path | None = None, runs: Path | None = None) 
 
 
 def _load_state(p: config.Paths) -> dict:
-    state = _read_json(feed_state_file(p)) or {}
+    state = _read_json(feed_state_file(p))
+    if state is None:
+        state = _read_json(old_feed_state_file(p)) or {}
     return {"day": state["day"] if isinstance(state.get("day"), str) else "",
             "ids": dict(state["ids"]) if isinstance(state.get("ids"), dict) else {},
             "records": dict(state["records"]) if isinstance(state.get("records"), dict) else {},
@@ -862,8 +872,12 @@ def feed(p: config.Paths | None = None, since=None, out=None, day=None, repo: Pa
     state["day"] = run.isoformat()
     state["records"].update({r.id: {"status": r.status, "numbers": {n.name: [n.value, n.counted_by]
                                                                     for n in r.numbers}} for r in records})
-    feed_dir(p).mkdir(parents=True, exist_ok=True)
+    feed_state_file(p).parent.mkdir(parents=True, exist_ok=True)
     _write_text(feed_state_file(p), json.dumps(state, indent=1, sort_keys=True) + "\n")
+    try:
+        old_feed_state_file(p).unlink()      # the state of before the move: its project codes leave the folder
+    except FileNotFoundError:
+        pass
     return Feed(target, len(records), changes)
 
 

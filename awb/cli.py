@@ -420,9 +420,10 @@ def _exchange_leftovers(code: str, folder: Path | None) -> str | None:
             "them, mark them kept in RESOURCES.md or close with --force" % (code, n))
 
 
-def _kept_buckets(code: str, p: config.Paths) -> list[str]:
+def _kept_buckets(code: str, p: config.Paths) -> list[str] | None:
     """The names of the buckets `awb lab run end --keep` left for the project (B-094). The owner reads the kept list
-    of the vault; the work user cannot and asks the key service."""
+    of the vault; the work user cannot and asks the key service. None when the key service gave no answer (G10 of
+    the review of 2026-11-28): the caller must not take that for "no bucket"."""
     from awb import labruns
 
     names = [r.get("name") for r in labruns.load_kept(p, code)]
@@ -432,8 +433,7 @@ def _kept_buckets(code: str, p: config.Paths) -> list[str]:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             done = _delegate("lab", ["run", "status", "--project", code])
         if done != EXIT_OK:
-            print("awb close: the kept buckets could not be checked (key service); see awb lab run status",
-                  file=sys.stderr)
+            return None
         names = [f[4] for f in (re.split(r"  +", line.strip()) for line in out.getvalue().splitlines())
                  if f[0] == "kept" and len(f) == 7]
     return sorted({n for n in names if isinstance(n, str) and re.fullmatch(r"[a-z0-9][a-z0-9.-]{2,62}", n)})
@@ -451,6 +451,9 @@ def _cmd_close(args, p: config.Paths) -> int:
         if why:
             return _err(why)
         kept = _kept_buckets(args.code, p)
+        if kept is None:
+            return _err("%s: the kept buckets of its lab runs could not be checked (key service locked or "
+                        "stopped); see awb lab run status, try again or close with --force" % args.code)
         if kept:
             print("awb: %s keeps %d bucket(s) of a lab run on a test tenant; drop them or close with --force:"
                   % (args.code, len(kept)), file=sys.stderr)

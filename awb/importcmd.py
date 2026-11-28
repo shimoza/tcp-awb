@@ -19,9 +19,11 @@ class, the pictures held and the files withheld, and leaves a notice for the ses
 - `--review` stops once on the candidates and opens the review of `awb register review` (the marks register the
   names, the rest goes to the keep list), then the run goes on in wipe mode.
 - `--redo` takes the originals of the customer's last import out of the vault and runs them again under their file
-  ids with the keep list of now; the copies replace the earlier ones in the outbox. `--redo N` takes import N of
-  `--redo-list` instead (1 is the newest), which lists the customer's imports that wrote copies, newest first: number,
-  time, files and whether it was a folder import, never a name or a path.
+  ids with the keep list of now; the copies replace the earlier ones in the outbox. `--redo STAMP` takes the import
+  `--redo-list` shows with that stamp (`2026-11-27-101500`), which lists the customer's imports that wrote copies,
+  newest first: number, stamp, time, files and whether it was a folder import, never a name or a path. The stamp
+  names the same import whatever came in since; `--redo N` takes line N of the list of now (1 is the newest), and
+  an import or a redo in between moves the numbers.
 
 The report workbook of his laptop (a workbook with both sheets Names and Projects, awb/reportbook.py and
 rules/report-workbook.txt) is held: nothing of it is imported, it stays where it is (in/ of the bucket, the vault
@@ -192,23 +194,40 @@ def _imports(p: config.Paths, customer: str) -> list[tuple[str, list[tuple[str, 
     return found
 
 
-def _last_report(p: config.Paths, customer: str, n: int = 1) -> tuple[list[tuple[str, Path]], dict[str, str]]:
-    """The rows and paths of the `n`th import of `_imports` (1 = the newest); empty when there is none."""
+STAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}-\d{6}")
+
+
+def _last_report(p: config.Paths, customer: str, n: int | str = 1) -> tuple[list[tuple[str, Path]], dict[str, str]]:
+    """The rows and paths of the `n`th import of `_imports` (1 = the newest) or of the import whose private report
+    has the stamp `n` (a text: it names the same import whatever came in since); empty when there is none."""
     found = _imports(p, customer)
+    if isinstance(n, str):
+        return next(((rows, paths) for stamp, rows, paths in found if stamp == n), ([], {}))
     if not 1 <= n <= len(found):
         return [], {}
     return found[n - 1][1], found[n - 1][2]
 
 
+def redo_choice(text: str) -> int | str:
+    """The value of --redo: a number of --redo-list (an int) or the stamp of an import (a text)."""
+    if STAMP_RE.fullmatch(text):
+        return text
+    if re.fullmatch(r"-?\d{1,6}", text):
+        return int(text)
+    raise ValueError("--redo takes a number or a stamp of --redo-list")
+
+
 def redo_list(p: config.Paths, customer: str) -> list[str]:
-    """One line per import of `_imports`: number, time of the report, files, folder import. No name, no path."""
+    """One line per import of `_imports`: number, stamp of the report (what `--redo STAMP` takes), its time, files,
+    folder import. No name, no path."""
     out = []
     for i, (stamp, rows, paths) in enumerate(_imports(p, customer), 1):
         when = stamp
         m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})", stamp)
         if m:
             when = "%s %s:%s:%s UTC" % m.groups()
-        out.append("%d  %s  %d file(s)  folder import: %s" % (i, when, len(rows), "yes" if paths else "no"))
+        out.append("%d  %s  %s  %d file(s)  folder import: %s"
+                   % (i, stamp, when, len(rows), "yes" if paths else "no"))
     return out
 
 
@@ -331,9 +350,12 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
         if redo:
             if files:
                 raise ImportRefused("--redo takes the files of the last import, give no FILE")
-            n = 1 if redo is True else int(redo)
+            n = 1 if redo is True else redo if isinstance(redo, str) else int(redo)
             last, last_paths = _last_report(p, cust, n)
             if not last:
+                if isinstance(n, str) and _imports(p, cust):
+                    raise ImportRefused("%s has no import with the stamp %s (awb import CODE --redo-list)"
+                                        % (cust, n))
                 if n != 1 and _imports(p, cust):
                     raise ImportRefused("%s has no import number %d (awb import CODE --redo-list)" % (cust, n))
                 raise ImportRefused("%s has no import to redo" % cust)
@@ -346,7 +368,7 @@ def _take(p: config.Paths, code: str, files: list[Path], cust: str, *, review: b
                 if last_paths.get(fid):
                     paths[copy] = last_paths[fid]     # the copy keeps the path of the first import
             files = list(mapping)
-            where = "the vault (the last import of %s)" % cust
+            where = "the vault (the %s of %s)" % ("import %s" % n if isinstance(n, str) else "last import", cust)
         elif files:
             where = "the command line"
         else:
@@ -577,12 +599,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--auto", action="store_true", help="the owner's job of the timer awb-import-auto: the new "
                     "files of in/ of every active project, the clean copies of awb clean with --trusted, the rest in "
                     "wipe mode; the originals into the vault and out of the bucket, one log line per run")
-    ap.add_argument("--redo", nargs="?", const=1, type=int, default=None, metavar="N",
-                    help="run the originals of the last import (or of import N of --redo-list) again with the keep "
-                         "list of now, the copies replace the earlier ones")
+    ap.add_argument("--redo", nargs="?", const=1, type=redo_choice, default=None, metavar="STAMP|N",
+                    help="run the originals of the last import again with the keep list of now, the copies replace "
+                         "the earlier ones; STAMP (2026-11-27-101500) names one import of --redo-list for good, N "
+                         "is line N of the list of now and moves with every import")
     ap.add_argument("--redo-list", action="store_true",
-                    help="the imports of the project's customer that --redo N takes, newest first: number, time, "
-                         "files, folder import")
+                    help="the imports of the project's customer that --redo takes, newest first: number, stamp, "
+                         "time, files, folder import")
     ap.add_argument("--paste", action="store_true",
                     help="take pasted text from standard input instead of files: pbpaste | awb import CODE --paste "
                          "(wl-paste or xclip -o -selection clipboard on Linux) or paste into the terminal and end "
@@ -612,7 +635,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.kind and not args.paste:
         print("awb import: --kind goes with --paste", file=sys.stderr)
         return EXIT_ERROR
-    if args.redo is not None and args.redo < 1:
+    if isinstance(args.redo, int) and args.redo < 1:
         print("awb import: --redo N counts from 1 (awb import CODE --redo-list)", file=sys.stderr)
         return EXIT_ERROR
     if args.redo_list and (args.files or args.customer or args.review or args.redo or args.paste or args.trusted):

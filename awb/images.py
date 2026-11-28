@@ -10,8 +10,8 @@ no text check sees, so the intake holds every picture of a file (the media of do
 the images of a pdf through pdfimages, an image file itself) and nothing reaches the outbox before he releases it
 by number after a look. Released pictures land in the project folder at `input/<file id>-img/img-001.png` (the
 project of the code or the only project of the customer; `--project CODE` names one of several). The project commit
-gate checks no content since B-087, so a released picture can be committed. A customer that has no project gets them
-in `<outbox>/<CUST>/images/<file id>-img-001.png`. The manifest names no member and no file: a member name can carry
+gate checks no content since B-087, so a released picture can be committed. A customer that has no active or parked
+project gets them in `<outbox>/<CUST>/images/<file id>-img-001.png`. The manifest names no member and no file: a member name can carry
 a name as well.
 """
 from __future__ import annotations
@@ -303,8 +303,9 @@ def _data_of(p: config.Paths, path: Path, sealed: bool) -> bytes:
 
 def project_folder(p: config.Paths, customer: str, project: str | None = None) -> Path | None:
     """The folder of the project the pictures of `customer` go to: the project `project` names, the project that the
-    code is or the only active project of the customer. None when the customer has no project (the outbox then).
-    Several projects and none named is an error."""
+    code is or the only active project of the customer (the only parked one when none is active). None when the
+    customer has no active or parked project (the outbox then; a closed project's folder is no place for them, G14
+    of the review of 2026-11-28). Several and none named is an error."""
     from awb import projects
 
     try:
@@ -316,8 +317,10 @@ def project_folder(p: config.Paths, customer: str, project: str | None = None) -
         chosen = [r for r in mine if r.code == project]
         if not chosen:
             raise ImageError("%s is no project of %s" % (project, customer))
+        if chosen[0].state not in projects.LIVE_STATES:
+            raise ImageError("%s is %s: its folder takes no pictures" % (project, chosen[0].state))
         return Path(chosen[0].path)
-    active = [r for r in mine if r.state == "active"] or mine
+    active = [r for r in mine if r.state == "active"] or [r for r in mine if r.state in projects.LIVE_STATES]
     if len(active) > 1:
         raise ImageError("%s has %d projects: name one with --project CODE" % (customer, len(active)))
     return Path(active[0].path) if active else None
