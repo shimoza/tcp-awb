@@ -1103,6 +1103,72 @@ def _tag_after(svc, signer, run_id: str, alias: str, project: str, service: str,
     return "untagged"
 
 
+OBS_FENCE_LINE = ("refused: a lab call reaches only a bucket named after the project (%s-...) or one this run made: "
+                  "%s is neither")
+OBS_EXISTS_LINE = "refused: the bucket %s is there already and no bucket of %s: a lab run makes only a new bucket"
+COPY_SOURCE_HEADERS = ("x-obs-copy-source", "x-amz-copy-source")
+_OBS_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
+_OTHER_PROJECT_RE = re.compile(r"^%s-" % codes.TCP_PROJECT_WIDE)
+
+
+def obs_bucket_refusal(svc, p, alias, project: str, bucket: str, run: dict | None, customer: bool) -> str | None:
+    """The one bucket rule of an OBS call a lab run sends with the admin credential (G3 of the attacker review of
+    2026-11-28), None when the project may reach `bucket`, "new" when only as a bucket it makes now, else the line
+    of the refusal. The exchange buckets never; a bucket the owner granted (awb/tcp/bucketgrant.py) only for its
+    holder; on a lab tenant else only a bucket named after the project (<code>-...), one the open run made and
+    still records or one the project kept. A customer tenant in write mode holds the customer's buckets under their
+    own names (TW3) and keeps them."""
+    from awb.tcp import bucketgrant, labobs
+
+    if not isinstance(bucket, str) or not _OBS_BUCKET_RE.match(bucket):
+        return "refused: a bucket name is 3 to 63 lowercase letters, digits, dots and dashes"
+    if bucket in svc.exchange_buckets():
+        return "the exchange buckets are reached through awb xchg only"
+    holder = svc._bucket_holder(alias, bucket)
+    if holder is not None:
+        return None if holder == project else bucketgrant.REFUSED_LINE % bucket
+    if customer or bucket.startswith(project + "-"):
+        return None
+    if bucket.startswith(labobs.LINK_PREFIX) or _OTHER_PROJECT_RE.match(bucket):
+        return OBS_FENCE_LINE % (project, bucket)
+    path = "/" + bucket
+    made = any(c.get("label") == "obs bucket" and c.get("state") in ("live", "kept", "failed", "left")
+               and (c.get("delete") or {}).get("service") == "obs" and (c.get("delete") or {}).get("path") == path
+               for c in (run or {}).get("created", []))
+    if made or any(r.get("name") == bucket and r.get("tenant") == alias for r in load_kept(p, project)):
+        return None
+    return "new"
+
+
+def _obs_fence(svc, p, alias, project: str, run: dict, customer: bool, region: str, method: str, path: str,
+               query: dict, headers: dict) -> None:
+    """Refuse an OBS lab call on a bucket that is not the project's (obs_bucket_refusal): the bucket of the path
+    and the bucket a copy source header names. A bucket of another name is made only when it is not there yet: the
+    create of a bucket that exists answers 200 and would turn the owner's bucket into one the run made."""
+    from awb.tcp import labobs
+
+    targets = []
+    bucket = urllib.parse.unquote(path[1:].partition("/")[0])
+    if bucket:
+        targets.append((bucket, method == "PUT" and path.rstrip("/") == "/" + bucket and not query))
+    for k, v in headers.items():
+        if k.lower() in COPY_SOURCE_HEADERS:
+            targets.append((urllib.parse.unquote(v).lstrip("/").partition("/")[0].partition("?")[0], False))
+    for bucket, create in targets:
+        line = obs_bucket_refusal(svc, p, alias, project, bucket, run, customer)
+        if line is None:
+            continue
+        if line != "new" or not create:
+            raise _refused(OBS_FENCE_LINE % (project, bucket) if line == "new" else line)
+        try:
+            status = labobs._Obs(svc, {"tenant": alias, "project": project, "region": region}).small(
+                "HEAD", "/" + bucket)[0]
+        except LabAdminError as err:
+            raise _refused(str(err)) from None
+        if status != 404:
+            raise _refused(OBS_EXISTS_LINE % (bucket, project))
+
+
 def serve_call(svc, req: dict, uid: int, caller) -> dict:
     """The op lab_call: one call of a session inside its open run."""
     from awb.tcp import keys
@@ -1125,6 +1191,8 @@ def serve_call(svc, req: dict, uid: int, caller) -> dict:
         raise _refused(REGION_CLOSED_LINE)
     if region not in regions:
         raise _refused("the region is not one of the tenant's")
+    if service == "obs":
+        _obs_fence(svc, p, alias, project, run, customer, region, method, path, query, headers)
     scope = req.get("scope")
     if scope == "domain":
         if customer or method != "GET" or service not in DOMAIN_READ_SERVICES:

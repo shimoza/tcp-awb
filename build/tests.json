@@ -30551,8 +30551,8 @@
   {
    "id": "BYTG-OL-2",
    "phase": "T",
-   "name": "lab obs link: a GET link of a run's bucket verifies, its own credential, no URL or secret in a log or record",
-   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_link_reads_one_object_of_a_bucket_the_run_made",
+   "name": "lab obs link: a GET link of a run's bucket verifies, its own credential, no URL or secret in a log or record (replaced with G4 of 2026-11-28: the link names the copy in the link bucket of the run)",
+   "run": ".venv/bin/pytest tests/test_review_1128_lab.py::test_g4_link_reads_one_object_of_a_bucket_the_run_made",
    "status": "passing"
   },
   {
@@ -30587,7 +30587,7 @@
    "id": "BYTG-OL-7",
    "phase": "T",
    "name": "labclient: awb lab obs link prints the URL once, the run log keeps no URL",
-   "run": ".venv/bin/pytest tests/test_bytg_obs_link.py::test_bytg16_labclient_prints_the_link_once_and_logs_no_url",
+   "run": ".venv/bin/pytest tests/test_review_1128_lab.py::test_g4_labclient_prints_the_link_once_and_logs_no_url",
    "status": "passing"
   },
   {
@@ -31118,7 +31118,7 @@
   {
    "id": "ASK-bytg-1127",
    "phase": "ask",
-   "name": "lab obs link signs an opaque object without the name check; a text object keeps the exit check",
+   "name": "lab obs link: a text object keeps the exit check (the opaque object signed without the name check is replaced by G4-1128: it needs the owner's word)",
    "run": ".venv/bin/pytest tests/test_lab_link_opaque.py",
    "status": "passing"
   },
@@ -31232,6 +31232,27 @@
    "phase": "import",
    "name": "awb import --redo-list and --redo N redo an older import of the customer",
    "run": ".venv/bin/pytest tests/test_import_redo_older.py",
+   "status": "passing"
+  },
+  {
+   "id": "G3-1128",
+   "phase": "review",
+   "name": "G3 of the review of 2026-11-28: an OBS lab call is refused on a bucket granted to another project (GET, PUT, DELETE, HEAD, tags, a copy source header), on an exchange bucket and on a lab tenant on every bucket that is not the project's or the run's; the create of a bucket that is there is refused; the holder reaches its bucket",
+   "run": ".venv/bin/pytest tests/test_review_1128_lab.py -k g3",
+   "status": "passing"
+  },
+  {
+   "id": "G4-1128",
+   "phase": "review",
+   "name": "G4 of the review of 2026-11-28: lab obs link checks the bytes it read and signs its own copy in the link bucket of the run (a put after the link changes nothing, no session path reaches the copy, the run end removes it); the name decides nothing; the disk reader result is checked; an opaque or large object needs the owner's word, kept in the run record",
+   "run": ".venv/bin/pytest tests/test_review_1128_lab.py -k g4",
+   "status": "passing"
+  },
+  {
+   "id": "G11-1128",
+   "phase": "review",
+   "name": "G11 of the review of 2026-11-28: a new bucket grant says once that nothing checks what the bucket holds; close_lines names every grant of a project with its revoke command",
+   "run": ".venv/bin/pytest tests/test_review_1128_lab.py -k g11",
    "status": "passing"
   }
  ],

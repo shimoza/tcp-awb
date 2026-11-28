@@ -54,15 +54,6 @@ def test_an_object_with_a_secret_is_refused(lab):
     assert durations(w) == [labadmin.CRED_SECONDS]
 
 
-def test_a_clean_object_is_signed(lab):
-    w = lab
-    run = start_run(w)
-    make_bucket(w, run)
-    put_object(w, run)
-    a = link(w, run)
-    assert a["ok"], a
-    assert verify(a["url"], w.fake.creds)[:2] == (BUCKET, KEY)
-
 
 def test_an_id_is_no_finding(lab):
     w = lab
@@ -73,21 +64,6 @@ def test_an_id_is_no_finding(lab):
     put(w, run, KEY, "server %s volume %s\n" % (address, volume))
     assert link(w, run)["ok"]
 
-
-def test_the_result_of_the_run_s_reader_is_signed_as_before(lab):
-    w = lab
-    run = start_run(w)
-    make_bucket(w, run)
-    body = ("%s\n" % fixtures.CUSTOMER_FORMS[0]).encode()
-    for key in ("files/Windows/System32/config/SYSTEM", "manifest.json"):
-        # written by the reader with the lab key, not through the service: the run records no object
-        w.fake.buckets[BUCKET]["objects"][key] = {"data": body, "meta": {}, "etag": '"x"'}
-        a = link(w, run, key=key)
-        assert a["ok"], a
-    # the same key put by the session is the session's object
-    put(w, run, "files/notes.txt", body.decode())
-    a = link(w, run, key="files/notes.txt")
-    assert not a["ok"] and a["error"] == labobs.LINK_EXIT_LINE % (BUCKET, "files/notes.txt", "name")
 
 
 def test_labclient_prints_the_refusal(lab, monkeypatch, capsys):

@@ -71,11 +71,14 @@ exchange or owner bucket and never on a customer tenant. The secret key stays in
 session once in the answer; the call log and the run record keep the bucket, the first 16 hex digits of the key's
 SHA-256, the minutes and the expiry, never the URL.
 
-A link is an exit (B-094, F6 of the attacker review of 2026-11-26): before it signs, the service runs the exit check
-of a public push on the object (`_exit_check`: a registered name, a secret, a private key or a token; an id is no
-finding, EXIT_FREE of B-087) and refuses with LINK_EXIT_LINE, which names the class and never the text. An object over
-gate.TEXT_LIMIT is not read. An object of the run's own disk reader (`_run_wrote`: under files/ or manifest.json, with
-no put of the session recorded in the run) is signed as before.
+A link is an exit (B-094, F6 of the attacker review of 2026-11-26; G4 of the review of 2026-11-28): the service
+reads the object, runs the exit check of a public push on those bytes (`_exit_check`: a registered name, a secret, a
+private key or a token; an id is no finding, EXIT_FREE of B-087) and refuses with LINK_EXIT_LINE, which names the
+class and never the text. It then signs its own copy of the checked bytes, under the same key in a bucket of the run
+that no session reaches (`link_bucket`, `_hold`), so a put after the link changes nothing the link reads; the copy
+goes with the end of the run. An object the check cannot read (over gate.TEXT_LIMIT, or opaque by its first bytes:
+the name decides nothing) is signed in place and only with the owner's word (`owner_word`), which the run record
+keeps. The result of the run's disk reader gets the same check as every other object.
 """
 from __future__ import annotations
 
@@ -143,6 +146,11 @@ LINK_BUCKET_LINE = ("refused: a link reads only an object of a bucket that the o
 LINK_CUSTOMER_LINE = "refused: a link is signed on the lab tenants %s only, never on a customer tenant"
 LINK_EXIT_LINE = ("refused: obs://%s/%s fails the exit check (%s): a link is an exit and signs only an object "
                   "without a registered name or a secret")
+LINK_WORD_LINE = ("refused: obs://%s/%s is %s, so the exit check cannot read it: a link to it needs the owner's word "
+                  "(his words in owner_word)")
+LINK_PREFIX = "awb-link-"
+"""The first letters of the bucket that holds the checked copies of the links of a run (link_bucket)."""
+LINK_BUCKET_LABEL, LINK_OBJECT_LABEL = "link bucket", "link object"
 LINK_MINUTES_LINE = "refused: --minutes is a whole number from 1 to %d (12 hours)" % LINK_MAX
 READONLY_LINE = ("aborted: the owner switched %s back to read-only; after awb tenant mode %s write a new put or get "
                  "starts it again")
@@ -1465,39 +1473,21 @@ def _minutes(value) -> int:
     return value
 
 
-def _run_wrote(run: dict, bucket: str, key: str) -> bool:
-    """True for an object the run's own reader wrote (the disk-reader result under files/ and its manifest) and the
-    session did not put: a put of the session through the service is recorded as an `obs object` of the run."""
-    from awb.tcp import diskreader
+def _opaque(raw: bytes) -> bool:
+    """True for bytes the exit check cannot read as text: a NUL byte in the first gate.BINARY_PROBE bytes or the
+    magic of a PDF, a ZIP or a gzip file. The name decides nothing (G4 of the attacker review of 2026-11-28: a text
+    named x.zip or x.png was not read)."""
+    from awb import gate
 
-    if not (key == diskreader.MANIFEST or key.startswith(diskreader.PREFIX)):
-        return False
-    path = "/%s/%s" % (bucket, key)
-    return not any(c.get("label") == "obs object" and (c.get("delete") or {}).get("path") == path
-                   for c in run.get("created", []))
+    return b"\x00" in raw[:gate.BINARY_PROBE] or raw.startswith(gate._OPAQUE_MAGICS)
 
 
-def _exit_check(svc, o, bucket: str, key: str, head: dict) -> list[str]:
-    """The classes the exit check finds in an object (a registered name, a secret, a private key, a token): the
-    gate's scan of a push with the identifier class left out (EXIT_FREE, B-087). An object over TEXT_LIMIT (an image
-    for a reader) and an opaque object (a NUL byte in its first bytes, the magic or the suffix of an archive, an
-    installer or an image) are not read: the gate cannot scan them either. `head` is the answer of the HEAD of the object.
-    Raises _refused when the size is not known or the name check cannot run."""
+def _exit_check(svc, bucket: str, key: str, raw: bytes) -> list[str]:
+    """The classes the exit check finds in the bytes of an object (a registered name, a secret, a private key, a
+    token): the gate's scan of a push with the identifier class left out (EXIT_FREE, B-087). Raises _refused when
+    the name check cannot run."""
     from awb import gate, labsecrets, register
 
-    size = next((v for k, v in head.items() if str(k).lower() == "content-length"), None)
-    if not _size_header(size):
-        raise _refused("refused: obs://%s/%s names no size, so the exit check cannot read it" % (bucket, key))
-    if int(size) > gate.TEXT_LIMIT:
-        return []
-    status, _rh, raw = o.small("GET", "/%s/%s" % (bucket, key))
-    if status != 200:
-        raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
-    if gate.is_opaque(key, raw[:gate.BINARY_PROBE]):
-        # an installer, an archive or an image (ask 2026-11-27-tcp-bytg-1): the gate reads no text in it, like an
-        # object over TEXT_LIMIT; its decoded bytes asked the name check thousands of times and ran into the rate
-        # limit of the vault daemon on every try
-        return []
     try:
         matcher = gate._load_matcher(svc.paths_fn().vault / "register.tsv")
         found = gate._scan_decoded("obs://%s/%s" % (bucket, key), raw, matcher,
@@ -1509,8 +1499,70 @@ def _exit_check(svc, o, bucket: str, key: str, head: dict) -> list[str]:
     return sorted({f.cls for f in found} - gate.EXIT_FREE)
 
 
+def link_bucket(run_id: str) -> str:
+    """The bucket of the key service that holds the checked copies of the links of one run. No session reaches it:
+    it is named after no project, the lab call fence (labadmin.obs_bucket_refusal) refuses its prefix and a leased
+    key and the lab key write only <code>-... buckets."""
+    return LINK_PREFIX + hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:24]
+
+
+def _made(svc, p, run: dict, project: str, alias: str, entry: dict) -> None:
+    """Record one create of the service in the open run, once: the run end deletes it like every other."""
+    with svc.lab.lock:
+        current = labruns.open_run(p, project, alias)
+        if current is None or current["id"] != run["id"]:
+            raise _refused("refused: the lab run is ending")
+        if any(c.get("label") == entry["label"] and c.get("state") in ("live", "failed")
+               and (c.get("delete") or {}).get("path") == entry["delete"]["path"]
+               for c in current.get("created", [])):
+            return
+        n = len(current.get("created", []))
+        current.setdefault("created", []).append(dict(entry, n=n + 1, state="live", at=_now()))
+        labruns.save(p, current)
+
+
+def _hold(svc, o, p, run: dict, project: str, alias: str, region: str, key: str, raw: bytes) -> str:
+    """Put the checked bytes under the same key into the link bucket of the run and return its name: the link
+    reads this copy, which the session cannot write, so a put after the link changes nothing the link reads. The
+    bucket and the copy are creates of the run and go with its end."""
+    name = link_bucket(run["id"])
+    known = any(c.get("label") == LINK_BUCKET_LABEL and c.get("state") in ("live", "failed")
+                and (c.get("delete") or {}).get("path") == "/" + name for c in run.get("created", []))
+    if not known:
+        body = None if region == "eu-de" else (
+            "<CreateBucketConfiguration><Location>%s</Location></CreateBucketConfiguration>" % escape(region)
+        ).encode("utf-8")
+        status, _h, _r = o.small("PUT", "/" + name, data=body)
+        if not 200 <= status < 300:
+            raise _refused("refused: the copy for the link cannot be held: OBS answered HTTP %d" % status)
+        _made(svc, p, run, project, alias, {"label": LINK_BUCKET_LABEL, "name": name,
+                            "delete": {"method": "DELETE", "service": "obs", "path": "/" + name, "region": region}})
+    status, _h, _r = o.small("PUT", "/%s/%s" % (name, key), headers={"Content-Type": "application/octet-stream"},
+                             data=raw)
+    if not 200 <= status < 300:
+        raise _refused("refused: the copy for the link cannot be held: OBS answered HTTP %d" % status)
+    _made(svc, p, run, project, alias, {"label": LINK_OBJECT_LABEL, "name": key_hash(key),
+                        "delete": {"method": "DELETE", "service": "obs", "path": "/%s/%s" % (name, key),
+                                   "region": region}})
+    return name
+
+
+def _word(req: dict) -> str | None:
+    from awb import ownerword
+
+    if req.get("owner_word") is None:
+        return None
+    try:
+        return ownerword.clean(req.get("owner_word"))
+    except ownerword.WordError as err:
+        raise _refused("refused: %s" % err) from None
+
+
 def _link(svc, req: dict, uid: int, project: str) -> dict:
-    """A signed GET link to one object of a bucket the open run made (the action link)."""
+    """A signed GET link to one object of a bucket the open run made (the action link). The service reads the
+    object, runs the exit check on those bytes and signs its own copy of them (_hold). An object it cannot read as
+    text (over gate.TEXT_LIMIT or opaque by its bytes) is signed in place and only with the owner's word."""
+    from awb import gate
     from awb.tcp import labadmin
 
     alias = req.get("tenant")
@@ -1518,6 +1570,7 @@ def _link(svc, req: dict, uid: int, project: str) -> dict:
         raise _refused(LINK_CUSTOMER_LINE % " and ".join(labadmin.ALLOWED))
     _tenant, login = labadmin._tenant(svc, alias, project)
     minutes = _minutes(req.get("minutes"))
+    word = _word(req)
     bucket, key = _target(svc, req, project)
     p = svc.paths_fn()
     run = _run_of(svc, req, project, alias, p)
@@ -1537,28 +1590,53 @@ def _link(svc, req: dict, uid: int, project: str) -> dict:
             raise _refused("refused: obs://%s/%s is not there" % (bucket, key))
         if status != 200:
             raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
-        found = [] if _run_wrote(run, bucket, key) else _exit_check(svc, o, bucket, key, head)
-        if found:
-            svc._log(uid, alias, "admin", "GET", "obs-link", region, "refused %s %s" % (bucket, key_hash(key)),
-                     project)
-            raise _refused(LINK_EXIT_LINE % (bucket, key, " and ".join(found)))
+        size = next((v for k, v in head.items() if str(k).lower() == "content-length"), None)
+        if not _size_header(size):
+            raise _refused("refused: obs://%s/%s names no size, so the exit check cannot read it" % (bucket, key))
+        unread, raw = ("over %d MiB" % (gate.TEXT_LIMIT >> 20)) if int(size) > gate.TEXT_LIMIT else None, b""
+        if unread is None:
+            status, _rh, raw = o.small("GET", "/%s/%s" % (bucket, key))
+            if status != 200:
+                raise _refused("refused: the object cannot be read: OBS answered HTTP %d" % status)
+            raw = bytes(raw)
+            if len(raw) > gate.TEXT_LIMIT:
+                unread = "over %d MiB" % (gate.TEXT_LIMIT >> 20)
+            elif _opaque(raw):
+                # an installer, an archive or an image (ask 2026-11-27-tcp-bytg-1): its decoded bytes asked the
+                # name check thousands of times and ran into the rate limit of the vault daemon on every try
+                unread = "no text (an archive, an installer or an image by its first bytes)"
+        signed = bucket
+        if unread is not None:
+            if word is None:
+                svc._log(uid, alias, "admin", "GET", "obs-link", region, "refused unread %s %s" % (
+                    bucket, key_hash(key)), project)
+                raise _refused(LINK_WORD_LINE % (bucket, key, unread))
+        else:
+            found = _exit_check(svc, bucket, key, raw)
+            if found:
+                svc._log(uid, alias, "admin", "GET", "obs-link", region, "refused %s %s" % (bucket, key_hash(key)),
+                         project)
+                raise _refused(LINK_EXIT_LINE % (bucket, key, " and ".join(found)))
+            signed = _hold(svc, o, p, run, project, alias, region, key, raw)
         seconds = minutes * 60
         ak, sk, token = labadmin.auth(svc, alias, login, region).link_credential(seconds)
     except labadmin.LabAdminError as err:
         svc._log(uid, alias, "admin", "GET", "obs-link", region, "failed", project)
         raise _refused(str(err)) from None
     expires = int(time.time()) + seconds
-    url = presign(bucket, key, ak, sk, token, expires, region, svc.endpoint)
+    url = presign(signed, key, ak, sk, token, expires, region, svc.endpoint)
     until = datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     entry = {"at": _now(), "bucket": bucket, "key_sha256": key_hash(key), "minutes": minutes, "expires": until}
+    if unread is not None:
+        entry["unread"], entry["word"] = unread.partition(" (")[0], word
     with svc.lab.lock:
         current = labruns.open_run(p, project, alias)
         if current is None or current["id"] != run["id"]:
             raise _refused("refused: the lab run is ending")
         current["links"] = (current.get("links") or [])[-(LINK_KEEP - 1):] + [entry]
         labruns.save(p, current)
-    svc._log(uid, alias, "admin", "GET", "obs-link", region, "signed %s %s %dmin" % (bucket, entry["key_sha256"],
-                                                                                    minutes), project)
+    svc._log(uid, alias, "admin", "GET", "obs-link", region, "signed %s %s %dmin%s" % (
+        bucket, entry["key_sha256"], minutes, " unread, owner's word" if unread is not None else ""), project)
     return {"ok": True, "run": run["id"], "bucket": bucket, "key": key, "key_sha256": entry["key_sha256"],
             "minutes": minutes, "expires": until, "url": url}
 

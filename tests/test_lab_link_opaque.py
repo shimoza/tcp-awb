@@ -18,16 +18,6 @@ def _no_scan(*_a, **_k):
     raise AssertionError("an opaque object was scanned")
 
 
-def test_a_binary_object_is_signed_without_the_name_check(lab, monkeypatch):
-    w = lab
-    run = start_run(w)
-    make_bucket(w, run)
-    put(w, run, KEY, "MZ\x00\x00 installer bytes %s\x00" % fixtures.CUSTOMER_FORMS[0])
-    monkeypatch.setattr(gate, "_scan_decoded", _no_scan)
-    a = link(w, run)
-    assert a["ok"], a
-    assert verify(a["url"], w.fake.creds)[:2] == (BUCKET, KEY)
-
 
 def test_a_text_object_still_gets_the_exit_check(lab):
     w = lab
