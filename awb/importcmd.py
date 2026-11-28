@@ -582,6 +582,20 @@ def run_paste(p: config.Paths, code: str, kind: str | None = None, *, stdin=None
     return EXIT_HELD if res.unsealed else EXIT_OK
 
 
+_CODE_ARG_RE = re.compile(r"tcp-[a-z0-9]{4}")
+
+
+def _code_after_redo(argv: list[str]) -> list[str]:
+    """`awb import --redo tcp-xxxx`: the code right after a bare --redo is the CODE, not the value of --redo (the
+    form of the hint lines from before --redo took a value; C-15 of the review of 2026-11-28)."""
+    out = list(argv)
+    for i, tok in enumerate(out[:-1]):
+        if tok == "--redo" and _CODE_ARG_RE.fullmatch(out[i + 1]):
+            code = out.pop(i + 1)
+            return [code] + out
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     from awb import pastein
     from awb.cli import SafeParser
@@ -617,7 +631,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         # intermixed: a FILE after an option (`CODE --paste FILE`) is a FILE on Python 3.12 too, so the paste can
         # refuse it with its own line instead of the parser's "unrecognized arguments"
-        args = ap.parse_intermixed_args(argv)
+        args = ap.parse_intermixed_args(_code_after_redo(sys.argv[1:] if argv is None else argv))
     except SystemExit as exc:
         return 0 if exc.code in (0, None) else EXIT_ERROR
     from awb import projects, vault

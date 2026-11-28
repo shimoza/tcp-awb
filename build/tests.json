@@ -31331,6 +31331,13 @@
    "name": "G8: a learned form no list knows is found at a hyphen, a digit and a case change, never inside a plain word; technical words, a known-word surname and a lower-case word of the run stay (one dmz entry test replaced)",
    "run": ".venv/bin/pytest tests/test_review_1128_wipe.py -k g8",
    "status": "passing"
+  },
+  {
+   "id": "C15-redo-code-after-1128",
+   "phase": "import",
+   "name": "awb import --redo tcp-xxxx parses again: a code right after a bare --redo is the CODE, a number or a stamp stays the value",
+   "run": ".venv/bin/pytest tests/test_import_redo_code_after.py",
+   "status": "passing"
   }
  ],
  "total_tests": 4476,
