@@ -139,6 +139,10 @@ def _canon(cls: str, value: str) -> str:
     return v
 
 
+_DATA_PERSON_RE = re.compile(r"(?<![^\W_])([A-Z][^\W\d_A-Z]+)_([A-Z][^\W\d_A-Z]+)(?![^\W\d_A-Z])")
+"""First_Last inside an identifier of a data literal: two capitalised words joined by one underscore."""
+
+
 class _Engine:
     """Detection, tokens and replacement for one run. Holds the only map from values to tokens: the codes of
     registered forms, the tokens of structured data and, in `wipe`, the tokens of the candidates and the forms the
@@ -290,6 +294,15 @@ class _Engine:
             right = text[s.end] if s.end < len(text) else " "
             if text[s.start:s.start + 1].isupper() and left not in "_.$@{[" and right not in "_.(":
                 learned.append(s)
+        # a first name of the list and a capitalised word no list knows, joined by an underscore, are a person also
+        # in an identifier (Max_Qwertzung_export); Max_Connections and max_cu stay
+        for m in _DATA_PERSON_RE.finditer(text):
+            first, last = m.group(1), m.group(2)
+            if (first.casefold() in wipe.lexicon._FIRST_NAMES and wipe.lexicon._letters(last) >= 4
+                    and not wipe.lexicon._person_known(last) and not wipe.lexicon._dictionary_word(last)
+                    and not taken(m.start(), m.end())
+                    and not any(m.start() < s.end and s.start < m.end() for s in learned)):
+                learned.append(Span(m.start(), m.end(), "person", None, "identifier"))
         return names, structured + learned
 
     def sanitize(self, text: str, where: str, data: bool = False) -> tuple[str, Counter]:
