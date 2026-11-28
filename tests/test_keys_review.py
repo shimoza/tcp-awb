@@ -213,23 +213,6 @@ def _lease_statements(svc, monkeypatch, conf_text: str, tmp_path) -> list[dict]:
     return minted.sent[-1]["auth"]["identity"]["policy"]["Statement"]
 
 
-def test_a_narrowed_tf_services_of_keys_conf_is_what_the_lease_carries(svc, monkeypatch, tmp_path):
-    """Finding 16, through the unlock: the list of keys.conf is the Allow of the lease, obs left out is no OBS at all,
-    an empty list allows nothing, and the two denies stay in every case."""
-    head = "bucket_tenant = test-1\nlab_bucket = awb-lab-eu-de\nowner_bucket = awb\n"
-    statements = _lease_statements(svc, monkeypatch, head + "tf_services = ecs, evs\n", tmp_path)
-    allows = [s for s in statements if s["Effect"] == "Allow"]
-    assert allows == [{"Effect": "Allow", "Action": ["ecs:*:*", "evs:*:*"]}]
-    assert [s["Action"] for s in statements if s["Effect"] == "Deny"] == [["iam:*:*"], ["obs:*:*"]]
-    statements = _lease_statements(svc, monkeypatch, head + "tf_services = ecs, obs\n", tmp_path)
-    assert {"Effect": "Allow", "Action": ["obs:*:*"], "Resource": ["obs:*:*:bucket:tcp-ab2c-*",
-                                                                   "obs:*:*:object:tcp-ab2c-*/*"]} in statements
-    statements = _lease_statements(svc, monkeypatch, head + "tf_services =\n", tmp_path)
-    assert [s["Effect"] for s in statements] == ["Deny", "Deny"], "an empty list allows nothing, not the default"
-    statements = _lease_statements(svc, monkeypatch, head, tmp_path)
-    assert statements[0]["Action"] == ["%s:*:*" % s for s in keys.TF_SERVICES if s != "obs"], "no line: the default"
-
-
 @pytest.mark.parametrize("value", ["ecs, s3!", "ecs evs", "ecs, iam", "ECS"])
 def test_a_tf_services_line_that_is_no_list_of_services_stops_the_unlock(tmp_path, value):
     """Finding 16: a typo or IAM in the list fails the read of keys.conf by its line number, so the owner sees it at

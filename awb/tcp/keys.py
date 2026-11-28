@@ -184,6 +184,22 @@ USER_DATA_SCRIPTS = ("diskreader",)
 USER_DATA_LOG = "user data with the tenant key"
 KEYED_LEASE_LINE = ("refused: %s still holds %d server(s) whose user data carries the key of the tenant (a disk "
                     "reader); a leased key could read it, so no lease until they are deleted")
+LEASE_DENIED_READS = ("ecs:cloudServers:get", "ecs:cloudServers:list", "ecs:servers:get", "ecs:servers:list")
+"""G1 of the review of 2026-11-28: the reads of a server that answer its user data. A leased key calls ECS past the
+key service, where nothing strips the answer, so every lease denies them, whenever it was taken."""
+KEYED_SERVER_FIELDS = frozenset(("name", "imageRef", "flavorRef", "vpcid", "nics", "security_groups", "root_volume",
+                                 "availability_zone", "adminPass", "server_tags", "tags", "count", USER_DATA_SCRIPT))
+"""G2 of the review of 2026-11-28: the fields a server create with a user_data_script may carry. The server gets the
+key of the tenant in its user data, so what runs on it and who logs in to it is not the caller's to choose."""
+KEYED_SERVER_PARTS = {"root_volume": frozenset(("volumetype", "size")), "nics": frozenset(("subnet_id", "ip_address")),
+                      "security_groups": frozenset(("id",))}
+KEYED_IMAGE_LINE = ("a server with a user_data_script boots a public image of the platform only (imageRef is the id "
+                    "of an image GET ims /v2/cloudimages lists with __imagetype gold)")
+TOKEN_LINE = ("refused: an exchange call of a session carries the key token of its project folder; run it inside "
+              "the folder of the project")
+"""G5 of the review of 2026-11-28: the one line of an exchange op of a session whose token names no project."""
+EXCHANGE_SESSION_OPS = ("obs", "take_owner", "take_lab", "inbox_find")
+_JOB_ID_RE = re.compile(r"^[0-9a-f]{32}\Z")
 _SERVER_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 _SERVER_CREATE_RE = re.compile(r"^/v1(?:\.1)?/[^/]+/cloudservers\Z")
 _TENANT_KEY_REF_RE = re.compile(r"\{\{secret:(obs-ak|obs-sk)\}\}")
@@ -419,15 +435,58 @@ def script_text(spec, project: str | None = None, region: str | None = None) -> 
     return text
 
 
+def public_image(pair: dict, region: str | None, image, endpoint: str | None = None) -> bool:
+    """True when the platform lists `image` as a public image (__imagetype gold), asked with the key of the call. No
+    answer, no region and any other image is no: a private or shared image is one somebody built."""
+    from awb.tcp import cloud
+
+    if not (isinstance(image, str) and _SERVER_ID_RE.match(image) and isinstance(region, str) and region):
+        return False
+    client = cloud.Client(obs.Keys(pair["ak"], pair["sk"]), region, endpoint=endpoint, timeout=30.0)
+    try:
+        r = client.request("GET", "ims", "/v2/cloudimages", query={"id": image, "__imagetype": "gold"})
+    except cloud.CloudError:
+        return False
+    rows = r.data.get("images") if r.ok and isinstance(r.data, dict) else None
+    return isinstance(rows, list) and any(isinstance(row, dict) and row.get("id") == image
+                                          and row.get("__imagetype") == "gold" for row in rows)
+
+
+def keyed_server_check(server: dict) -> None:
+    """G2: the server of a create with a user_data_script carries only the fields of KEYED_SERVER_FIELDS, so no key
+    pair, no injected file, no metadata, no public IP and no data volume; its password is the drawn one nobody
+    knows ({{random:password}}), it is one server and its system volume is a plain one."""
+    odd = sorted(str(k) for k in server if k not in KEYED_SERVER_FIELDS)
+    if odd:
+        raise Refused("a server with a user_data_script gets the key of the tenant, so it takes no %s: only %s"
+                      % (", ".join(odd)[:120], ", ".join(sorted(KEYED_SERVER_FIELDS - {USER_DATA_SCRIPT}))))
+    if "adminPass" in server and server["adminPass"] != RANDOM_PASSWORD:
+        raise Refused("a server with a user_data_script takes only the drawn password nobody knows: "
+                      "adminPass %s" % RANDOM_PASSWORD)
+    count = server.get("count", 1)
+    if isinstance(count, bool) or count != 1:
+        raise Refused("a server with a user_data_script is one server: count 1")
+    if not isinstance(server.get("name", ""), str):
+        raise Refused("the name of a server is a text")
+    for field, allowed in KEYED_SERVER_PARTS.items():
+        value = server.get(field)
+        rows = [value] if field == "root_volume" else value
+        if value is None:
+            continue
+        if not isinstance(rows, list) or not all(isinstance(row, dict) and set(row) <= allowed for row in rows):
+            raise Refused("a server with a user_data_script takes in %s only %s" % (field, ", ".join(sorted(allowed))))
+
+
 def with_user_data(body, method: str, service: str, path: str, pair: dict | None, *, project: str | None = None,
-                   region: str | None = None):
+                   region: str | None = None, endpoint: str | None = None):
     """(body, filled): a server create body whose `server.user_data_script` names a script of the service and its
     parameters gets that script, rendered here (script_text) with `{{secret:obs-ak}}` and `{{secret:obs-sk}}` filled
     with the two keys of the call, base64-encoded as `server.user_data`; `filled` is true then. A
     `server.user_data_text` is the caller's own text: it takes no reference and goes out as base64 user_data,
     unfilled. Either field is allowed once, in the server of a POST on ECS cloudservers (v1 and v1.1) only and without
     user_data; a user data field that names a reserved secret is refused. The body is left alone when it holds neither
-    field."""
+    field. G2 of the review of 2026-11-28: the server of a script is the service's too (keyed_server_check) and its
+    image is a public one of the platform, asked with the key of the call (public_image, `endpoint` for the tests)."""
     if _user_data_refs(body):
         raise Refused("user data takes no {{secret:obs-ak}} or {{secret:obs-sk}}: the key service fills them only "
                       "into a script it renders (user_data_script)")
@@ -449,13 +508,30 @@ def with_user_data(body, method: str, service: str, path: str, pair: dict | None
                           "only into a script the key service renders (user_data_script)")
     else:
         text = script_text(server[USER_DATA_SCRIPT], project, region)
+        keyed_server_check(server)
         if not pair:
             raise Refused("the key of the call is not there to fill the user data")
+        if "imageRef" in server and not public_image(pair, region, server["imageRef"], endpoint):
+            raise Refused(KEYED_IMAGE_LINE)
         given = {"obs-ak": pair["ak"], "obs-sk": pair["sk"]}
         filled = _TENANT_KEY_REF_RE.sub(lambda m: given[m.group(1)], text)
     out = {k: v for k, v in server.items() if k != field}
     out["user_data"] = base64.b64encode(filled.encode("utf-8")).decode("ascii")
     return dict(body, server=out), field == USER_DATA_SCRIPT
+
+
+def _job_servers(data) -> list[str]:
+    """The server ids a create job of ECS names (entities.server_id and entities.sub_jobs[].entities.server_id)."""
+    found: list[str] = []
+    entities = data.get("entities") if isinstance(data, dict) else None
+    if isinstance(entities, dict):
+        subs = entities.get("sub_jobs")
+        for part in [entities] + [j.get("entities") for j in (subs if isinstance(subs, list) else ())
+                                  if isinstance(j, dict)]:
+            sid = part.get("server_id") if isinstance(part, dict) else None
+            if isinstance(sid, str) and _SERVER_ID_RE.match(sid) and sid not in found:
+                found.append(sid)
+    return found
 
 
 USER_DATA_NOTE = "[boot script withheld, %d characters]"
@@ -816,6 +892,10 @@ class Service:
 
         if not self.tenants:
             return "the key service is locked: the owner runs awb keys unlock"
+        if caller is None and self._session_read(uid):
+            caller = self._folder_caller(req)   # G5: refused before a byte of the upload is stored
+            if caller is None:
+                return str(self._unbound(req.get("project"), None, TOKEN_LINE))
         try:
             keys_exchange.caller_fence(req, caller if isinstance(caller, str) else None)
             keys_exchange.authorise_put(self._xchg(), req)
@@ -1236,6 +1316,9 @@ class Service:
         if op == "obs" and str(req.get("method") or "").upper() == "ARCHIVE" and uid != os.getuid():
             # the archive of the puts fetched long ago is awb fetch's too (task BK4): it moves and deletes
             return {"ok": False, "error": "awb fetch archives what was fetched long ago, in the owner's own terminal"}
+        if op in EXCHANGE_SESSION_OPS and caller is None and self._session_read(uid):
+            # G5 of the review of 2026-11-28: a session without a granted token is the project of its folder token
+            caller = self._folder_caller(req)
         if op in ("obs", "take_owner", "take_lab", "inbox_find") and not (
                 op == "obs" and str(req.get("method") or "").upper() == "PUT"):
             # no material enters an ask project (awb/askkind.py); its own result goes out with awb xchg put (the
@@ -1246,6 +1329,9 @@ class Service:
             for code in (caller, req.get("project")):
                 if isinstance(code, str) and self._ask_project(code):
                     return {"ok": False, "error": askkind.MATERIAL_LINE % code}
+        if op in EXCHANGE_SESSION_OPS and caller is None and self._session_read(uid):
+            # G5: no token, or one that names no active project: nothing moves for the code the request wrote
+            return {"ok": False, "error": str(self._unbound(req.get("project"), None, TOKEN_LINE))}
         if op in ("obs", "owner_has", "take_owner", "take_lab", "inbox_find", "owner_folder"):
             # owner_folder: spawn (the work user, the console's creation) asks for the project's folder in the
             # owner bucket; the service makes it with the bucket key, which the caller never holds
@@ -1445,6 +1531,33 @@ class Service:
                 found = code
         return found
 
+    def _folder_caller(self, req: dict) -> str | None:
+        """G5 of the review of 2026-11-28: the active project without a grant (a query project) whose folder holds
+        the key token the request presents. The service knows the tokens of the grants only (_caller_project), so
+        for the exchange ops it reads the token of each such folder (written at spawn, projects.write_key_token).
+        None for no token, an unknown one and one that two folders hold; a granted project is named by the token
+        of its grant alone, so an ask project never passes as another one here."""
+        from awb import projects
+
+        token = req.get("token")
+        if not (isinstance(token, str) and len(token) == 64):
+            return None
+        try:
+            rows = [r for r in projects.load(self.paths_fn()) if r.state in projects.LIVE_STATES]
+        except Exception:
+            return None
+        found = []
+        for row in rows:
+            if self._granted(row.code) or self._ask_project(row.code):
+                continue
+            try:
+                recorded = projects.read_key_token(Path(row.path))
+            except (OSError, ValueError):
+                recorded = None
+            if recorded and hmac.compare_digest(recorded.encode("ascii"), token.encode("ascii", "replace")):
+                found.append(row.code)
+        return found[0] if len(found) == 1 else None
+
     def _unbound(self, project, caller, what: str) -> Refused:
         if caller is None and isinstance(project, str) and _PROJECT_RE.fullmatch(project):
             if self._granted(project) and project not in self._grant_tokens():
@@ -1570,7 +1683,8 @@ class Service:
         if body is not None:
             if not isinstance(body, (dict, list)) or len(json.dumps(body)) > MAX_BODY:
                 raise Refused("a body is a JSON object of at most %d bytes" % MAX_BODY)
-            body, with_key = with_user_data(body, method, service, path, pair, project=project, region=region)
+            body, with_key = with_user_data(body, method, service, path, pair, project=project, region=region,
+                                            endpoint=self.endpoint)
             body = fill(body, tenant.get("secrets", {}), drawn=drawn)
         extra = call_headers(req)
         keys = obs.Keys(pair["ak"], pair["sk"])
@@ -1853,7 +1967,9 @@ class Service:
     def lease_policy(self, project: str = "") -> dict:
         """The policy of a leased key: the tf_services of keys.conf (all their actions); OBS only on the buckets of
         the project, named <code>-..., and only with a project code; every IAM action denied and every action on
-        the two exchange buckets denied."""
+        the two exchange buckets denied. G1 of the review of 2026-11-28: the reads of a server that answer its
+        user data (LEASE_DENIED_READS) are denied in every lease, so a lease taken before a server with the key of
+        the tenant in its user data is made reads nothing back either."""
         # a tf_services line of keys.conf is the list, an empty one included (no service); no line is the default
         value = self.settings.get("tf_services")
         listed = [s.strip() for s in (str(value) if value is not None else ",".join(TF_SERVICES)).split(",")]
@@ -1866,6 +1982,7 @@ class Service:
             statements.append({"Effect": "Allow", "Action": ["obs:*:*"],
                                "Resource": ["obs:*:*:bucket:%s-*" % project, "obs:*:*:object:%s-*/*" % project]})
         statements.append({"Effect": "Deny", "Action": ["iam:*:*"]})
+        statements.append({"Effect": "Deny", "Action": list(LEASE_DENIED_READS)})
         statements.append({"Effect": "Deny", "Action": ["obs:*:*"],
                            "Resource": [r for b in self.exchange_buckets()
                                         for r in ("obs:*:*:bucket:%s" % b, "obs:*:*:object:%s/*" % b)]})
@@ -1965,9 +2082,13 @@ class Service:
         name = server.get("name") if isinstance(server, dict) else None
         ids = data.get("serverIds") if isinstance(data, dict) else None
         ids = [i for i in ids if isinstance(i, str) and _SERVER_ID_RE.match(i)] if isinstance(ids, list) else []
+        # G1: a v1 create answers a job and no ids; the job names the server later (_keyed_gone)
+        job = data.get("job_id") if isinstance(data, dict) else None
         with self.lock:
             self.keyed.setdefault(alias, []).append({"region": region, "name": name if isinstance(name, str) else "",
-                                                     "ids": ids})
+                                                     "ids": ids,
+                                                     "job": job if isinstance(job, str) and _JOB_ID_RE.match(job)
+                                                     else ""})
 
     def keyed_left(self, alias: str, pair: dict) -> int:
         """How many noted servers of the tenant may still hold the key in their user data; a read of the platform
@@ -1982,12 +2103,17 @@ class Service:
             return len(self.keyed[alias])
 
     def _keyed_gone(self, alias: str, pair: dict, rec: dict) -> bool:
-        """True when the platform says the noted server is gone: by its ids, else by its name; no answer is no."""
+        """True when the platform says the noted server is gone: by its ids, else by the ids its create job names
+        (kept in the record), else by its name; no answer is no. G1 of the review of 2026-11-28: by name a server
+        lives while any row starts with the noted name, because the platform adds a suffix (NAME-0001) to it."""
         from awb.tcp import cloud
 
         client = cloud.Client(obs.Keys(pair["ak"], pair["sk"]), rec["region"], endpoint=self.endpoint, label=alias,
                               timeout=30.0)
         try:
+            if not rec["ids"] and rec.get("job"):
+                r = client.request("GET", "ecs", "/v1/{project_id}/jobs/%s" % rec["job"])
+                rec["ids"] = _job_servers(r.data) if r.ok else []
             for sid in rec["ids"]:
                 r = client.request("GET", "ecs", "/v1/{project_id}/cloudservers/%s" % sid)
                 row = r.data.get("server") if isinstance(r.data, dict) else None
@@ -2002,7 +2128,7 @@ class Service:
             return False
         rows = r.data.get("servers") if isinstance(r.data, dict) else None
         return r.ok and isinstance(rows, list) and not [s for s in rows if not isinstance(s, dict) or (
-            s.get("name") == rec["name"] and s.get("status") != "DELETED")]
+            str(s.get("name") or "").startswith(rec["name"]) and s.get("status") != "DELETED")]
 
     def _mask(self, answer: dict, tenant: dict, drawn: list[str] = ()) -> dict:
         # a server's user data never goes back: a script may hold the key of the tenant (with_user_data)
