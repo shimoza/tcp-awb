@@ -71,7 +71,10 @@ def test_a_register_that_is_missing_stops_no_ledger_line(home):
     assert ledger.load(home)[0].done == TEXT
 
 
-def test_the_period_report_and_the_career_log_show_the_texts_as_written(home, capsys, monkeypatch):
+def test_the_period_report_and_the_cv_draft_show_the_texts_as_written(home, capsys, monkeypatch):
+    """Replaces test_the_period_report_and_the_career_log_show_the_texts_as_written: the draft has no LinkedIn
+    paragraph since 2026-11-27 (the career project's correction 5), so the title is no longer in it; the CV bullet
+    carries the change as written, nothing withheld."""
     pr = projects.spawn(home, "query", "size %s on %s" % (NAME, IP), fx.CUSTOMER_CODE, home.register)
     ledger.add("proof", TEXT, project=pr.code, p=home)
     text = period.report(None, None, "md", home)
@@ -81,7 +84,7 @@ def test_the_period_report_and_the_career_log_show_the_texts_as_written(home, ca
     assert e.title == "Sizing for %s" % NAME
     assert career.load(home)[0].outcome == "ran %s on %s" % (UUID, IP)
     out = career.update(home).draft
-    assert NAME in out and IP in out and "withheld" not in out
+    assert "sized the platform of %s" % HOST in out and "withheld" not in out
 
 
 def test_the_open_sweep_shows_an_item_with_a_name_and_an_ip(home, monkeypatch):

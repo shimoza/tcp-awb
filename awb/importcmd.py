@@ -582,7 +582,7 @@ def run_paste(p: config.Paths, code: str, kind: str | None = None, *, stdin=None
     return EXIT_HELD if res.unsealed else EXIT_OK
 
 
-_CODE_ARG_RE = re.compile(r"tcp-[a-z0-9]{4}")
+_CODE_ARG_RE = re.compile(codes.TCP_PROJECT_WIDE)
 
 
 def _code_after_redo(argv: list[str]) -> list[str]:

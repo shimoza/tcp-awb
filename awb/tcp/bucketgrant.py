@@ -41,7 +41,7 @@ from awb import codes, config, tenantname
 
 NAME = "bucket-grants.json"
 MAX_GRANTS = 200
-_TENANT_RE = re.compile(r"^tcp-[0-9]{5,6}\Z")
+_TENANT_RE = re.compile(r"^%s\Z" % codes.TENANT)
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 _PROJECT_NAMED_RE = re.compile(r"^%s-" % codes.TCP_PROJECT_WIDE)
 _CODE_RE = re.compile(r"^%s\Z" % codes.TCP_PROJECT_WIDE)

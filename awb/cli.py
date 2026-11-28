@@ -460,7 +460,7 @@ def _cmd_close(args, p: config.Paths) -> int:
             for name in kept:
                 print("awb lab kept drop %s" % name, file=sys.stderr)
             return EXIT_ERROR
-        from awb.tcp import bucketgrant
+        bucketgrant = importlib.import_module("awb.%s.bucketgrant" % DELEGATED["tenant"][0].rsplit(".", 1)[0])
         grants = bucketgrant.close_lines(p, args.code)
         if grants:
             print("awb: %s still holds %d bucket grant(s); revoke them or close with --force:"

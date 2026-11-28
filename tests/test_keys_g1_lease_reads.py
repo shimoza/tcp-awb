@@ -21,7 +21,7 @@ CODE = "tcp-abcd"
 PAIR = {"ak": "AKGONEFAKE", "sk": "sk-g1-fake-secret"}
 VOLUME = "%08x-aaaa-4bbb-8ccc-%012x" % (0x9f8e7d6c, 0xddddeeeeffff)
 READER = "%08x-6666-4777-8888-%012x" % (0x1a2b3c4d, 0xbeef01)
-JOB = "%032x" % 0xff8080814dbd65d7014dbe0d84db0013
+JOB = "%032x" % 0xabc0001
 NAME = CODE + "-reader"
 SCRIPT = {"name": "diskreader", "params": {"bucket": CODE + "-lab-20261128-abcd", "region": "eu-de", "volume": VOLUME,
                                            "files": ""}}
